@@ -23,9 +23,13 @@ export class MockHarness implements Harness {
     this.lastPrompts.push(opts.prompt);
     this.lastSystems.push(opts.system ?? "");
     const script = this.scriptFor(opts.prompt, opts.session);
+    yield { type: "model", model: "mock" };
+    yield { type: "thinking", text: "lendo o contexto…", seat: "claude" };
+    await delay(20);
     for (const t of script.tools ?? []) {
-      yield { type: "tool", name: t.name, input: t.input ?? {}, id: t.name };
+      yield { type: "tool", name: t.name, input: t.input ?? {}, id: t.name, seat: "claude" };
       await delay(15);
+      yield { type: "tool_result", id: t.name, content: "ok" };
     }
     const seatDir = join(opts.cwd ?? "/tmp", ".ncli-seats");
     mkdirSync(seatDir, { recursive: true });
@@ -37,7 +41,10 @@ export class MockHarness implements Harness {
       yield { type: "seat", seat: s.seat, status: "done", text: s.text };
       await delay(20);
     }
-    yield { type: "text", text: script.text, seat: "claude" };
+    for (const chunk of chunks(script.text, 24)) {
+      yield { type: "text", text: chunk, seat: "claude" };
+      await delay(12);
+    }
     yield { type: "done", text: script.text };
   }
 }
@@ -90,4 +97,11 @@ function qs(params: Record<string, string>): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function chunks(text: string, n: number): string[] {
+  if (!text) return [];
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += n) out.push(text.slice(i, i + n));
+  return out;
 }

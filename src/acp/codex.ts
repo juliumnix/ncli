@@ -64,6 +64,9 @@ export function parseCodexLine(line: string): AcpUpdate[] {
   const type = String(ev.type ?? ev.event ?? "");
   const item = (ev.item ?? ev.data ?? ev) as Record<string, unknown>;
   const text = pickText(item) || pickText(ev);
+  if (/reason|thinking|agent_thought/i.test(type) && text) {
+    return [{ sessionUpdate: "agent_thought_chunk", text }];
+  }
   if (/agent_message|message|output_text|item.completed|agent.message/i.test(type) && text) {
     return [{ sessionUpdate: "agent_message_chunk", text }];
   }

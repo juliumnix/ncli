@@ -9,16 +9,23 @@ import type { AcpAdapter, AcpUpdate } from "./types";
 interface StreamLine {
   type?: string;
   subtype?: string;
+  model?: string;
   message?: {
     content?: Array<{
       type?: string;
       text?: string;
+      thinking?: string;
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
       content?: unknown;
       tool_use_id?: string;
     }>;
+  };
+  event?: {
+    type?: string;
+    delta?: { type?: string; text?: string; thinking?: string; partial_json?: string };
+    content_block?: { type?: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> };
   };
   result?: string;
 }
@@ -39,6 +46,8 @@ export class ClaudeCliAdapter implements AcpAdapter {
     const reader = proc.stdout.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    let sawPartialText = false;
+    let sawPartialThink = false;
     try {
       while (true) {
         if (opts.signal?.aborted) {
@@ -52,7 +61,18 @@ export class ClaudeCliAdapter implements AcpAdapter {
         buf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          yield* parseClaudeLine(line);
+          const kind = lineKind(line);
+          for (const update of parseClaudeLine(line)) {
+            if (kind === "stream_event") {
+              if (update.sessionUpdate === "agent_message_chunk") sawPartialText = true;
+              if (update.sessionUpdate === "agent_thought_chunk") sawPartialThink = true;
+            }
+            if (kind === "assistant") {
+              if (update.sessionUpdate === "agent_message_chunk" && sawPartialText) continue;
+              if (update.sessionUpdate === "agent_thought_chunk" && sawPartialThink) continue;
+            }
+            yield update;
+          }
         }
       }
     } finally {
@@ -67,7 +87,7 @@ export class ClaudeCliAdapter implements AcpAdapter {
 }
 
 export function buildClaudeArgs(cfg: NcliConfig, opts: RunOpts): string[] {
-  const args = [cfg.claudeBin, "-p", "--output-format", "stream-json", "--verbose"];
+  const args = [cfg.claudeBin, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
   if (opts.model ?? cfg.claudeModel) args.push("--model", opts.model ?? cfg.claudeModel);
   if (opts.mcpConfigPath) args.push("--mcp-config", opts.mcpConfigPath, "--strict-mcp-config");
   for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);
@@ -106,6 +126,9 @@ export function parseClaudeLine(line: string): AcpUpdate[] {
     case "assistant": {
       const out: AcpUpdate[] = [];
       for (const block of ev.message?.content ?? []) {
+        if ((block.type === "thinking" || block.type === "reasoning") && (block.thinking || block.text)) {
+          out.push({ sessionUpdate: "agent_thought_chunk", text: block.thinking || block.text || "" });
+        }
         if (block.type === "text" && block.text) {
           out.push({ sessionUpdate: "agent_message_chunk", text: block.text });
         }
@@ -133,14 +156,55 @@ export function parseClaudeLine(line: string): AcpUpdate[] {
       }
       return out;
     }
-    case "result":
-      return [];
-    case "system":
     case "stream_event":
+      return parseStreamEvent(ev.event);
+    case "system":
+      if (ev.subtype === "init" && ev.model) return [{ sessionUpdate: "model", model: ev.model }];
+      return [];
+    case "result":
     case "rate_limit_event":
       return [];
     default:
       return [];
+  }
+}
+
+function parseStreamEvent(event: StreamLine["event"]): AcpUpdate[] {
+  if (!event) return [];
+  const delta = event.delta;
+  if (event.type === "content_block_delta" && delta) {
+    if ((delta.type === "text_delta" || delta.type === "text") && delta.text) {
+      return [{ sessionUpdate: "agent_message_chunk", text: delta.text }];
+    }
+    if ((delta.type === "thinking_delta" || delta.type === "reasoning_delta") && (delta.thinking || delta.text)) {
+      return [{ sessionUpdate: "agent_thought_chunk", text: delta.thinking || delta.text || "" }];
+    }
+  }
+  const block = event.content_block;
+  if (event.type === "content_block_start" && block) {
+    if (block.type === "tool_use" && block.name) {
+      return [{
+        sessionUpdate: "tool_call",
+        toolCallId: block.id ?? block.name,
+        title: block.name,
+        rawInput: block.input ?? {},
+      }];
+    }
+    if (block.type === "thinking" && block.thinking) {
+      return [{ sessionUpdate: "agent_thought_chunk", text: block.thinking }];
+    }
+    if (block.type === "text" && block.text) {
+      return [{ sessionUpdate: "agent_message_chunk", text: block.text }];
+    }
+  }
+  return [];
+}
+
+function lineKind(line: string): string {
+  try {
+    return String((JSON.parse(line) as StreamLine).type ?? "");
+  } catch {
+    return "";
   }
 }
 

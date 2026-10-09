@@ -1,14 +1,18 @@
+import { seatOf } from "../agent";
 import type { HarnessEvent, RunOpts } from "../harness/types";
 import { detectSeatCommand, watchSeatOut } from "../harness/seats";
+import type { SeatId } from "../types";
 import type { AcpUpdate } from "./types";
 
 export async function* toHarnessEvents(
   updates: AsyncIterable<AcpUpdate>,
   opts: RunOpts,
+  harnessId?: string,
 ): AsyncIterable<HarnessEvent> {
   const seatWatchers: Array<AsyncGenerator<HarnessEvent>> = [];
+  const seat = seatOf(harnessId);
   for await (const update of updates) {
-    yield* mapOne(update, seatWatchers, opts);
+    yield* mapOne(update, seatWatchers, opts, seat);
     for (const w of seatWatchers) {
       const next = await w.next();
       if (!next.done && next.value) yield next.value;
@@ -20,10 +24,17 @@ function* mapOne(
   update: AcpUpdate,
   seatWatchers: Array<AsyncGenerator<HarnessEvent>>,
   opts: RunOpts,
+  seat: SeatId,
 ): Generator<HarnessEvent> {
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
-      if (update.text) yield { type: "text", text: update.text, seat: "claude" };
+      if (update.text) yield { type: "text", text: update.text, seat };
+      break;
+    case "agent_thought_chunk":
+      if (update.text) yield { type: "thinking", text: update.text, seat };
+      break;
+    case "model":
+      if (update.model) yield { type: "model", model: update.model, seat };
       break;
     case "tool_call": {
       yield {
@@ -31,6 +42,7 @@ function* mapOne(
         name: update.title,
         input: update.rawInput ?? {},
         id: update.toolCallId,
+        seat,
       };
       const cmd = typeof update.rawInput?.command === "string" ? update.rawInput.command : "";
       const detected = cmd ? detectSeatCommand(cmd) : null;

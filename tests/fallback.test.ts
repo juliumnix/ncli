@@ -27,6 +27,7 @@ test("Claude quota switches main harness to the backup, announces it, and retrie
     const texts = hub.memory.log.map((m) => m.text).join("\n");
     expect(texts).toMatch(/Claude bateu no limite/);
     expect(texts).toMatch(/harness principal para mock/);
+    expect(hub.snapshot().main.harness).toBe("mock");
     expect(hub.memory.log.some((m) => m.kind === "talk" && /Ok\.|desconto|Pode mandar/i.test(m.text))).toBe(true);
     expect(readFileSync(join(hub.cfg.dataDir, "main-harness"), "utf8").trim()).toBe("mock");
   } finally {
