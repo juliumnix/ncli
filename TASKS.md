@@ -16,7 +16,7 @@ D. [x] Memory view + compact batch (raised)
    Live timeline steps must not become memory messages. Keep user / talk / bus / seat / merge / note. At most one `tools:` line per turn.
    Status and error summaries are time-stamped and go stale. The agent verifies live tools over memory. Tests for all of the above.
 
-B. [ ] Long messages stay readable
+B. [x] Long messages stay readable
    Chat auto-scrolls while streaming, stops if the user scrolled up.
    Bubble never clips. Composer never covers the last lines.
 
