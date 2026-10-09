@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const chat = $("chat");
+const log = $("log") || chat;
 const shortcuts = $("shortcuts");
 const overlay = $("overlay");
 const modal = $("modal");
@@ -253,7 +254,7 @@ function renderChat() {
     </div></div>`);
   }
   const keep = chat.scrollTop;
-  chat.innerHTML = parts.join("");
+  log.innerHTML = parts.join("");
   measureComposer();
   if (stick.follow) chat.scrollTop = chat.scrollHeight;
   else chat.scrollTop = keep;
