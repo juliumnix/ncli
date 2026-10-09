@@ -8,6 +8,7 @@ export interface MemoryOptions {
   nodeBytes: number;
   viewBytes: number;
   compressor: Compressor;
+  pumpBatch?: number;
 }
 
 export type Compressor = (input: CompactInput) => Promise<string>;
@@ -27,11 +28,14 @@ export type ZoomResult =
 
 const KEYWORD = /[A-Z][A-Z0-9_]{7,}/g;
 
+const MEMORY_KINDS = new Set<MsgKind>(["user", "talk", "note", "seat", "merge", "bus"]);
+
 export class Memory {
   readonly dir: string;
   readonly nodeBytes: number;
   readonly viewBytes: number;
   readonly compressor: Compressor;
+  readonly pumpBatch: number;
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
   view: ViewPart[] = [];
@@ -44,6 +48,7 @@ export class Memory {
     this.nodeBytes = opts.nodeBytes;
     this.viewBytes = opts.viewBytes;
     this.compressor = opts.compressor;
+    this.pumpBatch = opts.pumpBatch ?? 6;
     mkdirSync(this.dir, { recursive: true });
     this.load();
   }
@@ -74,6 +79,9 @@ export class Memory {
     parentId?: string;
     durationMs?: number;
   }): Message {
+    if (!MEMORY_KINDS.has(partial.kind)) {
+      throw new Error(`memory does not store ${partial.kind} steps`);
+    }
     const text = capText(partial.text, 80_000);
     const msg: Message = {
       i: this.log.length,
@@ -220,41 +228,40 @@ export class Memory {
 
   private async pumpLoop(): Promise<void> {
     for (;;) {
-      const next = this.nextBuildable();
-      if (!next) break;
-      const key = Memory.key(next.l, next.i);
-      this.busy.add(key);
-      try {
-        await this.build(next.l, next.i);
-      } finally {
-        this.busy.delete(key);
-      }
+      const batch = this.nextBuildableBatch(this.pumpBatch);
+      if (!batch.length) break;
+      await Promise.all(
+        batch.map(async (next) => {
+          const key = Memory.key(next.l, next.i);
+          this.busy.add(key);
+          try {
+            await this.build(next.l, next.i);
+          } finally {
+            this.busy.delete(key);
+          }
+        }),
+      );
       this.fit();
     }
     this.flushWaiters();
   }
 
   private nextBuildable(): { l: number; i: number } | null {
+    return this.nextBuildableBatch(1)[0] ?? null;
+  }
+
+  private nextBuildableBatch(max: number): Array<{ l: number; i: number }> {
+    const out: Array<{ l: number; i: number }> = [];
     const T = this.T;
-    const firstUnbuilt = this.firstUnbuiltStart();
-    for (let l = 0; 2 ** l <= T; l++) {
-      for (let i = 0; (i + 1) * (2 ** l) <= T; i++) {
+    for (let l = 0; 2 ** l <= T && out.length < max; l++) {
+      for (let i = 0; (i + 1) * (2 ** l) <= T && out.length < max; i++) {
         const key = Memory.key(l, i);
         if (this.nodeOf(l, i) || this.busy.has(key)) continue;
         if (!this.ready(l, i)) continue;
-        const end = l === 0 ? i : (i + 1) * 2 ** l;
-        if (end > firstUnbuilt) continue;
-        return { l, i };
+        out.push({ l, i });
       }
     }
-    return null;
-  }
-
-  private firstUnbuiltStart(): number {
-    for (const p of this.view) {
-      if (!p.built) return p.start;
-    }
-    return this.T;
+    return out;
   }
 
   private ready(l: number, i: number): boolean {
@@ -313,8 +320,7 @@ export class Memory {
   private partFromLevel(l: number, i: number): ViewPart {
     const n = 2 ** l;
     const node = this.nodeOf(l, i);
-    const placeholder = `${i * n}+1|(not summarized yet: zoom it)`;
-    const text = node?.text ?? placeholder;
+    const text = node?.text ?? this.pendingText(l, i);
     return {
       l,
       i,
@@ -324,6 +330,19 @@ export class Memory {
       size: utf8Bytes(text),
       built: Boolean(node),
     };
+  }
+
+  private pendingText(l: number, i: number): string {
+    if (l === 0) {
+      const m = this.log[i];
+      if (!m) return "(empty)";
+      return cutKeep(flattenLine(`${m.kind}: ${m.text}`), 220);
+    }
+    const n = 2 ** l;
+    const start = i * n;
+    const end = Math.min(start + n, this.T);
+    const bits = this.log.slice(start, end).map((m) => `${m.kind}: ${m.text}`);
+    return cutKeep(flattenLine(bits.join(" · ")), 220);
   }
 
   private refreshViewParts(): void {

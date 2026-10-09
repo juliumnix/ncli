@@ -8,10 +8,12 @@ import type { ViewRegistry } from "../views/registry";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
+import { toolActivityLine } from "../memory/turn-log";
 import { addWorktree, removeWorktree, type GitRunner, type WorktreeHandle } from "./worktree";
 import { nowIso } from "../util";
 import type { Bus } from "../bus/bus";
 import { LiveTurn } from "../live/turn";
+import { joinText } from "../live/join-text";
 import { seatOf } from "../agent";
 import type { SpawnInject } from "../mcp/inject";
 
@@ -59,6 +61,7 @@ export class ForkManager {
         nodeBytes: this.cfg.nodeBytes,
         viewBytes: this.cfg.viewBytes,
         compressor: this.hooks.compressor,
+        pumpBatch: this.cfg.compactBatch,
       });
       const worktree = meta.worktree && meta.branch && meta.repo
         ? { path: join(meta.repo, ".ncli", "wt", name), branch: meta.branch, repo: meta.repo }
@@ -133,6 +136,7 @@ export class ForkManager {
       nodeBytes: this.cfg.nodeBytes,
       viewBytes: this.cfg.viewBytes,
       compressor: this.hooks.compressor,
+      pumpBatch: this.cfg.compactBatch,
     });
     const rt: ForkRuntime = {
       fork,
@@ -220,6 +224,7 @@ export class ForkManager {
         ? this.hooks.inject(rt.fork.id, rt.worktree?.path)
         : undefined;
       const live = new LiveTurn(rt.fork.id, seatOf(this.hooks.harness.id));
+      const tools: string[] = [];
       this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
       for await (const ev of this.hooks.harness.run({
         prompt: `${inbox}${ctx.view}\n\n${userText}`,
@@ -232,13 +237,15 @@ export class ForkManager {
         addDir: this.hooks.harness.id === "claude" ? inj?.addDir : undefined,
         extraArgs: this.hooks.harness.id === "codex" ? inj?.extraArgs : undefined,
       })) {
-        this.handleHarness(rt, ev, live);
-        if (ev.type === "text") talk += ev.text;
+        this.handleHarness(rt, ev, live, tools);
+        if (ev.type === "text") talk = joinText(talk, ev.text);
         if (ev.type === "done") talk = ev.text || talk;
         if (ev.type === "error") throw new Error(ev.error);
       }
       live.finish(rt.abort.signal.aborted ? "stopped" : "done");
       this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
+      const summary = toolActivityLine(tools);
+      if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(this.hooks.harness.id) });
       rt.fork.summary = talk.trim().slice(0, 400) || rt.fork.summary;
       if (rt.fork.status === "merged") return;
       if (rt.fork.needsUser) {
@@ -263,7 +270,7 @@ export class ForkManager {
     }
   }
 
-  private handleHarness(rt: ForkRuntime, ev: HarnessEvent, live: LiveTurn): void {
+  private handleHarness(rt: ForkRuntime, ev: HarnessEvent, live: LiveTurn, tools: string[]): void {
     const applied = live.apply(ev);
     this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
     if (applied.step) {
@@ -274,21 +281,12 @@ export class ForkManager {
       case "thinking":
       case "model":
         this.hooks.onEvent({ type: "delta", session: rt.fork.id, payload: ev });
-        if (ev.type === "thinking" && applied.step?.status === "done" && applied.step.text) {
-          rt.memory.append({ kind: "think", text: applied.step.text, seat: applied.step.seat, stepId: applied.step.id });
-        }
         break;
       case "tool":
-        rt.memory.append({
-          kind: "tool",
-          text: `${ev.name} ${JSON.stringify(ev.input)}`,
-          seat: seatOf(this.hooks.harness.id),
-          tool: { name: ev.name, input: ev.input },
-        });
+        tools.push(ev.name);
         this.hooks.onEvent({ type: "tool", session: rt.fork.id, payload: ev });
         break;
       case "tool_result":
-        rt.memory.append({ kind: "echo", text: ev.content });
         break;
       case "seat":
         if (ev.status === "done" && ev.text) {

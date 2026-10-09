@@ -8,6 +8,9 @@ const debugView = $("debugView");
 const debugMeta = $("debugMeta");
 const viewList = $("viewList");
 
+const stick = { follow: true };
+const STICK_SLOP = 64;
+
 const state = {
   messages: [],
   forks: [],
@@ -249,10 +252,21 @@ function renderChat() {
       <div class="md">${bodyHtml(state.stream, true)}</div>
     </div></div>`);
   }
+  const keep = chat.scrollTop;
   chat.innerHTML = parts.join("");
-  chat.scrollTop = chat.scrollHeight;
-  document.documentElement.scrollTop = document.documentElement.scrollHeight;
+  measureComposer();
+  if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  else chat.scrollTop = keep;
   renderChrome();
+}
+
+function measureComposer() {
+  const el = $("form");
+  if (!el) return;
+  const box = el.getBoundingClientRect();
+  const bottom = Number.parseFloat(getComputedStyle(el).bottom) || 28;
+  const space = Math.max(box.height + bottom + 16, 96);
+  document.documentElement.style.setProperty("--composer-space", `${space}px`);
 }
 
 function busWho(m) {
@@ -770,6 +784,14 @@ $("menuBtn").addEventListener("click", () => {
 $("scrim").addEventListener("click", () => {
   $("drawer").hidden = true;
   $("scrim").hidden = true;
+});
+
+chat.addEventListener("scroll", () => {
+  stick.follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
+}, { passive: true });
+window.addEventListener("resize", () => {
+  measureComposer();
+  if (stick.follow) chat.scrollTop = chat.scrollHeight;
 });
 
 async function boot() {

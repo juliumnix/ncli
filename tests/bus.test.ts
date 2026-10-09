@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { Bus } from "../src/bus/bus";
 import { busRpc } from "../src/bus/client";
+import { timeoutMs } from "../src/bus/timeout";
 import { makeHub, tmpDir } from "./helpers";
 
 function cfg(dataDir: string, extra: Record<string, number> = {}) {
@@ -179,4 +180,10 @@ test("per-fork budget and max concurrent children", async () => {
   const d = bus.ask("review-1", "claude", "budget");
   expect("error" in d && d.error.includes("orçamento")).toBe(true);
   bus.close();
+});
+
+test("ask timeout of 120 is two minutes, not 120ms", () => {
+  expect(timeoutMs(120, 30_000)).toBe(120_000);
+  expect(timeoutMs(2000, 30_000)).toBe(2000);
+  expect(timeoutMs(undefined, 30_000)).toBe(30_000);
 });

@@ -34,9 +34,36 @@ function renderBlock(block: string, streaming: boolean): string {
   if (!trimmed) return "";
   const lines = block.replace(/^\n+|\n+$/g, "").split("\n");
   if (isTable(lines)) return renderTable(lines);
-  if (lines.every((l) => /^\s*[-*+]\s+/.test(l) || !l.trim())) return renderList(lines, false);
-  if (lines.every((l) => /^\s*\d+\.\s+/.test(l) || !l.trim())) return renderList(lines, true);
-  return `<p>${inline(lines.join("\n"), streaming)}</p>`;
+  const out: string[] = [];
+  let run: string[] = [];
+  let kind: "ul" | "ol" | "p" | null = null;
+  const flush = () => {
+    if (!run.length || !kind) return;
+    if (kind === "ul") out.push(renderList(run, false));
+    else if (kind === "ol") out.push(renderList(run, true));
+    else out.push(`<p>${inline(run.join("\n"), streaming)}</p>`);
+    run = [];
+    kind = null;
+  };
+  for (const line of lines) {
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flush();
+      const n = Math.min(heading[1].length, 4);
+      out.push(`<h${n}>${inline(heading[2], false)}</h${n}>`);
+      continue;
+    }
+    const next: "ul" | "ol" | "p" = /^\s*[-*+]\s+/.test(line)
+      ? "ul"
+      : /^\s*\d+\.\s+/.test(line)
+        ? "ol"
+        : "p";
+    if (kind && kind !== next) flush();
+    kind = next;
+    run.push(line);
+  }
+  flush();
+  return out.join("");
 }
 
 function isTable(lines: string[]): boolean {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { nowIso } from "../util";
 import { defaultBusRunner } from "./spawn";
+import { timeoutMs } from "./timeout";
 import {
   formatBusLine,
   inboxBlock,
@@ -132,7 +133,7 @@ export class Bus {
       parent,
       fork: opts.fork,
     });
-    void this.runTicket(ticket, opts.timeout ?? 120_000);
+    void this.runTicket(ticket, timeoutMs(opts.timeout, 120_000));
     return { ticket: id };
   }
 
@@ -140,13 +141,14 @@ export class Bus {
     const list = (Array.isArray(ids) ? ids : [ids]).map((id) => id.trim()).filter(Boolean);
     const missing = list.filter((id) => !this.tickets.has(id));
     if (missing.length) throw new Error(`ticket desconhecido: ${missing.join(",")}`);
+    const waitMs = timeoutMs(timeout, 30_000);
     const waitAll = Promise.all(list.map((id) => this.tickets.get(id)!.done));
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         waitAll,
         new Promise<Ticket[]>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("wait timeout")), timeout);
+          timer = setTimeout(() => reject(new Error("wait timeout")), waitMs);
         }),
       ]);
     } finally {
@@ -235,7 +237,7 @@ export class Bus {
       }
       case "wait": {
         const ids = parseTickets(msg);
-        return this.wait(ids, msg.timeout ?? 30_000)
+        return this.wait(ids, timeoutMs(msg.timeout, 30_000))
           .then((tickets) => reply(msg, JSON.stringify(tickets.map(publicTicket))))
           .catch((err: unknown) => reply(msg, err instanceof Error ? err.message : String(err), false));
       }
