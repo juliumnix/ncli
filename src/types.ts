@@ -90,7 +90,7 @@ export interface ViewPart {
 }
 
 export type ContextAuthor =
-  | { kind: "user"; name: "Julio" }
+  | { kind: "user"; name: string }
   | { kind: "agent"; seat: SeatId; name: "Claude" | "Codex" | "Cursor" }
   | { kind: "mix" };
 
@@ -122,6 +122,7 @@ export interface ContextSnapshot {
   pending: number;
   T: number;
   compact: CompactStatus;
+  userName: string;
 }
 
 export interface NeedsUser {
@@ -165,7 +166,7 @@ export interface ViewInfo {
 }
 
 export type HubEvent =
-  | { type: "hello" }
+  | { type: "hello"; userName: string }
   | { type: "message"; session: string; message: Message }
   | { type: "delta"; session: string; seat?: SeatId; model?: string; text: string; turnId?: string; stepId?: string }
   | { type: "tool"; session: string; name: string; input?: unknown }

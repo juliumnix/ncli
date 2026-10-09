@@ -53,6 +53,7 @@ Optional env:
 | `NCLI_CURSOR_API_KEY` | unset | compaction SDK only. Load from `~/.config/ncli/secrets.env` (chmod 600). Process env overrides the file. Never passed to a CLI child |
 | `NCLI_CODEX` | `codex` | Codex binary; NCLI wraps `codex exec --json` |
 | `NCLI_CODEX_MODEL` | unset | if set, passed as `codex exec --json --model`. Default is no `--model` so Codex uses `~/.codex/config.toml`. The UI reads that file and Codex json read-only |
+| `NCLI_USER_NAME` | `Você` | display name for user rows in the memory drawer. Initial is the first letter |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `claude-haiku-5-5` | catalog id for `@cursor/sdk` compaction. No effort suffix. Low effort / no thinking come from `model.params` after `Cursor.models.list()` |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |

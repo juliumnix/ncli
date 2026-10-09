@@ -674,7 +674,7 @@ body.rv-open .shortcuts {
 }
 .ctx-who .av { width: 18px; height: 18px; flex-basis: 18px; }
 .ctx-who .av img { width: 10px; height: 10px; }
-.av.ju {
+.av.user {
   background: #2a2422; color: #e8d4cc;
   font-size: 9px; font-weight: 700; letter-spacing: 0;
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadConfig } from "../src/config";
+import { loadConfig, parseUserName } from "../src/config";
 import { bootNcli, formatBoot, shouldValidateCompactModel } from "../src/boot";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -66,10 +66,18 @@ test("loadConfig keeps Haiku 5.5 as the cheap compact default and a 60k input ca
   expect(cfg.compactMaxInputTokens).toBe(60_000);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
-  expect(cfg.cursorModel).toBe("composer-2.5");
 });
 
 test("mock compact skips the live Cursor.models.list check", () => {
   expect(shouldValidateCompactModel(loadConfig({ harness: "mock", compactBackend: "auto" }))).toBe(false);
   expect(shouldValidateCompactModel(loadConfig({ harness: "claude", compactBackend: "cursor" }))).toBe(true);
+});
+
+test("parseUserName reads NCLI_USER_NAME and falls back to Você", () => {
+  expect(parseUserName(undefined)).toBe("Você");
+  expect(parseUserName("")).toBe("Você");
+  expect(parseUserName("   ")).toBe("Você");
+  expect(parseUserName(" Ana ")).toBe("Ana");
+  expect(loadConfig({ userName: "Maria" }).userName).toBe("Maria");
+  expect(loadConfig({ userName: "  " }).userName).toBe("Você");
 });

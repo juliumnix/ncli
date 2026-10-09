@@ -16,7 +16,7 @@ test("onChange emits a pending context row then a built merge", async () => {
       return input.source.slice(0, 28);
     },
   });
-  mem.onChange = () => snaps.push(contextRows(mem));
+  mem.onChange = () => snaps.push(contextRows(mem, "Você"));
   mem.append({ kind: "talk", text: "ALPHA_LIVE " + "x".repeat(120) });
   expect(snaps[0]?.[0]?.n).toBe(1);
   expect(snaps[0]?.[0]?.built).toBe(false);
@@ -70,7 +70,10 @@ test("GET /api/events hello-burst includes a context snapshot and later a merge"
     const ctx = events.filter((e): e is ContextSnapshot => e.type === "context");
     expect(ctx.length).toBeGreaterThan(0);
     expect(ctx[0]?.session).toBe("main");
+    expect(ctx[0]?.userName).toBe(hub.cfg.userName);
     expect(hub.snapshot().context.session).toBe("main");
+    expect(hub.snapshot().context.userName).toBe(hub.cfg.userName);
+    expect(events.some((e) => e.type === "hello" && e.userName === hub.cfg.userName)).toBe(true);
   } finally {
     booted.stop();
   }

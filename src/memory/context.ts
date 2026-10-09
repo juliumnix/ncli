@@ -15,25 +15,25 @@ const TONE_STOPS: Array<[number, [number, number, number]]> = [
   [8, [143, 74, 54]],
 ];
 
-export function contextAuthor(n: number, kind?: MsgKind, seat?: SeatId): ContextAuthor {
+export function contextAuthor(n: number, kind: MsgKind | undefined, seat: SeatId | undefined, userName: string): ContextAuthor {
   if (n !== 1) return { kind: "mix" };
-  if (kind === "user") return { kind: "user", name: "Julio" };
+  if (kind === "user") return { kind: "user", name: userName };
   const id = seat ?? "claude";
   return { kind: "agent", seat: id, name: SEAT_NAME[id] };
 }
 
-export function contextSummary(text: string, n: number): string {
+export function contextSummary(text: string, n: number, userName: string): string {
   const raw = String(text ?? "");
   if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tools?):\s*/i, "").trim();
   return raw
-    .replace(/\buser:\s*/gi, "Julio: ")
+    .replace(/\buser:\s*/gi, `${userName}: `)
     .replace(/\b(?:talk|seat):\s*/gi, "Claude: ")
     .replace(/\b(?:note|merge|bus|echo|tools?):\s*/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-export function contextRows(mem: Memory): ContextRow[] {
+export function contextRows(mem: Memory, userName: string): ContextRow[] {
   return mem.view.map((p) => {
     const first = mem.log[p.start];
     const last = mem.log[Math.min(p.start + p.n - 1, mem.T - 1)] ?? first;
@@ -44,27 +44,28 @@ export function contextRows(mem: Memory): ContextRow[] {
       start: p.start,
       n: p.n,
       text: p.text,
-      summary: contextSummary(p.text, p.n),
+      summary: contextSummary(p.text, p.n, userName),
       built: p.built,
       from: first?.date ?? "",
       to: last?.date ?? first?.date ?? "",
       kind,
       seat,
-      author: contextAuthor(p.n, kind, seat),
+      author: contextAuthor(p.n, kind, seat, userName),
     };
   });
 }
 
-export function contextSnapshot(mem: Memory, compact: CompactStatus): ContextSnapshot {
+export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: string): ContextSnapshot {
   return {
     type: "context",
     session: "main",
-    rows: contextRows(mem),
+    rows: contextRows(mem, userName),
     bytes: mem.viewBytesUsed(),
     budget: mem.viewBytes,
     pending: mem.pendingCount(),
     T: mem.T,
     compact,
+    userName,
   };
 }
 
