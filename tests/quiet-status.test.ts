@@ -33,6 +33,26 @@ test("quietStatus maps a Read tool to Lendo o projeto without the raw name", () 
   expect(q.stepCount).toBe(1);
 });
 
+test("ask to Codex says Consultando o Codex, never Cursor", () => {
+  const q = quietStatus(turn({
+    steps: [
+      {
+        id: "s1",
+        kind: "ask",
+        seat: "claude",
+        title: "ask → Codex",
+        text: "",
+        status: "running",
+        startedAt: "2026-10-09T20:00:02.000Z",
+        to: "codex",
+      },
+    ],
+  }));
+  expect(q.phrase).toBe("Consultando o Codex…");
+  expect(q.phrase).not.toContain("Cursor");
+  expect(q.chips).toEqual([{ seat: "codex", label: "consultou Codex" }]);
+});
+
 test("quietStatus shows a Cursor chip and hides the tool dump", () => {
   const q = quietStatus(turn({
     steps: [

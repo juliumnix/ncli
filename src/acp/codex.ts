@@ -8,6 +8,7 @@ export class CodexExecAdapter implements AcpAdapter {
   constructor(private readonly cfg: NcliConfig) {}
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
+    yield { sessionUpdate: "model", model: this.cfg.codexModel };
     const args = buildCodexArgs(this.cfg, opts);
     const proc = Bun.spawn(args, {
       cwd: opts.cwd ?? this.cfg.repo,
@@ -49,6 +50,7 @@ export class CodexExecAdapter implements AcpAdapter {
 export function buildCodexArgs(cfg: NcliConfig, opts: RunOpts): string[] {
   const prompt = opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
   const args = [cfg.codexBin, "exec", "--json"];
+  if (cfg.codexModel) args.push("--model", cfg.codexModel);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
   args.push(prompt);
   return args;

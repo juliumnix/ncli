@@ -49,12 +49,13 @@ test("boot report mentions the main agent and compact model", () => {
     uiUrl: "http://127.0.0.1:47231",
     mcpUrl: "http://127.0.0.1:47231/mcp",
     main: { harness: "claude", model: "opus" },
-    compact: { backend: "cursor", model: "claude-haiku-5-5-low", budget: 250000 },
+    compact: { backend: "cursor", model: "claude-haiku-5-5-low", budget: 250000, sdk: "ok" },
     clis: { claude: true, codex: false, cursor: true },
     bus: "/tmp/ncli-bus.sock",
     views: ["review"],
   });
   expect(text).toContain("agent claude · opus");
+  expect(text).toContain("compact: cursor-sdk ok");
   expect(text).toContain("claude-haiku-5-5-low");
   expect(text).toContain("cursor ok");
 });
@@ -63,4 +64,6 @@ test("loadConfig keeps Haiku 5.5 as the cheap compact default and a 60k input ca
   const cfg = loadConfig({ dataDir: tmpDir("cfg") });
   expect(cfg.compactModel).toBe("claude-haiku-5-5-low");
   expect(cfg.compactMaxInputTokens).toBe(60_000);
+  expect(cfg.cursorModel).toBe("composer-2.5");
+  expect(cfg.codexModel).toBe("gpt-5.4");
 });

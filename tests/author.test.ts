@@ -25,7 +25,10 @@ test("switching the main agent updates the header snapshot and fallback posts a 
   try {
     hub.switchMain("codex");
     expect(hub.snapshot().main.harness).toBe("codex");
-    expect(agentLabel("codex")).toBe("Codex");
+    expect(hub.snapshot().main.model).toBe("gpt-5.4");
+    hub.switchMain("cursor");
+    expect(hub.snapshot().main.model).toBe("composer-2.5");
+    expect(agentLabel("codex", "gpt-5.4")).toBe("Codex · GPT 5.4");
     expect(agentLabel("claude", "claude-opus-4-5")).toBe("Claude · Opus 4.5");
   } finally {
     hub.close();

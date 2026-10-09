@@ -28,8 +28,10 @@ export interface NcliConfig {
   claudeModel: string;
   claudeApiKey: boolean;
   cursorBin: string;
+  cursorModel: string;
   acpCursor: string;
   codexBin: string;
+  codexModel: string;
   pstackCodex: string;
   pstackCursor: string;
   fanout: boolean;
@@ -75,8 +77,10 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     claudeModel: process.env.NCLI_CLAUDE_MODEL ?? "",
     claudeApiKey: process.env.NCLI_CLAUDE_API_KEY === "1",
     cursorBin: process.env.NCLI_CURSOR ?? "cursor-agent",
+    cursorModel: process.env.NCLI_CURSOR_MODEL ?? "composer-2.5",
     acpCursor: process.env.NCLI_ACP_CURSOR ?? "cursor-agent acp",
     codexBin: process.env.NCLI_CODEX ?? "codex",
+    codexModel: process.env.NCLI_CODEX_MODEL ?? "gpt-5.4",
     pstackCodex: process.env.NCLI_PSTACK_CODEX ?? "pstack-codex",
     pstackCursor: process.env.NCLI_PSTACK_CURSOR ?? "pstack-cursor",
     fanout: process.env.NCLI_FANOUT === "1",

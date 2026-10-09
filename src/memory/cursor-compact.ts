@@ -1,8 +1,12 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
+import { childEnv } from "../harness/child-env";
 import { flattenLine, utf8Bytes } from "../util";
+import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
+import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
 import type { CompactInput, Compressor } from "./store";
 
 export const CURSOR_COMPACT_PROMPT =
@@ -59,7 +63,7 @@ export function nodeHash(input: CompactInput): string {
 }
 
 export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProgress?: CompactListener): Compressor {
-  const run = runner ?? defaultCursorRunner(cfg);
+  const run = runner ?? defaultCompactRunner(cfg);
   const cache = loadCache(cfg.dataDir);
   const queue: Job[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -215,17 +219,42 @@ export function parseCursorPrint(stdout: string): string {
   return flattenLine(trimmed);
 }
 
-function defaultCursorRunner(cfg: NcliConfig): CompactRunner {
+export function defaultCompactRunner(
+  cfg: NcliConfig,
+  deps: { sdk?: SdkCompactFn; home?: string; env?: Record<string, string | undefined> } = {},
+): CompactRunner {
   return async (prompt, model) => {
-    const bin = cfg.cursorBin;
-    const proc = Bun.spawn(
-      [bin, "--print", "--model", model, "--output-format", "json", "--trust", prompt],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    return parseCursorPrint(text);
+    const home = deps.home ?? homedir();
+    const cliConfig = cursorCliConfigPath(home);
+    const env = deps.env ?? process.env;
+    return withUnchangedFile(cliConfig, async () => {
+      const key = requireCompactSdkKey(env);
+      if (deps.sdk) return deps.sdk(prompt, model, key);
+      try {
+        return await runCursorSdkCompact(prompt, model, key, cfg.repo);
+      } catch (err) {
+        if (!isSdkUnavailable(err)) throw err;
+        return sdkUnavailableCliFallback(cfg, prompt, model);
+      }
+    });
   };
+}
+
+async function sdkUnavailableCliFallback(cfg: NcliConfig, prompt: string, model: string): Promise<string> {
+  const isolated = join(cfg.dataDir, "compact-home");
+  mkdirSync(join(isolated, ".cursor"), { recursive: true });
+  const env = childEnv(process.env);
+  env.HOME = isolated;
+  delete env.CURSOR_API_KEY;
+  delete env.NCLI_CURSOR_API_KEY;
+  delete env.ANTHROPIC_API_KEY;
+  const proc = Bun.spawn(
+    [cfg.cursorBin, "--print", "--model", model, "--output-format", "json", "--trust", prompt],
+    { stdout: "pipe", stderr: "pipe", env },
+  );
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return parseCursorPrint(text);
 }
 
 function today(): string {

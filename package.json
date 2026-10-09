@@ -16,5 +16,8 @@
     "sync-pstack": "bun run scripts/sync-pstack.ts",
     "sync-emil": "bun run scripts/sync-emil.ts"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@cursor/sdk": "^1.0.37"
+  }
 }
