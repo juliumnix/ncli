@@ -52,13 +52,12 @@ test("diffContext of two 1x plus a built parent is one merge", async () => {
   expect(after.every((r) => r.built)).toBe(true);
 });
 
-test("badgeTone walks green to burnt orange", () => {
-  expect(badgeTone(1).toLowerCase()).toBe("#28a745");
-  const mid = badgeTone(32);
-  const hot = badgeTone(256);
-  expect(mid).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(hot).toMatch(/^#[0-9a-f]{6}$/i);
-  expect(hot).not.toBe(badgeTone(1));
+test("badgeTone stays on the NCLI terracotta accent", () => {
+  expect(badgeTone(1).toLowerCase()).toBe("#3d3330");
+  expect(badgeTone(1).toLowerCase()).not.toBe("#28a745");
+  expect(badgeTone(64).toLowerCase()).toBe("#c2603d");
+  expect(badgeTone(256)).toMatch(/^#[0-9a-f]{6}$/i);
+  expect(badgeTone(256)).not.toBe(badgeTone(1));
 });
 
 test("relativeTime speaks Portuguese", () => {

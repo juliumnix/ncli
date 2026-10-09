@@ -536,7 +536,7 @@ function treeSvg(rows) {
   const boxes = nodes.map((n) => {
     const label = escapeHtml(n.row.text.slice(0, 42));
     return `<g>
-      <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="6" fill="#18181a" stroke="${badgeTone(n.row.n)}"/>
+      <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="16" fill="#161618" stroke="#262628"/>
       <rect x="${n.x}" y="${n.y}" width="36" height="28" rx="6" fill="${badgeTone(n.row.n)}"/>
       <text x="${n.x + 18}" y="${n.y + 18}" text-anchor="middle" fill="#fff" font-size="10" font-family="ui-monospace,monospace">x${n.row.n}</text>
       <text x="${n.x + 44}" y="${n.y + 18}" fill="#d0d0d0" font-size="10" font-family="ui-monospace,monospace">${label}</text>
@@ -546,7 +546,7 @@ function treeSvg(rows) {
 }
 
 function badgeTone(n) {
-  const stops = [[0, [40, 167, 69]], [2, [92, 184, 92]], [5, [156, 184, 44]], [8, [208, 128, 48]], [10, [178, 102, 32]]];
+  const stops = [[0, [61, 51, 48]], [2, [107, 74, 66]], [4, [154, 86, 72]], [6, [194, 96, 61]], [8, [143, 74, 54]]];
   const lv = Math.log2(Math.max(1, n));
   let lo = stops[0];
   let hi = stops[stops.length - 1];

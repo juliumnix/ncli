@@ -2,11 +2,11 @@ import type { CompactStatus, ContextOp, ContextRow, ContextSnapshot } from "../t
 import type { Memory } from "./store";
 
 const TONE_STOPS: Array<[number, [number, number, number]]> = [
-  [0, [40, 167, 69]],
-  [2, [92, 184, 92]],
-  [5, [156, 184, 44]],
-  [8, [208, 128, 48]],
-  [10, [178, 102, 32]],
+  [0, [61, 51, 48]],
+  [2, [107, 74, 66]],
+  [4, [154, 86, 72]],
+  [6, [194, 96, 61]],
+  [8, [143, 74, 54]],
 ];
 
 export function contextRows(mem: Memory): ContextRow[] {
