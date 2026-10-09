@@ -53,6 +53,11 @@ function displayModel(raw) {
     return named[3] ? `${head} ${named[2]}.${named[3]}` : `${head} ${named[2]}`;
   }
   if (raw === "mock") return "mock";
+  const gpt = raw.match(/gpt-?(\d+)(?:[.-](\d+))?(-[a-z0-9]+)?/i);
+  if (gpt) {
+    const base = gpt[2] ? `GPT ${gpt[1]}.${gpt[2]}` : `GPT ${gpt[1]}`;
+    return gpt[3] ? `${base}${gpt[3]}` : base;
+  }
   return raw.replace(/^claude-?/i, "").replace(/-\d{8}$/, "") || raw;
 }
 

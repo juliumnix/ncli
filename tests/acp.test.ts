@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { buildClaudeArgs, parseClaudeLine, resolveClaudeSession } from "../src/acp/claude";
-import { buildCodexArgs, parseCodexLine } from "../src/acp/codex";
+import { buildCodexArgs, parseCodexConfigModel, parseCodexLine, readCodexConfigModel } from "../src/acp/codex";
 import { cursorAcpServers, cursorAcpSpawn, cursorUpdate } from "../src/acp/cursor";
 import { formatRpcError } from "../src/acp/error";
 import { MockAcpAdapter } from "../src/acp/mock";
@@ -131,11 +131,36 @@ test("toHarnessEvents maps ACP chunks without spawning a real CLI", async () => 
   expect(events).toEqual([{ type: "text", text: "olá", seat: "claude" }]);
 });
 
-test("codex exec pins NCLI_CODEX_MODEL and never relies on a saved default", () => {
-  const cfg = loadConfig({ codexBin: "codex", codexModel: "gpt-5.4" });
+test("codex exec omits --model unless NCLI_CODEX_MODEL is set", () => {
+  const cfg = loadConfig({ codexBin: "codex" });
+  expect(cfg.codexModel).toBe("");
   const args = buildCodexArgs(cfg, { prompt: "confirma" });
-  expect(args.slice(0, 5)).toEqual(["codex", "exec", "--json", "--model", "gpt-5.4"]);
+  expect(args.slice(0, 3)).toEqual(["codex", "exec", "--json"]);
+  expect(args).not.toContain("--model");
   expect(args.at(-1)).toBe("confirma");
+  const pinned = loadConfig({ codexBin: "codex", codexModel: "gpt-6.1-sol" });
+  expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 5)).toEqual([
+    "codex",
+    "exec",
+    "--json",
+    "--model",
+    "gpt-6.1-sol",
+  ]);
+});
+
+test("codex model comes from exec json or a read-only config.toml", () => {
+  expect(parseCodexConfigModel('model = "gpt-6.1-sol"\n')).toBe("gpt-6.1-sol");
+  expect(parseCodexConfigModel("model = gpt-6.1-sol\napproval = never\n")).toBe("gpt-6.1-sol");
+  expect(parseCodexLine(JSON.stringify({ type: "thread.started", thread: { model: "gpt-6.1-sol" } }))).toEqual([
+    { sessionUpdate: "model", model: "gpt-6.1-sol" },
+  ]);
+  const dir = tmpDir("codex-cfg");
+  const path = join(dir, "config.toml");
+  writeFileSync(path, 'model = "gpt-6.1-sol"\n', "utf8");
+  expect(readCodexConfigModel(path)).toBe("gpt-6.1-sol");
+  const before = readFileSync(path, "utf8");
+  expect(readCodexConfigModel(path)).toBe("gpt-6.1-sol");
+  expect(readFileSync(path, "utf8")).toBe(before);
 });
 
 test("parseCodexLine maps exec --json message and tool events", () => {
@@ -149,6 +174,9 @@ test("parseCodexLine maps exec --json message and tool events", () => {
 test("cursor first-party ACP spawn is cursor-agent acp, and session/update maps in-process", () => {
   const cfg = loadConfig({ acpCursor: "cursor-agent acp" });
   expect(cursorAcpSpawn(cfg)).toEqual({ command: "cursor-agent", args: ["--model", "composer-2.5", "acp"] });
+  const override = loadConfig({ acpCursor: "cursor-agent acp", cursorModel: "composer-2-fast" });
+  expect(cursorAcpSpawn(override)).toEqual({ command: "cursor-agent", args: ["--model", "composer-2-fast", "acp"] });
+  expect(loadConfig({ cursorModel: "   " }).cursorModel).toBe("composer-2.5");
   expect(
     cursorUpdate({
       sessionUpdate: "agent_message_chunk",

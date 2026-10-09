@@ -49,10 +49,20 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+export function parseCursorModel(raw: string | undefined): string {
+  const id = (raw ?? "").trim();
+  return id || "composer-2.5";
+}
+
+export function parseCodexModel(raw: string | undefined): string {
+  return (raw ?? "").trim();
+}
+
 export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
   const harnessEnv = (process.env.NCLI_HARNESS ?? "auto") as HarnessKind;
   const ghEnv = (process.env.NCLI_GH ?? "auto") as NcliConfig["ghMode"];
   const compactEnv = (process.env.NCLI_COMPACT ?? "auto") as CompactBackend;
+  const { cursorModel: cursorOverride, codexModel: codexOverride, ...rest } = overrides;
   return {
     dataDir: process.env.NCLI_DATA ?? join(process.cwd(), "data"),
     port: num("NCLI_PORT", 47231),
@@ -77,10 +87,10 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     claudeModel: process.env.NCLI_CLAUDE_MODEL ?? "",
     claudeApiKey: process.env.NCLI_CLAUDE_API_KEY === "1",
     cursorBin: process.env.NCLI_CURSOR ?? "cursor-agent",
-    cursorModel: process.env.NCLI_CURSOR_MODEL ?? "composer-2.5",
+    cursorModel: parseCursorModel(cursorOverride ?? process.env.NCLI_CURSOR_MODEL),
     acpCursor: process.env.NCLI_ACP_CURSOR ?? "cursor-agent acp",
     codexBin: process.env.NCLI_CODEX ?? "codex",
-    codexModel: process.env.NCLI_CODEX_MODEL ?? "gpt-5.4",
+    codexModel: parseCodexModel(codexOverride ?? process.env.NCLI_CODEX_MODEL),
     pstackCodex: process.env.NCLI_PSTACK_CODEX ?? "pstack-codex",
     pstackCursor: process.env.NCLI_PSTACK_CURSOR ?? "pstack-cursor",
     fanout: process.env.NCLI_FANOUT === "1",
@@ -89,7 +99,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     busBudget: num("NCLI_BUS_BUDGET", 8),
     ncliRoot: process.env.NCLI_ROOT ?? process.cwd(),
     backupHarness: (process.env.NCLI_BACKUP ?? "codex") as HarnessKind,
-    ...overrides,
+    ...rest,
   };
 }
 

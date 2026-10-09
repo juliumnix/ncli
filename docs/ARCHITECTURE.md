@@ -20,7 +20,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/views/registry.ts` | load `views/*.ts` by default export; watch = hot reload |
 | `src/views/types.ts` | `ViewPlugin` / `createFork` / `applyAction` / `render` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
-| `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json --model NCLI_CODEX_MODEL`). The Cursor seat never imports `@cursor/sdk` |
+| `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json` with `--model` only when `NCLI_CODEX_MODEL` is set). The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
 | `src/live/parse.ts` + `frame.ts` | ` ```ncli kind ` fences → sandboxed iframe |
 | `src/live/turn.ts` | one `Turn` / `TurnStep` timeline from harness events |

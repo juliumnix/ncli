@@ -46,8 +46,7 @@ export class ClaudeCliAdapter implements AcpAdapter {
     const reader = proc.stdout.getReader();
     const decoder = new TextDecoder();
     let buf = "";
-    let sawPartialText = false;
-    let sawPartialThink = false;
+    const fold = newClaudeFold();
     try {
       while (true) {
         if (opts.signal?.aborted) {
@@ -61,18 +60,7 @@ export class ClaudeCliAdapter implements AcpAdapter {
         buf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const kind = lineKind(line);
-          for (const update of parseClaudeLine(line)) {
-            if (kind === "stream_event") {
-              if (update.sessionUpdate === "agent_message_chunk") sawPartialText = true;
-              if (update.sessionUpdate === "agent_thought_chunk") sawPartialThink = true;
-            }
-            if (kind === "assistant") {
-              if (update.sessionUpdate === "agent_message_chunk" && sawPartialText) continue;
-              if (update.sessionUpdate === "agent_thought_chunk" && sawPartialThink) continue;
-            }
-            yield update;
-          }
+          yield* foldClaudeLine(fold, line);
         }
       }
     } finally {
@@ -113,6 +101,59 @@ export function resolveClaudeSession(dataDir: string, name: string, resume?: boo
   const id = randomUUID();
   writeFileSync(path, id, "utf8");
   return { id, resume: false };
+}
+
+export interface ClaudeFold {
+  sawPartialText: boolean;
+  sawPartialThink: boolean;
+  emittedText: boolean;
+  needTextBreak: boolean;
+}
+
+export function newClaudeFold(): ClaudeFold {
+  return { sawPartialText: false, sawPartialThink: false, emittedText: false, needTextBreak: false };
+}
+
+export function foldClaudeLines(lines: string[]): AcpUpdate[] {
+  const fold = newClaudeFold();
+  return lines.flatMap((line) => foldClaudeLine(fold, line));
+}
+
+export function foldClaudeLine(state: ClaudeFold, line: string): AcpUpdate[] {
+  const kind = lineKind(line);
+  if (kind === "stream_event" && state.emittedText && isTextBlockStart(line)) {
+    state.needTextBreak = true;
+  }
+  const out: AcpUpdate[] = [];
+  for (const update of parseClaudeLine(line)) {
+    if (kind === "stream_event") {
+      if (update.sessionUpdate === "agent_message_chunk") state.sawPartialText = true;
+      if (update.sessionUpdate === "agent_thought_chunk") state.sawPartialThink = true;
+    }
+    if (kind === "assistant") {
+      if (update.sessionUpdate === "agent_message_chunk" && state.sawPartialText) continue;
+      if (update.sessionUpdate === "agent_thought_chunk" && state.sawPartialThink) continue;
+    }
+    if (update.sessionUpdate === "tool_call" && state.emittedText) state.needTextBreak = true;
+    if (update.sessionUpdate === "agent_message_chunk" && update.text) {
+      if (state.needTextBreak) {
+        out.push({ sessionUpdate: "agent_message_chunk", text: "\n\n" });
+        state.needTextBreak = false;
+      }
+      state.emittedText = true;
+    }
+    out.push(update);
+  }
+  return out;
+}
+
+function isTextBlockStart(line: string): boolean {
+  try {
+    const ev = JSON.parse(line) as StreamLine;
+    return ev.event?.type === "content_block_start" && ev.event.content_block?.type === "text";
+  } catch {
+    return false;
+  }
 }
 
 export function parseClaudeLine(line: string): AcpUpdate[] {

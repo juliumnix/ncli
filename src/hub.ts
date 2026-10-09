@@ -12,7 +12,7 @@ import { assemble } from "./memory/assemble";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
-import { configuredSeatModel } from "./harness/seat-model";
+import { displaySeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
 import { renderToolToFence } from "./live/parse";
 import { LiveTurn } from "./live/turn";
@@ -71,7 +71,7 @@ export class Hub {
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact));
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
-    this.model = configuredSeatModel(cfg, this.harness.id as HarnessKind);
+    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
       cwdFor: (fork) => (fork ? this.forks.get(fork)?.worktree?.path ?? cfg.repo : cfg.repo),
@@ -112,14 +112,14 @@ export class Hub {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.forks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
-    this.model = configuredSeatModel(this.cfg, kind);
+    this.model = displaySeatModel(this.cfg, kind);
     this.emit({ type: "main", main: this.mainAgent() });
   }
 
   mainAgent(): MainAgent {
     return {
       harness: this.harness.id as HarnessKind,
-      model: this.model ?? configuredSeatModel(this.cfg, this.harness.id as HarnessKind),
+      model: this.model ?? displaySeatModel(this.cfg, this.harness.id as HarnessKind),
     };
   }
 
@@ -273,7 +273,7 @@ export class Hub {
     this.live = new LiveTurn(
       "main",
       seatFromId(this.harness.id),
-      this.model ?? configuredSeatModel(this.cfg, this.harness.id as HarnessKind),
+      this.model ?? displaySeatModel(this.cfg, this.harness.id as HarnessKind),
     );
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
     try {
