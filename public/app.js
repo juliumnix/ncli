@@ -103,14 +103,20 @@ function liveError(kind, source, error) {
   return `<div class="live-err" data-kind="${kind}"><div class="live-err-h">não deu para renderizar ${escapeHtml(kind)}</div><div class="live-err-m">${escapeHtml(error)}</div><pre class="live-err-src">${escapeHtml(source)}</pre></div>`;
 }
 
+function httpHref(raw) {
+  const text = String(raw || "").trim();
+  if (typeof URL.canParse === "function") {
+    if (!URL.canParse(text)) return "";
+    const u = new URL(text);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : "";
+  }
+  return /^https?:\/\/[^\s]+$/i.test(text) ? text : "";
+}
+
 function iframeFor(kind, source) {
   try {
     if (kind === "url") {
-      let href = "";
-      try {
-        const u = new URL(source.trim());
-        if (u.protocol === "http:" || u.protocol === "https:") href = u.toString();
-      } catch { /* blocked */ }
+      const href = httpHref(source);
       if (!href) return liveError(kind, source, "url bloqueada");
       return `<div class="live-wrap in"><iframe class="live-frame" title="live url" sandbox="allow-scripts allow-popups" src="${escapeHtml(href)}"></iframe></div>`;
     }
