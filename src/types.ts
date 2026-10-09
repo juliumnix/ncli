@@ -89,6 +89,34 @@ export interface ViewPart {
   built: boolean;
 }
 
+export interface ContextRow {
+  id: string;
+  start: number;
+  n: number;
+  text: string;
+  built: boolean;
+  from: string;
+  to: string;
+  kind?: MsgKind;
+  seat?: SeatId;
+}
+
+export type ContextOp =
+  | { op: "add"; id: string }
+  | { op: "update"; id: string }
+  | { op: "merge"; from: [string, string]; into: string };
+
+export interface ContextSnapshot {
+  type: "context";
+  session: "main";
+  rows: ContextRow[];
+  bytes: number;
+  budget: number;
+  pending: number;
+  T: number;
+  compact: CompactStatus;
+}
+
 export interface NeedsUser {
   kind: NeedsUserKind;
   label: string;
@@ -141,4 +169,5 @@ export type HubEvent =
   | { type: "fork"; fork: Fork }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
+  | ContextSnapshot
   | { type: "error"; error: string };

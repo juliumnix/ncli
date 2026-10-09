@@ -24,7 +24,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/live/shimmer.ts` | skeleton for an open live fence |
 | `src/live/pills.ts` | which forks sit on the right rail, and their CSS classes |
 | `src/config.ts` | env; memory and compaction knobs |
-| `src/skills/` + `ncli/skills/` | catalog injected on every spawn; pstack vendored under `ncli/skills/pstack/` |
+| `src/skills/` + `ncli/skills/` | catalog injected on every spawn; pstack under `ncli/skills/pstack/`; emil under `ncli/skills/emil/` |
 | `ncli/mcp.json` | the only MCP registry; injected per spawn, never into ~/.claude ~/.codex ~/.cursor |
 | `src/mcp/` | Streamable HTTP `ncli` on `/mcp` (memory + bus + control). Token per spawn. No shim process |
 | `src/bus/` | ncli-bus: unix socket + in-memory tickets. `ask`/`wait`/`post`/`inbox`/`read` |
