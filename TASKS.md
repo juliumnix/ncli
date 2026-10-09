@@ -8,7 +8,7 @@ Work one item at a time. Finish, test, commit, then move on.
    Status line + timer, thinking, live tool rows, token stream, nested asks, still-working after 5s, stop, persist timeline. Non-blocking POST /api/message. SSE idleTimeout.
 3. [x] Author + header agent
    Avatar, name, model on every message (main and forks). Header shows main agent and switches live. Quota fallback updates the indicator and posts a notice.
-4. [ ] Markdown
+4. [x] Markdown
    Render agent messages as sanitized Markdown while streaming. No raw `**`.
 5. [ ] Shimmer for live content
    Skeleton while an `ncli` block streams. Crossfade to the preview. Error + raw source on failure. prefers-reduced-motion.
