@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { CompactStatus, Fork, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
+import type { CompactStatus, ContextSnapshot, Fork, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
+import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { haikuCompressor } from "./memory/compact";
@@ -66,6 +67,7 @@ export class Hub {
       compressor: this.compressor,
       pumpBatch: cfg.compactBatch,
     });
+    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact));
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
     this.bus = new Bus({
@@ -152,6 +154,7 @@ export class Hub {
     forks: Fork[];
     views: ViewInfo[];
     debug: ReturnType<Memory["debug"]>;
+    context: ContextSnapshot;
     waiting: Fork[];
     main: MainAgent;
     turn: Turn | null;
@@ -163,6 +166,7 @@ export class Hub {
       forks: this.forks.list(),
       views: this.views.list(),
       debug: this.memory.debug(),
+      context: contextSnapshot(this.memory, this.compact),
       waiting: this.forks.waitingOnUser(),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,
@@ -456,6 +460,7 @@ export class Hub {
       budget: d.budget,
       levels: d.levels,
     });
+    this.emit(contextSnapshot(this.memory, this.compact));
   }
 
   close(): void {
