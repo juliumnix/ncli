@@ -274,7 +274,27 @@ function renderChat() {
   measureComposer();
   if (stick.follow) chat.scrollTop = chat.scrollHeight;
   else chat.scrollTop = keep;
+  paintScrollHints();
   renderChrome();
+}
+
+function paintScrollHints() {
+  if (!chat) return;
+  const top = chat.scrollTop;
+  const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+  chat.classList.toggle("can-up", top > 8);
+  chat.classList.toggle("can-down", max - top > 8);
+  const jump = $("jumpLatest");
+  if (!jump) return;
+  const show = !stick.follow && max > 8;
+  jump.hidden = !show;
+  jump.classList.toggle("show", show);
+}
+
+function jumpToLatest() {
+  stick.follow = true;
+  chat.scrollTop = chat.scrollHeight;
+  paintScrollHints();
 }
 
 function measureComposer() {
@@ -1086,10 +1106,13 @@ $("scrim").addEventListener("click", () => setDrawer(false));
 
 chat.addEventListener("scroll", () => {
   stick.follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
+  paintScrollHints();
 }, { passive: true });
+$("jumpLatest")?.addEventListener("click", jumpToLatest);
 window.addEventListener("resize", () => {
   measureComposer();
   if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  paintScrollHints();
 });
 
 async function boot() {
