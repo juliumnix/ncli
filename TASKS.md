@@ -20,7 +20,7 @@ B. [x] Long messages stay readable
    Chat auto-scrolls while streaming, stops if the user scrolled up.
    Bubble never clips. Composer never covers the last lines.
 
-C. [ ] Output contract + stream separators + real Markdown
+C. [x] Output contract + stream separators + real Markdown
    Preserve separators between text blocks so sentences do not glue (`causa.Causa`).
    Render headings, lists, and code. System prompt: short status first, progress on the live timeline, concise final answer.
 
