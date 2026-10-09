@@ -615,11 +615,11 @@ function contextAuthor(n, kind, seat) {
 
 function contextSummary(text, n) {
   const raw = String(text ?? "");
-  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tool):\s*/i, "").trim();
+  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tools?):\s*/i, "").trim();
   return raw
     .replace(/\buser:\s*/gi, "Julio: ")
     .replace(/\b(?:talk|seat):\s*/gi, "Claude: ")
-    .replace(/\b(?:note|merge|bus|echo|tool):\s*/gi, "")
+    .replace(/\b(?:note|merge|bus|echo|tools?):\s*/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }

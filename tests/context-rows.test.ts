@@ -37,6 +37,7 @@ test("drawer copy drops user:/talk: and names Julio or the seat", () => {
   expect(contextSummary("talk: MCP ncli sem conexão", 1)).toBe("MCP ncli sem conexão");
   expect(contextSummary("user: desconto; talk: confirmei a regra", 2)).toBe("Julio: desconto; Claude: confirmei a regra");
   expect(contextSummary("user: volta?", 1)).not.toMatch(/^user:/);
+  expect(contextSummary("tools: zoom, date", 1)).toBe("zoom, date");
 });
 
 test("assemble view stays id+n|text after context projection", () => {

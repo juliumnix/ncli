@@ -24,11 +24,11 @@ export function contextAuthor(n: number, kind?: MsgKind, seat?: SeatId): Context
 
 export function contextSummary(text: string, n: number): string {
   const raw = String(text ?? "");
-  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tool):\s*/i, "").trim();
+  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tools?):\s*/i, "").trim();
   return raw
     .replace(/\buser:\s*/gi, "Julio: ")
     .replace(/\b(?:talk|seat):\s*/gi, "Claude: ")
-    .replace(/\b(?:note|merge|bus|echo|tool):\s*/gi, "")
+    .replace(/\b(?:note|merge|bus|echo|tools?):\s*/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
