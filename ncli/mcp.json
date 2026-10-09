@@ -1,13 +1,10 @@
 {
   "mcpServers": {
     "ncli": {
-      "command": "${NCLI_BIN}",
-      "args": ["run", "${NCLI_ROOT}/src/mcp/server.ts"],
-      "env": {
-        "NCLI_BUS_SOCK": "${NCLI_BUS_SOCK}",
-        "NCLI_SESSION": "${NCLI_SESSION}",
-        "NCLI_TICKET": "${NCLI_TICKET}",
-        "NCLI_DATA": "${NCLI_DATA}"
+      "type": "http",
+      "url": "${NCLI_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${NCLI_MCP_TOKEN}"
       }
     }
   }

@@ -18,13 +18,36 @@ const state = {
   forkTab: "Guide",
   forkDetail: null,
   stream: "",
+  streamSeat: "claude",
+  streamModel: "",
+  main: { harness: "claude", model: "" },
+  turn: null,
+  forkTurns: {},
+  compact: null,
 };
 
 const SEAT = {
-  claude: { name: "Claude Code", src: "/icons/claude.svg" },
+  claude: { name: "Claude", src: "/icons/claude.svg" },
   codex: { name: "Codex", src: "/icons/openai.svg" },
   cursor: { name: "Cursor", src: "/icons/cursor.svg" },
 };
+
+function displayModel(raw) {
+  if (!raw) return "";
+  const named = raw.match(/(opus|sonnet|haiku)[^\d]*(\d+)(?:[.-](\d+))?/i);
+  if (named) {
+    const head = named[1][0].toUpperCase() + named[1].slice(1).toLowerCase();
+    return named[3] ? `${head} ${named[2]}.${named[3]}` : `${head} ${named[2]}`;
+  }
+  if (raw === "mock") return "mock";
+  return raw.replace(/^claude-?/i, "").replace(/-\d{8}$/, "") || raw;
+}
+
+function agentLabel(seat, model) {
+  const meta = SEAT[seat] || SEAT.claude;
+  const shown = displayModel(model);
+  return shown ? `${meta.name} · ${shown}` : meta.name;
+}
 
 function escapeHtml(s) {
   return String(s)
@@ -34,43 +57,66 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
-function bodyHtml(text) {
+function bodyHtml(text, streaming) {
   const segs = [];
   const re = /```ncli[ \t]+(mermaid|html|react|url)[ \t]*\n([\s\S]*?)```/g;
   let last = 0;
   let m;
   while ((m = re.exec(text))) {
-    if (m.index > last) segs.push(rich(text.slice(last, m.index)));
+    if (m.index > last) segs.push(md(text.slice(last, m.index), false));
     segs.push(iframeFor(m[1], m[2].trim()));
     last = m.index + m[0].length;
   }
   const rest = text.slice(last);
   const open = rest.match(/```ncli[ \t]+(mermaid|html|react|url)[ \t]*\n([\s\S]*)$/);
-  if (open && !open[2].includes("```")) segs.push(iframeFor(open[1], open[2].trim()));
-  else if (rest) segs.push(rich(rest));
-  return segs.join("") || rich(text);
+  if (open && !open[2].includes("```")) segs.push(shimmerFor(open[1], open[2]));
+  else if (rest) segs.push(md(rest, streaming));
+  return segs.join("") || md(text, streaming);
+}
+
+function md(text, streaming) {
+  if (typeof renderMarkdown === "function") return renderMarkdown(text, !!streaming);
+  return rich(text);
+}
+
+function shimmerFor(kind, source) {
+  const shape = kind === "mermaid" ? "diagram" : kind === "url" ? "page" : kind === "react" ? "card" : /chart|canvas|svg|bar|plot/i.test(source || "") ? "chart" : "card";
+  const label = shape === "diagram" ? "desenhando diagrama…" : shape === "chart" ? "desenhando gráfico…" : kind === "react" ? "montando componente…" : shape === "page" ? "carregando página…" : "montando prévia…";
+  const body = shape === "diagram" ? "<i></i><i></i><i></i>" : shape === "chart" ? "<b></b><b></b><b></b><b></b>" : shape === "page" ? "<s></s><em></em><em></em><em></em>" : "<s></s><em></em><em></em>";
+  return `<div class="live-ph" data-kind="${kind}" data-shape="${shape}" aria-busy="true"><div class="live-ph-label">${label}</div><div class="live-ph-body ${shape}">${body}</div></div>`;
+}
+
+function liveError(kind, source, error) {
+  return `<div class="live-err" data-kind="${kind}"><div class="live-err-h">não deu para renderizar ${escapeHtml(kind)}</div><div class="live-err-m">${escapeHtml(error)}</div><pre class="live-err-src">${escapeHtml(source)}</pre></div>`;
 }
 
 function iframeFor(kind, source) {
-  if (kind === "url") {
-    let href = "";
-    try {
-      const u = new URL(source.trim());
-      if (u.protocol === "http:" || u.protocol === "https:") href = u.toString();
-    } catch { /* blocked */ }
-    if (!href) return `<div class="mute">url bloqueada</div>`;
-    return `<iframe class="live-frame" title="live url" sandbox="allow-scripts allow-popups" src="${escapeHtml(href)}"></iframe>`;
+  try {
+    if (kind === "url") {
+      let href = "";
+      try {
+        const u = new URL(source.trim());
+        if (u.protocol === "http:" || u.protocol === "https:") href = u.toString();
+      } catch { /* blocked */ }
+      if (!href) return liveError(kind, source, "url bloqueada");
+      return `<div class="live-wrap in"><iframe class="live-frame" title="live url" sandbox="allow-scripts allow-popups" src="${escapeHtml(href)}"></iframe></div>`;
+    }
+    const inner =
+      kind === "mermaid"
+        ? mermaidSvg(source)
+        : kind === "react"
+          ? jsxLite(source)
+          : source;
+    if (kind === "mermaid" && !/<rect |<svg /.test(inner)) {
+      return liveError(kind, source, "diagrama sem nós");
+    }
+    const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"></head><body>${inner}</body></html>`
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;");
+    return `<div class="live-wrap in"><iframe class="live-frame" title="live ${kind}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
+  } catch (err) {
+    return liveError(kind, source, err instanceof Error ? err.message : String(err));
   }
-  const inner =
-    kind === "mermaid"
-      ? mermaidSvg(source)
-      : kind === "react"
-        ? jsxLite(source)
-        : source;
-  const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"></head><body>${inner}</body></html>`
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;");
-  return `<iframe class="live-frame" title="live ${kind}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe>`;
 }
 
 function mermaidSvg(source) {
@@ -166,36 +212,131 @@ function renderChat() {
       continue;
     }
     if (m.kind === "tool") {
-      parts.push(`<div class="tools"><span class="tool">${escapeHtml(m.text)}</span></div>`);
+      parts.push(toolRowFromMessage(m));
       continue;
     }
     if (m.kind === "echo") continue;
-    if (m.kind === "merge") {
-      parts.push(`<div class="ret">${rich(m.text)}</div>`);
+    if (m.kind === "think") {
+      parts.push(thinkBlock(m.seat || "claude", m.model, m.text, false, m.durationMs));
       continue;
     }
-    if (m.kind === "note") continue;
+    if (m.kind === "merge") {
+      parts.push(`<div class="ret">${md(m.text)}</div>`);
+      continue;
+    }
+    if (m.kind === "note") {
+      parts.push(`<div class="note">${md(m.text)}</div>`);
+      continue;
+    }
     const seat = m.seat || "claude";
-    const meta = SEAT[seat] || SEAT.claude;
     const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
     const sm = m.kind === "seat" || m.kind === "bus" ? " sm" : "";
     const who = m.kind === "bus"
-      ? `${meta.name} → ${m.to === "main" ? "NCLI" : ((SEAT[m.to] || {}).name || m.to || "NCLI")}`
-      : meta.name;
+      ? busWho(m)
+      : agentLabel(seat, m.model);
     parts.push(`<div class="m${sm}">${avatar(seat)}<div class="bb">
-      <div class="nm ${nm}">${who}<span class="tm">${timeOf(m.date)}</span></div>
-      <div>${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
+      <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
+      <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
     </div></div>`);
   }
-  if (state.stream) {
-    parts.push(`<div class="m stream">${avatar("claude")}<div class="bb">
-      <div class="nm ncl">Claude Code<span class="tm">…</span></div>
-      <div>${bodyHtml(state.stream)}</div>
+  if (state.turn && state.turn.status === "running") {
+    parts.push(liveTurnHtml(state.turn));
+  } else if (state.stream) {
+    const seat = state.streamSeat || "claude";
+    const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
+    parts.push(`<div class="m stream">${avatar(seat)}<div class="bb">
+      <div class="nm ${nm}">${escapeHtml(agentLabel(seat, state.streamModel))}<span class="tm">…</span></div>
+      <div class="md">${bodyHtml(state.stream, true)}</div>
     </div></div>`);
   }
   chat.innerHTML = parts.join("");
   chat.scrollTop = chat.scrollHeight;
   document.documentElement.scrollTop = document.documentElement.scrollHeight;
+  renderChrome();
+}
+
+function busWho(m) {
+  const from = (SEAT[m.seat] || SEAT.claude).name;
+  const to = m.to === "main" ? "NCLI" : ((SEAT[m.to] || {}).name || m.to || "NCLI");
+  return `${from} → ${to}`;
+}
+
+function toolRowFromMessage(m) {
+  const name = m.tool?.name || m.text;
+  return `<div class="trow done"><span class="dot"></span><code>${escapeHtml(m.text || name)}</code></div>`;
+}
+
+function thinkBlock(seat, model, text, open, durationMs) {
+  const dur = durationMs ? ` · ${Math.round(durationMs / 1000)}s` : "";
+  return `<details class="think"${open ? " open" : ""}><summary>pensando${dur}</summary><div class="md">${md(text, open)}</div></details>`;
+}
+
+function liveTurnHtml(turn) {
+  const seat = turn.seat || "claude";
+  const elapsed = elapsedLabel(turn.startedAt);
+  const silent = Date.now() - Date.parse(turn.lastEventAt || turn.startedAt) >= 5000;
+  const status = silent
+    ? `ainda trabalhando · ${elapsed}`
+    : `pensando… · ${elapsed}`;
+  const steps = (turn.steps || []).map((s) => stepHtml(s)).join("");
+  return `<div class="live" data-turn="${escapeHtml(turn.id)}">
+    <div class="live-h">${avatar(seat)}<div>
+      <div class="nm ${seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu"}">${escapeHtml(agentLabel(seat, turn.model))}</div>
+      <div class="live-st"><span class="spin"></span>${escapeHtml(status)}</div>
+    </div></div>
+    <div class="live-steps">${steps}</div>
+  </div>`;
+}
+
+function stepHtml(s) {
+  if (s.kind === "thinking") return thinkBlock(s.seat, s.model, s.text, s.status === "running");
+  if (s.kind === "text") {
+    return `<div class="m stream">${avatar(s.seat)}<div class="bb">
+      <div class="nm ${s.seat === "claude" ? "ncl" : s.seat === "codex" ? "ncx" : "ncu"}">${escapeHtml(agentLabel(s.seat, s.model))}</div>
+      <div class="md">${bodyHtml(s.text, s.status === "running")}</div>
+    </div></div>`;
+  }
+  if (s.kind === "ask") {
+    const inner = s.text ? `<div class="md nest">${md(s.text, s.status === "running")}</div>` : "";
+    return `<div class="trow ${s.status} nest"><span class="dot"></span><code>${escapeHtml(s.title)}</code>${s.status === "running" ? '<span class="spin"></span>' : ""}</div>${inner}`;
+  }
+  const dur = s.endedAt ? ` · ${Math.max(0, Math.round((Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 100) / 10)}s` : "";
+  const body = s.detail
+    ? `<details class="tout"><summary>saída${dur}</summary><pre>${escapeHtml(s.detail)}</pre></details>`
+    : "";
+  return `<div class="trow ${s.status}"><span class="dot"></span><code>${escapeHtml(s.title)}</code>${s.status === "running" ? '<span class="spin"></span>' : `<span class="tdur">${dur}</span>`}</div>${body}`;
+}
+
+function elapsedLabel(iso) {
+  const ms = Math.max(0, Date.now() - Date.parse(iso || Date.now()));
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function renderChrome() {
+  const sw = $("agentSwitch");
+  if (sw) {
+    const main = state.main || { harness: "claude" };
+    const seat = main.harness === "mock" ? "claude" : main.harness;
+    sw.innerHTML = `${avatar(seat)}<label><span>${escapeHtml(agentLabel(seat, main.model))}</span>
+      <select id="harnessSel" aria-label="agente principal">
+        <option value="claude"${main.harness === "claude" ? " selected" : ""}>Claude</option>
+        <option value="codex"${main.harness === "codex" ? " selected" : ""}>Codex</option>
+        <option value="cursor"${main.harness === "cursor" ? " selected" : ""}>Cursor</option>
+      </select></label>`;
+  }
+  const c = $("compactInd");
+  if (c && state.compact) {
+    const k = Math.round((state.compact.tokensToday || 0) / 100) / 10;
+    const b = Math.round((state.compact.budget || 0) / 1000);
+    c.hidden = false;
+    c.textContent = state.compact.running
+      ? `compactando ${state.compact.lastNodes || 0} · ${k}k/${b}k`
+      : `compact ${k}k/${b}k`;
+  }
+  const stop = $("stopBtn");
+  if (stop) stop.hidden = !(state.turn && state.turn.status === "running");
 }
 
 function dayLabel(iso) {
@@ -207,20 +348,27 @@ function dayLabel(iso) {
   return d.toLocaleDateString("pt-BR");
 }
 
+const seenPills = new Set();
+
 function renderShortcuts() {
-  const waiting = state.forks.filter((f) => f.status === "needs_user");
+  const pills = state.forks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
   const glyph = { review: "⌥", refino: "✎", live: "▣" };
-  shortcuts.innerHTML = waiting
+  shortcuts.innerHTML = pills
     .map((f) => {
-      const n = f.needsUser?.count || 1;
-      const sub = f.needsUser?.label || f.title;
-      const short = f.view === "refino" && n ? `${n} pergunta${n === 1 ? "" : "s"}` : sub;
-      return `<button class="ch" data-fork="${f.id}">
+      const fresh = !seenPills.has(f.id);
+      const attn = f.status === "needs_user" || f.status === "done";
+      const klass = ["ch", fresh ? "pop" : "", attn ? "attn" : ""].filter(Boolean).join(" ");
+      const n = f.needsUser?.count || (f.status === "done" ? 1 : 0);
+      const sub = f.needsUser?.label || (f.status === "done" ? "pronto" : f.status === "running" ? "rodando" : f.title);
+      const short = f.view === "refino" && f.needsUser?.count ? `${n} pergunta${n === 1 ? "" : "s"}` : sub;
+      const badge = n ? `<span class="badge">${n}</span>` : "";
+      return `<button class="${klass}" data-fork="${f.id}">
         <div class="lbl"><b>${escapeHtml(f.view)} #${f.seq}</b>${escapeHtml(short)}</div>
-        <div class="fa">${glyph[f.view] || "●"}<span class="badge">${n}</span></div>
+        <div class="fa">${glyph[f.view] || "●"}${badge}</div>
       </button>`;
     })
     .join("");
+  for (const f of pills) seenPills.add(f.id);
 }
 
 function renderDebug() {
@@ -399,13 +547,45 @@ function applyEvent(ev) {
         state.stream = "";
         state.messages.push(ev.message);
         renderChat();
+      } else if (state.openFork === ev.session && state.forkDetail) {
+        state.forkDetail.messages = state.forkDetail.messages || [];
+        state.forkDetail.messages.push(ev.message);
+        drawModal();
       }
       break;
     case "delta":
       if (ev.session === "main" && ev.text) {
         state.stream = (state.stream || "") + ev.text;
+        state.streamSeat = ev.seat || state.streamSeat;
+        state.streamModel = ev.model || state.streamModel;
         renderChat();
       }
+      break;
+    case "turn":
+      if (ev.session === "main") {
+        state.turn = ev.turn;
+        if (ev.turn && ev.turn.status !== "running") state.stream = "";
+        renderChat();
+      } else {
+        state.forkTurns[ev.session] = ev.turn;
+        if (state.openFork === ev.session) drawModal();
+      }
+      break;
+    case "step":
+      if (ev.session === "main" && state.turn && ev.turnId === state.turn.id) {
+        const i = (state.turn.steps || []).findIndex((s) => s.id === ev.step.id);
+        if (i >= 0) state.turn.steps[i] = ev.step;
+        else state.turn.steps.push(ev.step);
+        renderChat();
+      }
+      break;
+    case "main":
+      state.main = ev.main;
+      renderChrome();
+      break;
+    case "compact":
+      state.compact = ev.compact;
+      renderChrome();
       break;
     case "fork": {
       const i = state.forks.findIndex((f) => f.id === ev.fork.id);
@@ -437,6 +617,23 @@ function applyEvent(ev) {
       break;
   }
 }
+
+$("stopBtn")?.addEventListener("click", () => {
+  fetch("/api/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "main" }) });
+});
+
+document.addEventListener("change", (e) => {
+  if (e.target.id !== "harnessSel") return;
+  fetch("/api/harness", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ harness: e.target.value }),
+  });
+});
+
+setInterval(() => {
+  if (state.turn && state.turn.status === "running") renderChat();
+}, 1000);
 
 chat.addEventListener("click", (e) => {
   const a = e.target.closest(".vlink");
@@ -579,8 +776,12 @@ async function boot() {
   const snap = await (await fetch("/api/state")).json();
   state.messages = snap.messages || [];
   state.forks = snap.forks || [];
+  for (const f of state.forks) seenPills.add(f.id);
   state.views = snap.views || [];
   state.debug = snap.debug;
+  state.main = snap.main || state.main;
+  state.turn = snap.turn || null;
+  state.compact = snap.compact || null;
   renderChat();
   renderShortcuts();
   renderDebug();

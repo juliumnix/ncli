@@ -11,7 +11,7 @@ export class AcpHarness implements Harness {
   async *run(opts: RunOpts): AsyncIterable<HarnessEvent> {
     let text = "";
     try {
-      for await (const ev of toHarnessEvents(this.adapter.run(opts), opts)) {
+      for await (const ev of toHarnessEvents(this.adapter.run(opts), opts, this.id)) {
         if (ev.type === "text") text += ev.text;
         yield ev;
       }

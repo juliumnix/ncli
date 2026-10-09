@@ -4,12 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NCLI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
   <header class="top">
     <button class="burger" id="menuBtn" aria-label="menu">☰</button>
     <span class="brand">NCLI</span>
+    <div class="agent-switch" id="agentSwitch"></div>
+    <span class="compact-ind" id="compactInd" hidden></span>
+    <button class="stop" id="stopBtn" hidden type="button">parar</button>
   </header>
 
   <aside class="drawer" id="drawer" hidden>
@@ -40,6 +44,7 @@
     <div class="modal" id="modal"></div>
   </div>
 
+  <script src="/markdown.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

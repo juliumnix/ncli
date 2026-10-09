@@ -6,9 +6,11 @@ import {
   CURSOR_COMPACT_PROMPT,
   cursorCompressor,
   estimateTokens,
+  jobPrompt,
   nodeHash,
   parseCursorPrint,
   parseNumbered,
+  splitJobsByTokens,
 } from "../src/memory/cursor-compact";
 import { tmpDir } from "./helpers";
 
@@ -140,4 +142,34 @@ test("queueing a compact job does not block; the runner runs later", async () =>
 test("estimateTokens is cheap and positive", () => {
   expect(estimateTokens("abcd")).toBeGreaterThan(0);
   expect(estimateTokens("")).toBe(1);
+});
+
+test("splitJobsByTokens keeps every cursor-agent prompt under the 100k surcharge line", async () => {
+  const chunk = "FACT_MEMBER_DISCOUNT_BEFORE_TAX ".repeat(400);
+  const jobs = [1, 2, 3].map((n) => ({
+    input: { kind: "leaf" as const, source: `${chunk} ${n}`, contextLines: [], nodeBytes: 140 },
+  }));
+  const one = estimateTokens(jobPrompt(jobs.slice(0, 1)));
+  const cap = one + 80;
+  expect(one).toBeLessThan(cap);
+  expect(estimateTokens(jobPrompt(jobs))).toBeGreaterThan(cap);
+  const batches = splitJobsByTokens(jobs, { maxItems: 6, maxInputTokens: cap });
+  expect(batches.length).toBeGreaterThan(1);
+  for (const batch of batches) {
+    expect(estimateTokens(jobPrompt(batch))).toBeLessThanOrEqual(cap);
+    expect(batch.length).toBeGreaterThan(0);
+  }
+
+  const dir = tmpDir("ccap");
+  const prompts: string[] = [];
+  const compact = cursorCompressor(
+    cfg(dir, { compactBatch: 6, compactSkipTokens: 1, compactMaxInputTokens: cap }),
+    async (prompt) => {
+      prompts.push(prompt);
+      return "1. line";
+    },
+  );
+  await Promise.all(jobs.map((j) => compact(j.input)));
+  expect(prompts.length).toBeGreaterThan(1);
+  for (const p of prompts) expect(estimateTokens(p)).toBeLessThanOrEqual(cap);
 });

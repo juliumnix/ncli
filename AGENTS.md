@@ -39,7 +39,7 @@ Read the leaf skill before applying it.
 - Separate before serializing shared state. Each fork owns its memory directory, harness process, and git worktree. The main log is the only merge point.
 - Model the domain. Chat is an append-only log plus a binary summary tree. Forks are isolated runtimes, not flags on the main session.
 - Test behavior, not implementation. Assert recovered facts, merge text, worktree paths, and registry ids. Do not assert mock call counts.
-- Prove it works. `bun test` plus a running `bun dev` page, not "it typechecks".
+- Prove it works. `bun test` plus a running `bun start` page, not "it typechecks".
 
 ## Changing NCLI itself
 
