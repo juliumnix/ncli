@@ -6,7 +6,7 @@ Work one item at a time. Finish, test, commit, then move on.
    Streamable HTTP MCP on the Bun server, token per spawn, listening before any child. Startup summary. Fail loud. Readiness test.
 2. [x] Live streaming timeline
    Status line + timer, thinking, live tool rows, token stream, nested asks, still-working after 5s, stop, persist timeline. Non-blocking POST /api/message. SSE idleTimeout.
-3. [ ] Author + header agent
+3. [x] Author + header agent
    Avatar, name, model on every message (main and forks). Header shows main agent and switches live. Quota fallback updates the indicator and posts a notice.
 4. [ ] Markdown
    Render agent messages as sanitized Markdown while streaming. No raw `**`.
