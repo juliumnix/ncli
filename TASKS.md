@@ -10,7 +10,7 @@ A. [x] Cursor via NCLI is broken
    Bus `timeout` accepts seconds (Claude sent `120`) or milliseconds; do not treat `120` as 120ms.
    Integration test: when `cursor-agent acp` / `codex` exist, `ask`/`wait` answers with ncli MCP injected.
 
-D. [ ] Memory view + compact batch (raised)
+D. [x] Memory view + compact batch (raised)
    Fix duplicated index (`23+1|23+1|…`). While a node is pending, show truncated raw text, not `(not summarized yet: zoom it)`.
    Batch pending nodes (debounce a few seconds, up to `NCLI_COMPACT_BATCH`, under the 60k cap). Pump must start a wave together so Haiku is not one node per ~12s call.
    Live timeline steps must not become memory messages. Keep user / talk / bus / seat / merge / note. At most one `tools:` line per turn.
