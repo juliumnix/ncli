@@ -11,13 +11,17 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` open, pick harness/compressor |
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/forks` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
 | `src/memory/store.ts` | log + OptChat tree; `pump()` is background |
+| `src/memory/sdk-compact.ts` | compaction ONLY, via `@cursor/sdk`. Auth is `NCLI_CURSOR_API_KEY` from `~/.config/ncli/secrets.env` or the process env. Never used by the Cursor seat |
+| `src/memory/cursor-compact.ts` | batch / cache / 60k cap. Calls the SDK runner. CLI `--print` is a marked fallback |
+| `src/secrets.ts` | load `~/.config/ncli/secrets.env`. Process env wins. Never log the key |
+| `src/memory/cli-config.ts` | snapshot+restore `~/.cursor/cli-config.json`. Warn, never silent-repair |
 | `src/memory/assemble.ts` | system prompt (master + skills index + view doc) |
 | `src/forks/manager.ts` | one runtime per fork: memory, harness, optional worktree, merge line |
 | `src/views/registry.ts` | load `views/*.ts` by default export; watch = hot reload |
 | `src/views/types.ts` | `ViewPlugin` / `createFork` / `applyAction` / `render` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
-| `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent acp`, `codex exec --json`) |
-| `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips tokens |
+| `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json --model NCLI_CODEX_MODEL`). The Cursor seat never imports `@cursor/sdk` |
+| `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
 | `src/live/parse.ts` + `frame.ts` | ` ```ncli kind ` fences → sandboxed iframe |
 | `src/live/turn.ts` | one `Turn` / `TurnStep` timeline from harness events |
 | `src/live/markdown.ts` | streaming-safe Markdown to HTML |

@@ -87,9 +87,16 @@ function bodyHtml(text, streaming) {
   return segs.join("") || md(text, streaming);
 }
 
+const mdMemo = new Map();
+
 function md(text, streaming) {
-  if (typeof renderMarkdown === "function") return renderMarkdown(text, !!streaming);
-  return rich(text);
+  if (!streaming && mdMemo.has(text)) return mdMemo.get(text);
+  const html = typeof renderMarkdown === "function" ? renderMarkdown(text, !!streaming) : rich(text);
+  if (!streaming) {
+    if (mdMemo.size > 400) mdMemo.clear();
+    mdMemo.set(text, html);
+  }
+  return html;
 }
 
 function shimmerFor(kind, source) {
@@ -285,6 +292,47 @@ function renderChat() {
   renderChrome();
 }
 
+let liveRaf = 0;
+
+function scheduleLivePaint() {
+  if (liveRaf) return;
+  liveRaf = requestAnimationFrame(() => {
+    liveRaf = 0;
+    paintLive();
+  });
+}
+
+function paintLive() {
+  const turn = state.turn;
+  if (!turn || turn.status !== "running") {
+    renderChat();
+    return;
+  }
+  const html = liveTurnHtml(turn);
+  const node = log.querySelector(":scope > .live.quiet");
+  if (!node) {
+    log.insertAdjacentHTML("beforeend", html);
+  } else {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const next = wrap.firstElementChild;
+    if (next) node.replaceWith(next);
+  }
+  measureComposer();
+  if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  paintScrollHints();
+  renderChrome();
+}
+
+function paintTick() {
+  if (!state.turn || state.turn.status !== "running") return;
+  const q = quietOf(state.turn);
+  const el = log.querySelector(".live.quiet .tdur");
+  const phrase = log.querySelector(".live.quiet .shimmer-text");
+  if (el) el.textContent = q.elapsed;
+  if (phrase) phrase.textContent = q.phrase;
+}
+
 function paintScrollHints() {
   if (!chat) return;
   const top = chat.scrollTop;
@@ -360,9 +408,10 @@ function quietOf(turn) {
   const chips = [];
   const seen = new Set();
   for (const s of steps) {
-    if (!s.seat || s.seat === turn.seat || seen.has(s.seat)) continue;
-    seen.add(s.seat);
-    chips.push({ seat: s.seat, label: `consultou ${SEAT[s.seat]?.name || s.seat}` });
+    const other = s.kind === "ask" ? (s.to || s.seat) : s.seat;
+    if (!other || other === turn.seat || seen.has(other)) continue;
+    seen.add(other);
+    chips.push({ seat: other, label: `consultou ${SEAT[other]?.name || other}` });
   }
   return {
     phrase: quietPhrase(running),
@@ -376,10 +425,16 @@ function quietPhrase(step) {
   if (!step) return "Trabalhando…";
   if (step.kind === "thinking") return "Pensando…";
   if (step.kind === "text") return "Escrevendo a resposta…";
+  if (step.kind === "ask") {
+    const to = step.to || step.seat;
+    if (to === "codex") return "Consultando o Codex…";
+    if (to === "claude") return "Consultando o Claude…";
+    return "Consultando o Cursor…";
+  }
   const name = step.tool?.name || step.title || step.to || "";
   if (/read|glob|grep|list|cat|ls\b|file/i.test(name)) return "Lendo o projeto…";
-  if (/cursor|ask|wait|bus|inbox/i.test(name)) return "Consultando o Cursor…";
-  if (/codex/i.test(name)) return "Consultando o Codex…";
+  if (/\bcursor\b/i.test(name)) return "Consultando o Cursor…";
+  if (/\bcodex\b/i.test(name)) return "Consultando o Codex…";
   if (/bash|shell|cmd|exec|run/i.test(name)) return "Rodando um comando…";
   if (/write|edit|patch|apply/i.test(name)) return "Editando arquivos…";
   if (/web|fetch|search|http/i.test(name)) return "Pesquisando…";
@@ -839,7 +894,7 @@ function applyEvent(ev) {
         state.stream = (state.stream || "") + ev.text;
         state.streamSeat = ev.seat || state.streamSeat;
         state.streamModel = ev.model || state.streamModel;
-        renderChat();
+        scheduleLivePaint();
       }
       break;
     case "turn":
@@ -850,8 +905,10 @@ function applyEvent(ev) {
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
             state.lastTurn = ev.turn;
           }
+          renderChat();
+        } else {
+          scheduleLivePaint();
         }
-        renderChat();
       } else {
         state.forkTurns[ev.session] = ev.turn;
         if (state.openFork === ev.session) drawModal();
@@ -862,7 +919,7 @@ function applyEvent(ev) {
         const i = (state.turn.steps || []).findIndex((s) => s.id === ev.step.id);
         if (i >= 0) state.turn.steps[i] = ev.step;
         else state.turn.steps.push(ev.step);
-        renderChat();
+        scheduleLivePaint();
       }
       break;
     case "main":
@@ -946,7 +1003,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 setInterval(() => {
-  if (state.turn && state.turn.status === "running") renderChat();
+  if (state.turn && state.turn.status === "running") paintTick();
 }, 1000);
 
 document.addEventListener("click", (e) => {

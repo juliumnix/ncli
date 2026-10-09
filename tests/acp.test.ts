@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { buildClaudeArgs, parseClaudeLine, resolveClaudeSession } from "../src/acp/claude";
-import { parseCodexLine } from "../src/acp/codex";
+import { buildCodexArgs, parseCodexLine } from "../src/acp/codex";
 import { cursorAcpServers, cursorAcpSpawn, cursorUpdate } from "../src/acp/cursor";
 import { formatRpcError } from "../src/acp/error";
 import { MockAcpAdapter } from "../src/acp/mock";
@@ -87,6 +87,9 @@ test("childEnv strips Anthropic/Claude tokens and never keeps OAuth, even when t
     CLAUDE_CODE_CREDENTIALS: "creds",
     ANTHROPIC_AUTH_TOKEN: "other",
     HOME: "/home/ada",
+    CURSOR_API_KEY: "cursor-secret",
+    CURSOR_AUTH_TOKEN: "auth-secret",
+    NCLI_CURSOR_API_KEY: "ncli-compact-secret",
   };
   const stripped = childEnv(parent);
   expect(stripped.PATH).toBe("/usr/bin");
@@ -95,9 +98,13 @@ test("childEnv strips Anthropic/Claude tokens and never keeps OAuth, even when t
   expect(stripped.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   expect(stripped.CLAUDE_CODE_CREDENTIALS).toBeUndefined();
   expect(stripped.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  expect(stripped.CURSOR_API_KEY).toBeUndefined();
+  expect(stripped.CURSOR_AUTH_TOKEN).toBeUndefined();
+  expect(stripped.NCLI_CURSOR_API_KEY).toBeUndefined();
   const opted = childEnv(parent, { allowAnthropicKey: true });
   expect(opted.ANTHROPIC_API_KEY).toBe("sk-secret");
   expect(opted.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+  expect(opted.NCLI_CURSOR_API_KEY).toBeUndefined();
 });
 
 test("MockAcpAdapter through AcpHarness yields text, tools, plan, and permission as harness events", async () => {
@@ -124,6 +131,13 @@ test("toHarnessEvents maps ACP chunks without spawning a real CLI", async () => 
   expect(events).toEqual([{ type: "text", text: "olá", seat: "claude" }]);
 });
 
+test("codex exec pins NCLI_CODEX_MODEL and never relies on a saved default", () => {
+  const cfg = loadConfig({ codexBin: "codex", codexModel: "gpt-5.4" });
+  const args = buildCodexArgs(cfg, { prompt: "confirma" });
+  expect(args.slice(0, 5)).toEqual(["codex", "exec", "--json", "--model", "gpt-5.4"]);
+  expect(args.at(-1)).toBe("confirma");
+});
+
 test("parseCodexLine maps exec --json message and tool events", () => {
   expect(parseCodexLine(JSON.stringify({ type: "item.completed", item: { text: "bate." } }))).toEqual([
     { sessionUpdate: "agent_message_chunk", text: "bate." },
@@ -134,7 +148,7 @@ test("parseCodexLine maps exec --json message and tool events", () => {
 
 test("cursor first-party ACP spawn is cursor-agent acp, and session/update maps in-process", () => {
   const cfg = loadConfig({ acpCursor: "cursor-agent acp" });
-  expect(cursorAcpSpawn(cfg)).toEqual({ command: "cursor-agent", args: ["acp"] });
+  expect(cursorAcpSpawn(cfg)).toEqual({ command: "cursor-agent", args: ["--model", "composer-2.5", "acp"] });
   expect(
     cursorUpdate({
       sessionUpdate: "agent_message_chunk",
@@ -154,8 +168,9 @@ test("package.json has no Agent SDK, ACP SDK, or third-party Claude ACP adapter"
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
-  expect(pkg.dependencies ?? {}).toEqual({});
-  expect(pkg.devDependencies ?? {}).toEqual({});
+  expect(Object.keys(pkg.devDependencies ?? {})).toEqual([]);
+  const deps = Object.keys(pkg.dependencies ?? {});
+  expect(deps.every((name) => name === "@cursor/sdk")).toBe(true);
   const blob = JSON.stringify(pkg);
   expect(blob).not.toContain("claude-agent-sdk");
   expect(blob).not.toContain("claude-code-acp");

@@ -1,3 +1,4 @@
+import { seatOf } from "../agent";
 import type { SeatId, Turn, TurnStep } from "../types";
 
 export interface QuietStatus {
@@ -14,10 +15,16 @@ const SEAT_NAME: Record<SeatId, string> = {
   cursor: "Cursor",
 };
 
+const SEAT_PHRASE: Record<SeatId, string> = {
+  claude: "Consultando o Claude…",
+  codex: "Consultando o Codex…",
+  cursor: "Consultando o Cursor…",
+};
+
 const TOOL_PHRASE: Array<[RegExp, string]> = [
   [/read|glob|grep|list|cat|ls\b|file/i, "Lendo o projeto…"],
-  [/cursor|ask|wait|bus|inbox/i, "Consultando o Cursor…"],
-  [/codex/i, "Consultando o Codex…"],
+  [/\bcursor\b/i, "Consultando o Cursor…"],
+  [/\bcodex\b/i, "Consultando o Codex…"],
   [/bash|shell|cmd|exec|run/i, "Rodando um comando…"],
   [/write|edit|patch|apply/i, "Editando arquivos…"],
   [/web|fetch|search|http/i, "Pesquisando…"],
@@ -40,9 +47,10 @@ export function consultChips(turn: Turn): Array<{ seat: SeatId; label: string }>
   const seen = new Set<SeatId>();
   const chips: Array<{ seat: SeatId; label: string }> = [];
   for (const step of turn.steps ?? []) {
-    if (!step.seat || step.seat === turn.seat || seen.has(step.seat)) continue;
-    seen.add(step.seat);
-    chips.push({ seat: step.seat, label: `consultou ${SEAT_NAME[step.seat]}` });
+    const other = step.kind === "ask" ? seatOf(step.to || step.seat) : step.seat;
+    if (!other || other === turn.seat || seen.has(other)) continue;
+    seen.add(other);
+    chips.push({ seat: other, label: `consultou ${SEAT_NAME[other]}` });
   }
   return chips;
 }
@@ -62,7 +70,7 @@ function phraseOf(step: TurnStep | undefined): string {
     case "text":
       return "Escrevendo a resposta…";
     case "ask":
-      return phraseFromName(step.title || step.to || "");
+      return consultPhrase(step.to || step.seat);
     case "tool":
     case "result":
       return phraseFromName(step.tool?.name ?? step.title ?? "");
@@ -71,6 +79,10 @@ function phraseOf(step: TurnStep | undefined): string {
       return _n;
     }
   }
+}
+
+function consultPhrase(target: string | undefined): string {
+  return SEAT_PHRASE[seatOf(target)];
 }
 
 function phraseFromName(name: string): string {

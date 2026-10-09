@@ -2,8 +2,11 @@
   const FENCE = /```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)```/g;
   const OPEN_FENCE = /```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*)$/;
 
+  const mdMemo = new Map();
+
   function renderMarkdown(src, streaming) {
     const text = src ?? "";
+    if (!streaming && mdMemo.has(text)) return mdMemo.get(text);
     const parts = [];
     let last = 0;
     FENCE.lastIndex = 0;
@@ -22,7 +25,12 @@
     } else if (rest) {
       parts.push(inlineBlock(rest, streaming));
     }
-    return parts.join("") || (streaming ? "" : "");
+    const html = parts.join("") || (streaming ? "" : "");
+    if (!streaming && html) {
+      if (mdMemo.size > 400) mdMemo.clear();
+      mdMemo.set(text, html);
+    }
+    return html;
   }
 
   function inlineBlock(raw, streaming) {

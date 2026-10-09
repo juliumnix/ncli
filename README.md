@@ -47,15 +47,18 @@ Optional env:
 | `NCLI_CLAUDE` | `claude` | unmodified Claude Code binary |
 | `NCLI_CLAUDE_MODEL` | unset | passed as `--model` |
 | `NCLI_CLAUDE_API_KEY` | unset | `1` lets the child keep `ANTHROPIC_API_KEY`; default is strip |
-| `NCLI_CURSOR` | `cursor-agent` | Cursor CLI for compaction (`--print`) |
+| `NCLI_CURSOR` | `cursor-agent` | Cursor CLI binary for the agentic seat (`cursor-agent acp`). Not used for compaction |
+| `NCLI_CURSOR_MODEL` | `composer-2.5` | pinned on `cursor-agent --model … acp`. Independent of the compact model |
 | `NCLI_ACP_CURSOR` | `cursor-agent acp` | first-party Cursor ACP entrypoint only |
+| `NCLI_CURSOR_API_KEY` | unset | compaction SDK only. Load from `~/.config/ncli/secrets.env` (chmod 600). Process env overrides the file. Never passed to a CLI child |
 | `NCLI_CODEX` | `codex` | Codex binary; NCLI wraps `codex exec --json` |
-| `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor CLI otherwise |
-| `NCLI_COMPACT_MODEL` | `claude-haiku-5-5-low` | model for Cursor `--print` compaction |
-| `NCLI_COMPACT_BATCH` | `6` | summaries per Cursor call |
-| `NCLI_COMPACT_SKIP` | `80` | skip the CLI when the node is already this many tokens or fewer |
+| `NCLI_CODEX_MODEL` | `gpt-5.4` | pinned on `codex exec --json --model` |
+| `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
+| `NCLI_COMPACT_MODEL` | `claude-haiku-5-5-low` | model for `@cursor/sdk` compaction |
+| `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
+| `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the node is already this many tokens or fewer |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
-| `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per `cursor-agent --print` call (stay under the Haiku 100k 5x band) |
+| `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 
 ## Harness boundary (ACP-shaped, in-process)
@@ -68,7 +71,7 @@ NCLI adapters implement the same session updates (`agent_message_chunk`, `tool_c
 | Cursor | first-party [`cursor-agent acp`](https://cursor.com/docs/cli/acp) / `agent acp` (JSON-RPC ndjson on stdio). Not `npx cursor-agent-acp`. | `cursorUpdate` + `NdjsonRpc` on a fake stream. |
 | Codex | wrap [`codex exec --json`](https://developers.openai.com/codex/cli/slash-commands). OpenAI has not shipped a native ACP entrypoint; third-party `@agentclientprotocol/codex-acp` is out of scope. | `parseCodexLine` on fixtures. |
 
-Child processes get a scrubbed env: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, and similar keys are stripped. Opt in to the API key only with `NCLI_CLAUDE_API_KEY=1`. OAuth tokens are never passed through.
+Child processes get a scrubbed env: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CURSOR_API_KEY`, `NCLI_CURSOR_API_KEY`, and similar keys are stripped. Opt in to the Anthropic API key only with `NCLI_CLAUDE_API_KEY=1`. OAuth tokens and the compaction SDK key are never passed through.
 
 ## Live content
 
@@ -84,15 +87,25 @@ Or MCP `ncli.render({kind, source})`. HTML/react land in an iframe with `sandbox
 
 `NCLI_DEMO=1 bun start` seeds one mermaid + html pair in chat and opens `view://live` (four previews). Open the modal from the right rail, or `?open=<fork-id>`.
 
-## Compaction
+## Compaction (Cursor SDK only)
 
-The memory tree still compresses in the background and never blocks the user turn (`void memory.pump()`). The cheap path is Cursor CLI, mocked in tests:
+The memory tree still compresses in the background and never blocks the user turn (`void memory.pump()`). Compaction talks to the official Cursor TypeScript SDK (`@cursor/sdk`). It does **not** spawn `cursor-agent --print`. That `--print --model` path used to write the compact model into `~/.cursor/cli-config.json` and then the interactive CLI and NCLI ACP seats inherited Haiku.
+
+The agentic Cursor seat stays on the local CLI: `cursor-agent --model $NCLI_CURSOR_MODEL acp` (default `composer-2.5`) with your `cursor-agent login`. Forks and bus `ask` / `wait` use that same CLI adapter. They never import `@cursor/sdk`.
+
+**Key setup (compaction SDK only)**
 
 ```bash
-cursor-agent --print --model claude-haiku-5-5-low --output-format json --trust "…"
+mkdir -p ~/.config/ncli
+printf 'NCLI_CURSOR_API_KEY=cursor_...\n' > ~/.config/ncli/secrets.env
+chmod 600 ~/.config/ncli/secrets.env
 ```
 
-Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, and split a batch before a call would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). The header shows running state and today's tokens versus `NCLI_COMPACT_BUDGET`. Log tokens to `data/compact-log.jsonl`. Prove the Cursor path with `bun run compact:check`. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p` if you want it; it is not the default.
+Mint the key at [https://cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents). NCLI loads that file at startup. A process-env `NCLI_CURSOR_API_KEY` overrides the file. NCLI never reads `CURSOR_API_KEY` or `~/.cursor` for this. The key is passed only as `apiKey` to `Agent.prompt`. CLI children get a scrubbed env. Startup prints `compact: cursor-sdk ok` when the key is present. The key is never logged.
+
+Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, and split a batch before a call would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). The header shows running state and today's tokens versus `NCLI_COMPACT_BUDGET`. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
+
+If an older NCLI build already changed your Cursor CLI default to Haiku, startup prints the file path and the original value when known. It does not rewrite the file.
 
 ## Hack NCLI from inside NCLI
 
@@ -162,6 +175,10 @@ bun test
 | `tests/live.test.ts` | fences, SVG mermaid, sandbox/CSP, blocked `javascript:` URLs, `view://live` | fixtures |
 | `tests/review-guide.test.ts` | chapter order, plan fallback, two-column line numbers, fold, active-file overlap, guided-review chrome | fixtures, mock CLI |
 | `tests/compact-cursor.test.ts` | batch, cache, skip, daily budget, async, token log | injected runner; no `cursor-agent` |
+| `tests/compact-isolate.test.ts` | planted `cli-config.json` is byte-identical after compact; pollution warning | fake HOME |
+| `tests/secrets.test.ts` | `secrets.env` load, process env wins, key redaction | temp home |
+| `tests/quiet-status.test.ts` | ask → Codex says Consultando o Codex | in-process |
+| `tests/chat-patch.test.ts` | token events paint only the live turn | source + CSS |
 | `tests/compaction.test.ts` | view stays under budget; short lines skip Haiku | mock compressor |
 | `tests/context.test.ts` | cover tiles `[0,T)`; zoom | mock compressor |
 | `tests/views.test.ts` | registry + hot load of `hello.ts`; review chapter order | fixtures, no `gh` |
