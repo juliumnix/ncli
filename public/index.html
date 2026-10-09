@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NCLI</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="top">
+    <button class="burger" id="menuBtn" aria-label="menu">☰</button>
+    <span class="brand">NCLI</span>
+  </header>
+
+  <aside class="drawer" id="drawer" hidden>
+    <h2>NCLI</h2>
+    <p class="muted">hub local · um chat infinito</p>
+    <div class="dbg" id="debugPanel">
+      <div class="dbg-h">contexto (memória)</div>
+      <div id="debugMeta" class="muted"></div>
+      <pre id="debugView"></pre>
+    </div>
+    <div>
+      <div class="dbg-h">views</div>
+      <ul id="viewList"></ul>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="col" id="chat"></main>
+
+  <aside class="shortcuts" id="shortcuts"></aside>
+
+  <form class="composer" id="form">
+    <input id="input" autocomplete="off" placeholder="Escreve…" />
+    <button type="submit" class="send" aria-label="enviar">↑</button>
+  </form>
+
+  <div class="overlay" id="overlay" hidden>
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

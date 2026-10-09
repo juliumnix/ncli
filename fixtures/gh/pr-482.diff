@@ -1,0 +1,54 @@
+diff --git a/src/billing/calcTotal.ts b/src/billing/calcTotal.ts
+index 0101010..0202020 100644
+--- a/src/billing/calcTotal.ts
++++ b/src/billing/calcTotal.ts
+@@ -1,7 +1,14 @@
+ export function calcTotal(item, customer) {
+   let total = item.price
+-  if (item.discount) total -= item.discount
++  const kind = customer?.kind
++  const eligible = kind === 'member'
++  if (item.discount && eligible) {
++    total = applyDiscount(total, item.discount)
++  }
++  if (total < 0) total = 0
+   total = applyTax(total)
+   return render(total)
+ }
+diff --git a/src/billing/discount.ts b/src/billing/discount.ts
+index 1111111..2222222 100644
+--- a/src/billing/discount.ts
++++ b/src/billing/discount.ts
+@@ -10,8 +10,14 @@ export function applyDiscount(total, discount) {
+   if (discount <= 0) return total
+-  return total - discount
++  const capped = Math.min(discount, total)
++  return Math.max(0, total - capped)
+ }
+diff --git a/src/billing/types.ts b/src/billing/types.ts
+index 3333333..4444444 100644
+--- a/src/billing/types.ts
++++ b/src/billing/types.ts
+@@ -1,3 +1,7 @@
+ export type CustomerKind = 'guest' | 'member'
++export type Customer = {
++  kind: CustomerKind
++  id?: string
++}
+diff --git a/src/api/budget.ts b/src/api/budget.ts
+index 5555555..6666666 100644
+--- a/src/api/budget.ts
++++ b/src/api/budget.ts
+@@ -4,6 +4,8 @@ export function budgetHandler(req) {
+   const item = req.body.item
+-  return calcTotal(item)
++  return calcTotal(item, req.body.customer)
+ }
+diff --git a/src/billing/discount.test.ts b/src/billing/discount.test.ts
+index 7777777..8888888 100644
+--- a/src/billing/discount.test.ts
++++ b/src/billing/discount.test.ts
+@@ -1,3 +1,8 @@
++test('member applies discount before tax', () => {
++  expect(calcTotal({ price: 100, discount: 10 }, { kind: 'member' })).toBeDefined()
++})
