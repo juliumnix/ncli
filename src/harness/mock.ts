@@ -96,7 +96,9 @@ function qs(params: Record<string, string>): string {
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  const extra = Number(process.env.NCLI_MOCK_STEP_MS || 0);
+  const wait = ms + (Number.isFinite(extra) && extra > 0 ? extra : 0);
+  return new Promise((r) => setTimeout(r, wait));
 }
 
 function chunks(text: string, n: number): string[] {

@@ -56,6 +56,7 @@ Optional env:
 | `NCLI_COMPACT_SKIP` | `80` | skip the CLI when the node is already this many tokens or fewer |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per `cursor-agent --print` call (stay under the Haiku 100k 5x band) |
+| `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 
 ## Harness boundary (ACP-shaped, in-process)
 
