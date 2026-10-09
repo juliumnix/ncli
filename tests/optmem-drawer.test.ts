@@ -19,5 +19,6 @@ test("drawer ships the OptMem list and raw toggle, not a default pre dump", () =
   expect(js).toContain("bloco");
   expect(js).toContain('case "context"');
   expect(js).toContain("Trabalhou por");
+  expect(js).toContain("workOpen");
   expect(js).toContain("Lendo o projeto");
 });
