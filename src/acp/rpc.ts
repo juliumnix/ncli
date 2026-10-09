@@ -1,3 +1,5 @@
+import { formatRpcError } from "./error";
+
 export class NdjsonRpc {
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
@@ -65,7 +67,7 @@ export class NdjsonRpc {
       const wait = this.pending.get(msg.id);
       if (!wait) return;
       this.pending.delete(msg.id);
-      if (msg.error) wait.reject(msg.error);
+      if (msg.error) wait.reject(formatRpcError(msg.error));
       else wait.resolve(msg.result);
       return;
     }

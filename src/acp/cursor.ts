@@ -9,6 +9,38 @@ export function cursorAcpSpawn(cfg: NcliConfig): { command: string; args: string
   return { command: raw[0] ?? "cursor-agent", args: raw.slice(1) };
 }
 
+export type CursorAcpServer =
+  | { type: "http"; name: string; url: string; headers: Array<{ name: string; value: string }> }
+  | { type: "stdio"; name: string; command: string; args: string[]; env: Array<{ name: string; value: string }> };
+
+export function cursorAcpServers(
+  servers: NonNullable<RunOpts["mcpServers"]>,
+): CursorAcpServer[] {
+  return servers.map((s) => {
+    if (s.type === "http" || s.url) {
+      return {
+        type: "http",
+        name: s.name,
+        url: s.url ?? "",
+        headers: nameValues(s.headers),
+      };
+    }
+    return {
+      type: "stdio",
+      name: s.name,
+      command: s.command ?? "bun",
+      args: s.args ?? [],
+      env: nameValues(s.env),
+    };
+  });
+}
+
+function nameValues(rec?: Record<string, string>): Array<{ name: string; value: string }> {
+  return Object.entries(rec ?? {})
+    .filter(([, value]) => value !== "")
+    .map(([name, value]) => ({ name, value }));
+}
+
 export class CursorAcpAdapter implements AcpAdapter {
   readonly id = "cursor";
   constructor(private readonly cfg: NcliConfig) {}
@@ -50,12 +82,7 @@ export class CursorAcpAdapter implements AcpAdapter {
       });
       const { sessionId } = (await rpc.request("session/new", {
         cwd: opts.cwd ?? this.cfg.repo,
-        mcpServers: (opts.mcpServers ?? []).map((s) => ({
-          name: s.name,
-          command: s.command,
-          args: s.args,
-          env: s.env,
-        })),
+        mcpServers: cursorAcpServers(opts.mcpServers ?? []),
       })) as { sessionId: string };
       const promptText = opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
       const promptP = rpc.request("session/prompt", {

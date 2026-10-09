@@ -1,22 +1,30 @@
-# NCLI usability tasks
+# NCLI tasks
 
 Work one item at a time. Finish, test, commit, then move on.
 
-1. [x] ncli MCP connect + single-process `bun start`
-   Streamable HTTP MCP on the Bun server, token per spawn, listening before any child. Startup summary. Fail loud. Readiness test.
-2. [x] Live streaming timeline
-   Status line + timer, thinking, live tool rows, token stream, nested asks, still-working after 5s, stop, persist timeline. Non-blocking POST /api/message. SSE idleTimeout.
-3. [x] Author + header agent
-   Avatar, name, model on every message (main and forks). Header shows main agent and switches live. Quota fallback updates the indicator and posts a notice.
-4. [x] Markdown
-   Render agent messages as sanitized Markdown while streaming. No raw `**`.
-5. [x] Shimmer for live content
-   Skeleton while an `ncli` block streams. Crossfade to the preview. Error + raw source on failure. prefers-reduced-motion.
-6. [x] Fork pill animation
-   Slide-in + fade/scale on create. Attention pulse when the fork needs input or finishes. prefers-reduced-motion.
-7. [x] Compaction
-   UI indicator (running, nodes, tokens vs budget). Model in startup summary. `bun run compact:check`. Batch cap under 100k input tokens (default ~60k).
-8. [x] Favicon + root `bun test`
-   Serve `/favicon.ico`. Root `bun test` only runs NCLI tests.
+## Julio real-use (first)
 
-After all eight: README + ARCHITECTURE, screenshots, PR.
+A. [x] Cursor via NCLI is broken
+   ACP `session/new` mcpServers must keep `type`/`url`/`headers` (HTTP) and `env` as `[{name,value}]`.
+   `rpc.ts` must surface the real JSON-RPC error, not `[object Object]`.
+   Bus `timeout` accepts seconds (Claude sent `120`) or milliseconds; do not treat `120` as 120ms.
+   Integration test: when `cursor-agent acp` / `codex` exist, `ask`/`wait` answers with ncli MCP injected.
+
+D. [ ] Memory view + compact batch (raised)
+   Fix duplicated index (`23+1|23+1|…`). While a node is pending, show truncated raw text, not `(not summarized yet: zoom it)`.
+   Batch pending nodes (debounce a few seconds, up to `NCLI_COMPACT_BATCH`, under the 60k cap). Pump must start a wave together so Haiku is not one node per ~12s call.
+   Live timeline steps must not become memory messages. Keep user / talk / bus / seat / merge / note. At most one `tools:` line per turn.
+   Status and error summaries are time-stamped and go stale. The agent verifies live tools over memory. Tests for all of the above.
+
+B. [ ] Long messages stay readable
+   Chat auto-scrolls while streaming, stops if the user scrolled up.
+   Bubble never clips. Composer never covers the last lines.
+
+C. [ ] Output contract + stream separators + real Markdown
+   Preserve separators between text blocks so sentences do not glue (`causa.Causa`).
+   Render headings, lists, and code. System prompt: short status first, progress on the live timeline, concise final answer.
+
+## Then
+
+E. [ ] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
+F. [ ] Visual redesign (Telegram-like dark, Emil motion rules) + review checklist + screenshots + PR
