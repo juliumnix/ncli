@@ -23,6 +23,7 @@ const state = {
   ctxRaw: false,
   ctxTree: false,
   switchOpen: false,
+  workOpen: new Set(),
   zoomId: "",
   zoomLines: [],
   lastTurn: null,
@@ -339,7 +340,8 @@ function liveTurnHtml(turn) {
 
 function workDisclosure(turn) {
   const steps = (turn.steps || []).map((s) => stepHtml(s)).join("");
-  return `<div class="work-disc" data-turn="${escapeHtml(turn.id)}">
+  const open = state.workOpen.has(turn.id) ? " open" : "";
+  return `<div class="work-disc${open}" data-turn="${escapeHtml(turn.id)}">
     <button type="button" class="work-sum">${escapeHtml(workedOf(turn))}</button>
     <div class="work-panel"><div class="live-steps">${steps}</div></div>
   </div>`;
@@ -945,7 +947,13 @@ document.addEventListener("click", (e) => {
   const sum = e.target.closest(".work-sum");
   if (sum) {
     e.preventDefault();
-    sum.parentElement.classList.toggle("open");
+    const id = sum.parentElement?.dataset?.turn;
+    if (id) {
+      if (state.workOpen.has(id)) state.workOpen.delete(id);
+      else state.workOpen.add(id);
+    }
+    if (id && state.workOpen.has(id)) stick.follow = true;
+    renderChat();
     return;
   }
   const row = e.target.closest(".ctx-row");
