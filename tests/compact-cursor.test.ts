@@ -24,7 +24,7 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
     compactDebounceMs: 20,
     compactSkipTokens: 8,
     compactBudgetTokens: 250000,
-    compactModel: "claude-haiku-5-5-low",
+    compactModel: "claude-haiku-5-5",
     nodeBytes: 140,
     ...extra,
   });
@@ -76,7 +76,7 @@ test("a full batch is one Cursor call with a short numbered prompt", async () =>
   const prompts: string[] = [];
   const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 1 }), async (prompt, model) => {
     prompts.push(prompt);
-    expect(model).toBe("claude-haiku-5-5-low");
+    expect(model).toBe("claude-haiku-5-5");
     return "1. leaf one\n2. leaf two";
   });
   const [a, b] = await Promise.all([
@@ -91,7 +91,7 @@ test("a full batch is one Cursor call with a short numbered prompt", async () =>
   const row = JSON.parse(readFileSync(join(dir, "compact-log.jsonl"), "utf8").trim().split("\n").at(-1)!);
   expect(row.items).toBe(2);
   expect(row.tokensIn).toBeGreaterThan(0);
-  expect(row.model).toBe("claude-haiku-5-5-low");
+  expect(row.model).toBe("claude-haiku-5-5");
 });
 
 test("daily budget stops further Cursor calls and falls back to a cut line", async () => {

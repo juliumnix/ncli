@@ -29,7 +29,7 @@ test("SDK compact runner leaves a planted cli-config.json byte-identical even if
     sdk: async (_prompt, model, key) => {
       seenKey = key;
       writeFileSync(path, '{"model":{"defaultModel":"claude-haiku-5-5-low"}}\n');
-      expect(model).toBe("claude-haiku-5-5-low");
+      expect(model).toBe("claude-haiku-5-5");
       return "1. one line memory";
     },
   });
