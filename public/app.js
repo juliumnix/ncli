@@ -6,7 +6,6 @@ const overlay = $("overlay");
 const modal = $("modal");
 const input = $("input");
 const debugView = $("debugView");
-const debugMeta = $("debugMeta");
 const viewList = $("viewList");
 
 const stick = { follow: true };
@@ -18,6 +17,14 @@ const state = {
   views: [],
   waiting: [],
   debug: null,
+  context: null,
+  ctxPrev: [],
+  ctxOps: [],
+  ctxRaw: false,
+  ctxTree: false,
+  zoomId: "",
+  zoomLines: [],
+  lastTurn: null,
   openFork: null,
   forkTab: "Guide",
   forkDetail: null,
@@ -203,7 +210,12 @@ function renderChat() {
   const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
   const showDays = days.size > 1;
   let lastDay = "";
-  for (const m of state.messages) {
+  let lastTalkAt = -1;
+  for (let i = 0; i < state.messages.length; i++) {
+    if (state.messages[i].kind === "talk") lastTalkAt = i;
+  }
+  for (let i = 0; i < state.messages.length; i++) {
+    const m = state.messages[i];
     if (showDays) {
       const day = dayLabel(m.date);
       if (day !== lastDay) {
@@ -242,6 +254,9 @@ function renderChat() {
       <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
       <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
     </div></div>`);
+    if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) {
+      parts.push(workDisclosure(state.lastTurn));
+    }
   }
   if (state.turn && state.turn.status === "running") {
     parts.push(liveTurnHtml(state.turn));
@@ -287,20 +302,66 @@ function thinkBlock(seat, model, text, open, durationMs) {
 }
 
 function liveTurnHtml(turn) {
-  const seat = turn.seat || "claude";
-  const elapsed = elapsedLabel(turn.startedAt);
-  const silent = Date.now() - Date.parse(turn.lastEventAt || turn.startedAt) >= 5000;
-  const status = silent
-    ? `ainda trabalhando · ${elapsed}`
-    : `pensando… · ${elapsed}`;
-  const steps = (turn.steps || []).map((s) => stepHtml(s)).join("");
-  return `<div class="live" data-turn="${escapeHtml(turn.id)}">
-    <div class="live-h">${avatar(seat)}<div>
-      <div class="nm ${seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu"}">${escapeHtml(agentLabel(seat, turn.model))}</div>
-      <div class="live-st"><span class="spin"></span>${escapeHtml(status)}</div>
-    </div></div>
-    <div class="live-steps">${steps}</div>
+  const q = quietOf(turn);
+  const chips = (q.chips || []).map((c) => (
+    `<span class="consult-chip">${avatar(c.seat)}${escapeHtml(c.label)}</span>`
+  )).join("");
+  const answer = q.answer
+    ? `<div class="live-answer"><div class="md chunk">${bodyHtml(q.answer, true)}</div></div>`
+    : "";
+  return `<div class="live quiet" data-turn="${escapeHtml(turn.id)}">
+    <div class="live-status"><span class="shimmer-text">${escapeHtml(q.phrase)}</span><span class="tdur">${escapeHtml(q.elapsed)}</span></div>
+    ${chips ? `<div class="consult-chips">${chips}</div>` : ""}
+    ${answer}
   </div>`;
+}
+
+function workDisclosure(turn) {
+  const steps = (turn.steps || []).map((s) => stepHtml(s)).join("");
+  return `<div class="work-disc" data-turn="${escapeHtml(turn.id)}">
+    <button type="button" class="work-sum">${escapeHtml(workedOf(turn))}</button>
+    <div class="work-panel"><div class="live-steps">${steps}</div></div>
+  </div>`;
+}
+
+function quietOf(turn) {
+  const steps = turn.steps || [];
+  const running = [...steps].reverse().find((s) => s.status === "running") || steps[steps.length - 1];
+  const answer = steps.filter((s) => s.kind === "text").map((s) => s.text).join("");
+  const chips = [];
+  const seen = new Set();
+  for (const s of steps) {
+    if (!s.seat || s.seat === turn.seat || seen.has(s.seat)) continue;
+    seen.add(s.seat);
+    chips.push({ seat: s.seat, label: `consultou ${SEAT[s.seat]?.name || s.seat}` });
+  }
+  return {
+    phrase: quietPhrase(running),
+    elapsed: elapsedLabel(turn.startedAt),
+    chips,
+    answer,
+  };
+}
+
+function quietPhrase(step) {
+  if (!step) return "Trabalhando…";
+  if (step.kind === "thinking") return "Pensando…";
+  if (step.kind === "text") return "Escrevendo a resposta…";
+  const name = step.tool?.name || step.title || step.to || "";
+  if (/read|glob|grep|list|cat|ls\b|file/i.test(name)) return "Lendo o projeto…";
+  if (/cursor|ask|wait|bus|inbox/i.test(name)) return "Consultando o Cursor…";
+  if (/codex/i.test(name)) return "Consultando o Codex…";
+  if (/bash|shell|cmd|exec|run/i.test(name)) return "Rodando um comando…";
+  if (/write|edit|patch|apply/i.test(name)) return "Editando arquivos…";
+  if (/web|fetch|search|http/i.test(name)) return "Pesquisando…";
+  return "Trabalhando…";
+}
+
+function workedOf(turn) {
+  const ms = Math.max(0, Date.parse(turn.endedAt || turn.lastEventAt || turn.startedAt) - Date.parse(turn.startedAt));
+  const s = Math.max(1, Math.round(ms / 1000));
+  const n = (turn.steps || []).length;
+  return `Trabalhou por ${s}s · ${n} ${n === 1 ? "passo" : "passos"}`;
 }
 
 function stepHtml(s) {
@@ -387,13 +448,163 @@ function renderShortcuts() {
 }
 
 function renderDebug() {
-  const d = state.debug;
-  if (!d) return;
-  debugMeta.textContent = `${d.bytes}/${d.budget} bytes · ${d.T ?? "?"} msgs · ${(d.levels || []).join(" ")}`;
-  debugView.textContent = (d.lines || []).join("\n");
+  renderContext();
+}
+
+function renderContext() {
+  const ctx = state.context;
+  const head = $("ctxHead");
+  const list = $("ctxList");
+  const cascade = $("ctxCascade");
+  const tree = $("ctxTree");
+  const raw = debugView;
+  if (head && ctx) {
+    const k = Math.round((ctx.compact?.tokensToday || 0) / 100) / 10;
+    const b = Math.round((ctx.compact?.budget || ctx.budget || 0) / 1000);
+    const model = ctx.compact?.model || "haiku";
+    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}`;
+  } else if (head && state.debug) {
+    const d = state.debug;
+    head.textContent = `${d.bytes}/${d.budget} bytes · ${d.T ?? "?"} msgs · ${(d.levels || []).join(" ")}`;
+  }
+  if (raw) {
+    raw.hidden = !state.ctxRaw;
+    raw.textContent = ((ctx && rowLines(ctx.rows)) || (state.debug && state.debug.lines) || []).join("\n");
+  }
+  if (list) {
+    list.hidden = state.ctxRaw || state.ctxTree;
+    if (ctx) list.innerHTML = ctx.rows.map((row) => contextRowHtml(row)).join("");
+  }
+  if (cascade && ctx) cascade.innerHTML = cascadeHtml(ctx.rows);
+  if (tree) {
+    tree.hidden = !state.ctxTree || state.ctxRaw;
+    if (state.ctxTree && ctx) tree.innerHTML = treeSvg(ctx.rows);
+  }
   viewList.innerHTML = state.views
     .map((v) => `<li><code>view://${v.id}</code> · ${escapeHtml(v.label)} <span class="muted">${escapeHtml(v.file)}</span></li>`)
     .join("");
+}
+
+function rowLines(rows) {
+  return (rows || []).map((r) => `${r.id}|${r.text}`);
+}
+
+function contextRowHtml(row) {
+  const op = (state.ctxOps || []).find((o) => o.id === row.id || o.into === row.id);
+  const enter = op && op.op === "add";
+  const flash = op && (op.op === "update" || op.op === "merge");
+  const klass = ["ctx-row", !row.built ? "pending" : "", enter ? "enter" : "", flash ? "flash" : ""].filter(Boolean).join(" ");
+  const zoom = state.zoomId === row.id && state.zoomLines.length
+    ? `<div class="ctx-zoom">${state.zoomLines.map((ln) => `<div>${escapeHtml(ln)}</div>`).join("")}</div>`
+    : "";
+  return `<button type="button" class="${klass}" data-start="${row.start}" data-n="${row.n}">
+    <span class="ctx-badge" style="background:${badgeTone(row.n)}">x${row.n}</span>
+    <span class="ctx-sum">${escapeHtml(row.text)}</span>
+    <span class="ctx-time">${escapeHtml(relativeTime(row.to || row.from))}</span>
+  </button>${zoom}`;
+}
+
+function cascadeHtml(rows) {
+  const by = new Map();
+  for (const row of rows || []) {
+    if (!by.has(row.n)) by.set(row.n, []);
+    by.get(row.n).push(row);
+  }
+  return [...by.keys()].sort((a, b) => a - b).map((n) => {
+    const blocks = by.get(n).map((row) => `<i class="ctx-block" style="background:${badgeTone(n)}"></i>`).join("");
+    return `<div class="ctx-lane"><b>x${n}</b>${blocks}</div>`;
+  }).join("");
+}
+
+function treeSvg(rows) {
+  const list = rows || [];
+  const w = 360;
+  const rowH = 36;
+  const h = Math.max(40, list.length * rowH + 16);
+  const nodes = list.map((row, i) => {
+    const y = 12 + i * rowH;
+    const x = 24 + Math.min(8, Math.log2(Math.max(1, row.n))) * 18;
+    return { row, x, y, i };
+  });
+  const lines = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    if (a.row.n < 2) continue;
+    const half = a.row.n / 2;
+    const kids = nodes.filter((n) => n.row.n === half && n.row.start >= a.row.start && n.row.start < a.row.start + a.row.n);
+    for (const kid of kids) {
+      const midY = (a.y + kid.y) / 2;
+      lines.push(`<path d="M${a.x + 20} ${a.y + 18} V${midY} H${kid.x + 20} V${kid.y}" fill="none" stroke="${badgeTone(a.row.n)}" stroke-width="1.2"/>`);
+    }
+  }
+  const boxes = nodes.map((n) => {
+    const label = escapeHtml(n.row.text.slice(0, 42));
+    return `<g>
+      <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="6" fill="#18181a" stroke="${badgeTone(n.row.n)}"/>
+      <rect x="${n.x}" y="${n.y}" width="36" height="28" rx="6" fill="${badgeTone(n.row.n)}"/>
+      <text x="${n.x + 18}" y="${n.y + 18}" text-anchor="middle" fill="#fff" font-size="10" font-family="ui-monospace,monospace">x${n.row.n}</text>
+      <text x="${n.x + 44}" y="${n.y + 18}" fill="#d0d0d0" font-size="10" font-family="ui-monospace,monospace">${label}</text>
+    </g>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" height="${h}">${lines.join("")}${boxes}</svg>`;
+}
+
+function badgeTone(n) {
+  const stops = [[0, [40, 167, 69]], [2, [92, 184, 92]], [5, [156, 184, 44]], [8, [208, 128, 48]], [10, [178, 102, 32]]];
+  const lv = Math.log2(Math.max(1, n));
+  let lo = stops[0];
+  let hi = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (lv >= stops[i][0] && lv <= stops[i + 1][0]) {
+      lo = stops[i];
+      hi = stops[i + 1];
+      break;
+    }
+  }
+  const span = hi[0] - lo[0] || 1;
+  const t = Math.min(1, Math.max(0, (lv - lo[0]) / span));
+  return `#${lo[1].map((c, i) => Math.round(c + (hi[1][i] - c) * t).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function relativeTime(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 10) return "agora";
+  if (s < 60) return `há ${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `há ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 45) return `há ${d} d`;
+  const mo = Math.round(d / 30);
+  if (mo < 18) return `~${mo} ${mo === 1 ? "mês" : "meses"} atrás`;
+  const y = Math.round(d / 365);
+  return `~${y} ${y === 1 ? "ano" : "anos"} atrás`;
+}
+
+function diffContext(prev, next) {
+  const prevById = new Map((prev || []).map((row) => [row.id, row]));
+  const ops = [];
+  for (const row of next || []) {
+    const old = prevById.get(row.id);
+    if (old) {
+      if (old.text !== row.text || old.built !== row.built) ops.push({ op: "update", id: row.id });
+      continue;
+    }
+    const half = row.n / 2;
+    if (half >= 1 && Number.isInteger(half)) {
+      const left = `${row.start}+${half}`;
+      const right = `${row.start + half}+${half}`;
+      if (prevById.has(left) && prevById.has(right)) {
+        ops.push({ op: "merge", from: [left, right], into: row.id });
+        continue;
+      }
+    }
+    ops.push({ op: "add", id: row.id });
+  }
+  return ops;
 }
 
 async function openFork(id) {
@@ -579,7 +790,12 @@ function applyEvent(ev) {
     case "turn":
       if (ev.session === "main") {
         state.turn = ev.turn;
-        if (ev.turn && ev.turn.status !== "running") state.stream = "";
+        if (ev.turn && ev.turn.status !== "running") {
+          state.stream = "";
+          if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
+            state.lastTurn = ev.turn;
+          }
+        }
         renderChat();
       } else {
         state.forkTurns[ev.session] = ev.turn;
@@ -628,6 +844,12 @@ function applyEvent(ev) {
       state.debug = ev;
       renderDebug();
       break;
+    case "context":
+      state.ctxOps = diffContext(state.ctxPrev, ev.rows || []);
+      state.ctxPrev = ev.rows || [];
+      state.context = ev;
+      renderContext();
+      break;
     default:
       break;
   }
@@ -650,6 +872,40 @@ setInterval(() => {
   if (state.turn && state.turn.status === "running") renderChat();
 }, 1000);
 
+document.addEventListener("click", (e) => {
+  const sum = e.target.closest(".work-sum");
+  if (sum) {
+    e.preventDefault();
+    sum.parentElement.classList.toggle("open");
+    return;
+  }
+  const row = e.target.closest(".ctx-row");
+  if (row) {
+    e.preventDefault();
+    const start = Number(row.dataset.start);
+    const n = Number(row.dataset.n);
+    const id = `${start}+${n}`;
+    if (state.zoomId === id) {
+      state.zoomId = "";
+      state.zoomLines = [];
+      renderContext();
+      return;
+    }
+    fetch(`/api/memory/zoom?id=${start}&n=${n}`).then((r) => r.json()).then((data) => {
+      state.zoomId = id;
+      state.zoomLines = data.ok ? data.lines : [data.error || "sem zoom"];
+      renderContext();
+    });
+  }
+});
+$("ctxRaw")?.addEventListener("change", (e) => {
+  state.ctxRaw = e.target.checked;
+  renderContext();
+});
+$("ctxTreeBtn")?.addEventListener("click", () => {
+  state.ctxTree = !state.ctxTree;
+  renderContext();
+});
 chat.addEventListener("click", (e) => {
   const a = e.target.closest(".vlink");
   if (!a) return;
@@ -802,7 +1058,10 @@ async function boot() {
   for (const f of state.forks) seenPills.add(f.id);
   state.views = snap.views || [];
   state.debug = snap.debug;
+  state.context = snap.context || null;
+  state.ctxPrev = (snap.context && snap.context.rows) || [];
   state.main = snap.main || state.main;
+  state.lastTurn = snap.turn && snap.turn.status !== "running" ? snap.turn : null;
   state.turn = snap.turn || null;
   state.compact = snap.compact || null;
   renderChat();
