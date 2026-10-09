@@ -48,11 +48,11 @@ Optional env:
 | `NCLI_CLAUDE_MODEL` | unset | passed as `--model` |
 | `NCLI_CLAUDE_API_KEY` | unset | `1` lets the child keep `ANTHROPIC_API_KEY`; default is strip |
 | `NCLI_CURSOR` | `cursor-agent` | Cursor CLI binary for the agentic seat (`cursor-agent acp`). Not used for compaction |
-| `NCLI_CURSOR_MODEL` | `composer-2.5` | pinned on `cursor-agent --model … acp`. Independent of the compact model |
+| `NCLI_CURSOR_MODEL` | `composer-2.5` | pinned on `cursor-agent --model … acp`. Empty falls back to `composer-2.5`. Independent of the compact model |
 | `NCLI_ACP_CURSOR` | `cursor-agent acp` | first-party Cursor ACP entrypoint only |
 | `NCLI_CURSOR_API_KEY` | unset | compaction SDK only. Load from `~/.config/ncli/secrets.env` (chmod 600). Process env overrides the file. Never passed to a CLI child |
 | `NCLI_CODEX` | `codex` | Codex binary; NCLI wraps `codex exec --json` |
-| `NCLI_CODEX_MODEL` | `gpt-5.4` | pinned on `codex exec --json --model` |
+| `NCLI_CODEX_MODEL` | unset | if set, passed as `codex exec --json --model`. Default is no `--model` so Codex uses `~/.codex/config.toml`. The UI reads that file and Codex json read-only |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `claude-haiku-5-5-low` | model for `@cursor/sdk` compaction |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |

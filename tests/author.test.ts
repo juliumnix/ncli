@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { agentLabel } from "../src/agent";
-import { makeHub } from "./helpers";
+import { makeHub, tmpDir } from "./helpers";
 
 test("every talk, tool, think and bus line carries the seat that wrote it", async () => {
   const { hub } = await makeHub();
@@ -21,16 +23,22 @@ test("every talk, tool, think and bus line carries the seat that wrote it", asyn
 });
 
 test("switching the main agent updates the header snapshot and fallback posts a notice", async () => {
+  const home = tmpDir("codex-home");
+  writeFileSync(join(home, "config.toml"), 'model = "gpt-6.1-sol"\n', "utf8");
+  const prev = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
   const { hub } = await makeHub();
   try {
     hub.switchMain("codex");
     expect(hub.snapshot().main.harness).toBe("codex");
-    expect(hub.snapshot().main.model).toBe("gpt-5.4");
+    expect(hub.snapshot().main.model).toBe("gpt-6.1-sol");
     hub.switchMain("cursor");
     expect(hub.snapshot().main.model).toBe("composer-2.5");
-    expect(agentLabel("codex", "gpt-5.4")).toBe("Codex · GPT 5.4");
+    expect(agentLabel("codex", "gpt-6.1-sol")).toBe("Codex · GPT 6.1-sol");
     expect(agentLabel("claude", "claude-opus-4-5")).toBe("Claude · Opus 4.5");
   } finally {
     hub.close();
+    if (prev === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prev;
   }
 });
