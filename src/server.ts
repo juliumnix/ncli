@@ -39,6 +39,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(enc.encode(`data: ${JSON.stringify(snap)}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "main", main: hub.mainAgent() })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "compact", compact: hub.compact })}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify(hub.snapshot().context)}\n\n`));
             if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
           },
           cancel() {

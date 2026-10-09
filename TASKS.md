@@ -26,17 +26,10 @@ C. [x] Output contract + stream separators + real Markdown
 
 ## Then
 
-E. [ ] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
-F. [ ] Visual redesign (Telegram-like dark, Emil motion rules) + review checklist + screenshots + PR
-   Memory / compaction drawer is part of this pass, not a later polish.
-   Replace raw `i+1|kind: text` lines with a tree a person can read.
-   Recent messages stay verbatim. Older ones group into compacted levels (2× / 4× / 8× …)
-   as cards with author avatar, time range, and a plain-language summary.
-   Pending nodes show the original text with a subtle shimmer while Haiku summarizes,
-   then crossfade into the summary.
-   A small header shows nodes compacted, tokens today vs budget, and the model.
-   Click a card to zoom into its original messages.
-   Motion follows Emil (short ease-out, transform/opacity only, layout-aware
-   expand/collapse, prefers-reduced-motion).
-   Keep the raw text view as a debug toggle.
-   Before/after screenshots of the drawer.
+E. [x] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
+F. [x] Visual redesign (native dark, Emil motion) + review checklist + screenshots + PR
+   Memory drawer uses OptMem structure only: oldest/most-compacted at top,
+   power-of-two badges, relative times, accent flash, live SSE `context`.
+   Native look: wrap row text, chip toggles, level pills with counts.
+   Agent replies are single-layer on the canvas. User bubbles match card tokens.
+   Header clusters the harness switcher and compact chip. Quiet live status.

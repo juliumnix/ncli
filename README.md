@@ -96,7 +96,7 @@ Batch several nodes, skip tiny ones, cache by content hash, stop at the daily to
 
 ## Hack NCLI from inside NCLI
 
-The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md` (pstack vendored in `ncli/skills/pstack/`). One MCP registry: `ncli/mcp.json`. NCLI translates both into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a fork worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
+The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md` (pstack vendored in `ncli/skills/pstack/`, Emil in `ncli/skills/emil/`). One MCP registry: `ncli/mcp.json`. NCLI translates both into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a fork worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
 
 ```bash
 bun run ncli skills
@@ -186,4 +186,4 @@ Hot reload while the app is up: `bun run ncli new view hello`, then `view://hell
 
 ## Development
 
-All development uses pstack. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`.
+All development uses pstack. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`. Sync Emil with `bun run scripts/sync-emil.ts`.

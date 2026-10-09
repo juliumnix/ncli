@@ -39,9 +39,11 @@ export class Memory {
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
   view: ViewPart[] = [];
+  onChange: (() => void) | null = null;
   private busy = new Set<string>();
   private waiters: Array<() => void> = [];
   private pumping: Promise<void> | null = null;
+  private muteChange = false;
 
   constructor(opts: MemoryOptions) {
     this.dir = opts.dir;
@@ -103,6 +105,7 @@ export class Memory {
     persistLine(join(this.dir, "log.jsonl"), msg);
     this.view.push(this.partFromLevel(0, msg.i));
     this.fit();
+    this.notify();
     void this.pump();
     return msg;
   }
@@ -306,6 +309,7 @@ export class Memory {
     this.nodes.set(Memory.key(l, i), node);
     persistLine(join(this.dir, "tree.jsonl"), node);
     this.refreshViewParts();
+    this.notify();
   }
 
   private contextBefore(end: number): string[] {
@@ -382,16 +386,25 @@ export class Memory {
       const parentPart = this.partFromLevel(a.l + 1, Math.floor(a.i / 2));
       this.view.splice(bestAt, 2, parentPart);
       size = this.viewBytesUsed();
+      this.notify();
     }
     this.flushWaiters();
   }
 
   rebuildView(): void {
+    this.muteChange = true;
     this.view = [];
     for (let i = 0; i < this.T; i++) {
       this.view.push(this.partFromLevel(0, i));
       this.fit();
     }
+    this.muteChange = false;
+    this.notify();
+  }
+
+  private notify(): void {
+    if (this.muteChange) return;
+    this.onChange?.();
   }
 
   private flushWaiters(): void {
@@ -440,6 +453,8 @@ function persistLine(path: string, obj: unknown): void {
 
 export function mockCompressor(): Compressor {
   return async (input) => {
+    const delay = Number(process.env.NCLI_COMPACT_DELAY ?? 0);
+    if (Number.isFinite(delay) && delay > 0) await Bun.sleep(delay);
     const limit = input.nodeBytes;
     const raw = input.kind === "merge"
       ? `${input.left ?? ""} ${input.right ?? ""}`

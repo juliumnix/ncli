@@ -11,18 +11,31 @@
   <header class="top">
     <button class="burger" id="menuBtn" aria-label="menu">☰</button>
     <span class="brand">NCLI</span>
-    <div class="agent-switch" id="agentSwitch"></div>
-    <span class="compact-ind" id="compactInd" hidden></span>
+    <div class="top-cluster">
+      <div class="agent-switch" id="agentSwitch"></div>
+      <span class="compact-ind" id="compactInd" hidden></span>
+    </div>
     <button class="stop" id="stopBtn" hidden type="button">parar</button>
   </header>
 
   <aside class="drawer" id="drawer" hidden>
     <h2>NCLI</h2>
     <p class="muted">hub local · um chat infinito</p>
-    <div class="dbg" id="debugPanel">
-      <div class="dbg-h">contexto (memória)</div>
-      <div id="debugMeta" class="muted"></div>
-      <pre id="debugView"></pre>
+    <div class="ctx" id="debugPanel">
+      <div class="ctx-bar">
+        <div class="dbg-h">contexto</div>
+        <div class="ctx-tools" role="group" aria-label="modo do contexto">
+          <button type="button" class="ctx-chip on" id="ctxListBtn" data-ctx-mode="list">lista</button>
+          <button type="button" class="ctx-chip" id="ctxTreeBtn" data-ctx-mode="tree">árvore</button>
+          <button type="button" class="ctx-chip" id="ctxRawBtn" data-ctx-mode="raw">bruto</button>
+        </div>
+        <input type="checkbox" id="ctxRaw" hidden />
+      </div>
+      <div id="ctxHead" class="ctx-head muted"></div>
+      <div id="ctxCascade" class="ctx-cascade" aria-hidden="true"></div>
+      <div id="ctxList" class="ctx-list"></div>
+      <div id="ctxTree" class="ctx-tree" hidden></div>
+      <pre id="debugView" hidden></pre>
     </div>
     <div>
       <div class="dbg-h">views</div>
@@ -34,6 +47,7 @@
   <main class="scroller" id="chat">
     <div class="log" id="log"></div>
   </main>
+  <button type="button" class="jump-latest" id="jumpLatest" hidden>↓ agora</button>
 
   <aside class="shortcuts" id="shortcuts"></aside>
 
