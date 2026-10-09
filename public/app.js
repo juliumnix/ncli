@@ -22,6 +22,7 @@ const state = {
   ctxOps: [],
   ctxRaw: false,
   ctxTree: false,
+  switchOpen: false,
   zoomId: "",
   zoomLines: [],
   lastTurn: null,
@@ -395,12 +396,17 @@ function renderChrome() {
   if (sw) {
     const main = state.main || { harness: "claude" };
     const seat = main.harness === "mock" ? "claude" : main.harness;
-    sw.innerHTML = `${avatar(seat)}<label><span>${escapeHtml(agentLabel(seat, main.model))}</span>
-      <select id="harnessSel" aria-label="agente principal">
-        <option value="claude"${main.harness === "claude" ? " selected" : ""}>Claude</option>
-        <option value="codex"${main.harness === "codex" ? " selected" : ""}>Codex</option>
-        <option value="cursor"${main.harness === "cursor" ? " selected" : ""}>Cursor</option>
-      </select></label>`;
+    const opts = [
+      ["claude", "Claude"],
+      ["codex", "Codex"],
+      ["cursor", "Cursor"],
+    ].map(([value, label]) => (
+      `<button type="button" class="switch-opt${main.harness === value ? " on" : ""}" data-harness="${value}">${escapeHtml(label)}</button>`
+    )).join("");
+    sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
+      ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
+    </button>
+    <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
   }
   const c = $("compactInd");
   if (c && state.compact) {
@@ -476,6 +482,7 @@ function renderContext() {
     tree.hidden = !state.ctxTree || state.ctxRaw;
     if (state.ctxTree && ctx) tree.innerHTML = treeSvg(ctx.rows);
   }
+  paintCtxMode();
   viewList.innerHTML = state.views
     .map((v) => `<li><code>view://${v.id}</code> · ${escapeHtml(v.label)} <span class="muted">${escapeHtml(v.file)}</span></li>`)
     .join("");
@@ -503,13 +510,37 @@ function contextRowHtml(row) {
 function cascadeHtml(rows) {
   const by = new Map();
   for (const row of rows || []) {
-    if (!by.has(row.n)) by.set(row.n, []);
-    by.get(row.n).push(row);
+    by.set(row.n, (by.get(row.n) || 0) + 1);
   }
   return [...by.keys()].sort((a, b) => a - b).map((n) => {
-    const blocks = by.get(n).map((row) => `<i class="ctx-block" style="background:${badgeTone(n)}"></i>`).join("");
-    return `<div class="ctx-lane"><b>x${n}</b>${blocks}</div>`;
+    const count = by.get(n);
+    return `<span class="ctx-lane"><b>x${n}</b><em>${count} ${count === 1 ? "bloco" : "blocos"}</em></span>`;
   }).join("");
+}
+
+function paintCtxMode() {
+  const mode = state.ctxRaw ? "raw" : state.ctxTree ? "tree" : "list";
+  document.querySelectorAll("[data-ctx-mode]").forEach((btn) => {
+    btn.classList.toggle("on", btn.dataset.ctxMode === mode);
+  });
+  const raw = $("ctxRaw");
+  if (raw) raw.checked = state.ctxRaw;
+}
+
+function setCtxMode(mode) {
+  state.ctxRaw = mode === "raw";
+  state.ctxTree = mode === "tree";
+  renderContext();
+}
+
+function setDrawer(open) {
+  const d = $("drawer");
+  const s = $("scrim");
+  if (!d) return;
+  d.hidden = !open;
+  const wide = window.matchMedia("(min-width: 1100px)").matches;
+  if (s) s.hidden = !open || wide;
+  document.body.classList.toggle("drawer-open", open);
 }
 
 function treeSvg(rows) {
@@ -855,13 +886,35 @@ $("stopBtn")?.addEventListener("click", () => {
   fetch("/api/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "main" }) });
 });
 
-document.addEventListener("change", (e) => {
-  if (e.target.id !== "harnessSel") return;
-  fetch("/api/harness", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ harness: e.target.value }),
-  });
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("#switchBtn");
+  if (btn) {
+    e.preventDefault();
+    state.switchOpen = !state.switchOpen;
+    renderChrome();
+    return;
+  }
+  const opt = e.target.closest("[data-harness]");
+  if (opt) {
+    e.preventDefault();
+    state.switchOpen = false;
+    fetch("/api/harness", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ harness: opt.dataset.harness }),
+    });
+    renderChrome();
+    return;
+  }
+  if (state.switchOpen && !e.target.closest(".agent-switch")) {
+    state.switchOpen = false;
+    renderChrome();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !state.switchOpen) return;
+  state.switchOpen = false;
+  renderChrome();
 });
 
 setInterval(() => {
@@ -894,13 +947,11 @@ document.addEventListener("click", (e) => {
     });
   }
 });
-$("ctxRaw")?.addEventListener("change", (e) => {
-  state.ctxRaw = e.target.checked;
-  renderContext();
+document.querySelectorAll("[data-ctx-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => setCtxMode(btn.dataset.ctxMode));
 });
-$("ctxTreeBtn")?.addEventListener("click", () => {
-  state.ctxTree = !state.ctxTree;
-  renderContext();
+$("ctxRaw")?.addEventListener("change", (e) => {
+  setCtxMode(e.target.checked ? "raw" : "list");
 });
 chat.addEventListener("click", (e) => {
   const a = e.target.closest(".vlink");
@@ -1029,15 +1080,9 @@ overlay.addEventListener("submit", async (e) => {
 });
 
 $("menuBtn").addEventListener("click", () => {
-  const d = $("drawer");
-  const s = $("scrim");
-  d.hidden = !d.hidden;
-  s.hidden = d.hidden;
+  setDrawer($("drawer").hidden);
 });
-$("scrim").addEventListener("click", () => {
-  $("drawer").hidden = true;
-  $("scrim").hidden = true;
-});
+$("scrim").addEventListener("click", () => setDrawer(false));
 
 chat.addEventListener("scroll", () => {
   stick.follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;

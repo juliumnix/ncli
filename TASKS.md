@@ -27,7 +27,9 @@ C. [x] Output contract + stream separators + real Markdown
 ## Then
 
 E. [x] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
-F. [x] Visual redesign (Telegram-like dark, Emil motion rules) + review checklist + screenshots + PR
-   Memory drawer matches OptMem: mono list, x1–x256 badges, relative times,
-   gold flash, live cascade from real SSE `context` events, optional merge tree.
-   Quiet live status (shimmer + disclosure). Raw toggle kept.
+F. [x] Visual redesign (native dark, Emil motion) + review checklist + screenshots + PR
+   Memory drawer uses OptMem structure only: oldest/most-compacted at top,
+   power-of-two badges, relative times, accent flash, live SSE `context`.
+   Native look: wrap row text, chip toggles, level pills with counts.
+   Agent replies are single-layer on the canvas. User bubbles match card tokens.
+   Header clusters the harness switcher and compact chip. Quiet live status.
