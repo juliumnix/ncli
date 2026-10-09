@@ -10,7 +10,7 @@ Work one item at a time. Finish, test, commit, then move on.
    Avatar, name, model on every message (main and forks). Header shows main agent and switches live. Quota fallback updates the indicator and posts a notice.
 4. [x] Markdown
    Render agent messages as sanitized Markdown while streaming. No raw `**`.
-5. [ ] Shimmer for live content
+5. [x] Shimmer for live content
    Skeleton while an `ncli` block streams. Crossfade to the preview. Error + raw source on failure. prefers-reduced-motion.
 6. [ ] Fork pill animation
    Slide-in + fade/scale on create. Attention pulse when the fork needs input or finishes. prefers-reduced-motion.
