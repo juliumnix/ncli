@@ -668,6 +668,19 @@ body.rv-open .shortcuts {
   animation: ncli-shimmer 1.2s ease-in-out infinite;
   vertical-align: middle;
 }
+.ctx-who {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: 0 0 auto; padding-top: 1px;
+}
+.ctx-who .av { width: 18px; height: 18px; flex-basis: 18px; }
+.ctx-who .av img { width: 10px; height: 10px; }
+.av.user {
+  background: #2a2422; color: #e8d4cc;
+  font-size: 9px; font-weight: 700; letter-spacing: 0;
+}
+.ctx-who b { font-size: 12px; font-weight: 600; color: #ececec; }
+.ctx-who.agent b { color: #c2603d; }
+.ctx-who.agent .av.cx + b, .ctx-who.agent .av.cu + b { color: #d0d0d0; }
 .ctx-badge {
   flex: 0 0 40px; width: 40px; text-align: center;
   color: #f3e8e3; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 3px 0;

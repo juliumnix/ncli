@@ -34,7 +34,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           start(c) {
             controller = c;
             clients.add(c);
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "hello" })}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "hello", userName: hub.cfg.userName })}\n\n`));
             const snap: HubEvent = { type: "views", views: hub.views.list() };
             c.enqueue(enc.encode(`data: ${JSON.stringify(snap)}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "main", main: hub.mainAgent() })}\n\n`));
