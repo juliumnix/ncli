@@ -1,12 +1,21 @@
+import { homedir } from "node:os";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
+import { cursorCliConfigPath, holdFile } from "../memory/cli-config";
 import { NdjsonRpc } from "./rpc";
 import type { AcpAdapter, AcpUpdate } from "./types";
 
 export function cursorAcpSpawn(cfg: NcliConfig): { command: string; args: string[] } {
   const raw = cfg.acpCursor.trim().split(/\s+/);
-  return { command: raw[0] ?? "cursor-agent", args: raw.slice(1) };
+  const command = raw[0] ?? "cursor-agent";
+  const rest = raw.slice(1);
+  const args: string[] = [];
+  if (cfg.cursorModel && !rest.includes("--model")) {
+    args.push("--model", cfg.cursorModel);
+  }
+  args.push(...rest);
+  return { command, args };
 }
 
 export type CursorAcpServer =
@@ -47,12 +56,28 @@ export class CursorAcpAdapter implements AcpAdapter {
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
     const spawn = cursorAcpSpawn(this.cfg);
+    const env = childEnv(process.env, { allowAnthropicKey: false });
+    const cliConfig = cursorCliConfigPath(homedir());
+    yield { sessionUpdate: "model", model: this.cfg.cursorModel };
+    const release = holdFile(cliConfig);
+    try {
+      yield* this.drive(opts, spawn, env);
+    } finally {
+      release();
+    }
+  }
+
+  private async *drive(
+    opts: RunOpts,
+    spawn: { command: string; args: string[] },
+    env: Record<string, string>,
+  ): AsyncIterable<AcpUpdate> {
     const proc = Bun.spawn([spawn.command, ...spawn.args], {
       cwd: opts.cwd ?? this.cfg.repo,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      env: childEnv(process.env, { allowAnthropicKey: false }),
+      env,
     });
     const rpc = new NdjsonRpc(proc.stdin, proc.stdout);
     const q: AcpUpdate[] = [];

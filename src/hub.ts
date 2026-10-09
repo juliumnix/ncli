@@ -12,6 +12,7 @@ import { assemble } from "./memory/assemble";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
+import { configuredSeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
 import { renderToolToFence } from "./live/parse";
 import { LiveTurn } from "./live/turn";
@@ -70,6 +71,7 @@ export class Hub {
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact));
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
+    this.model = configuredSeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
       cwdFor: (fork) => (fork ? this.forks.get(fork)?.worktree?.path ?? cfg.repo : cfg.repo),
@@ -110,12 +112,15 @@ export class Hub {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.forks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
-    if (kind !== "claude" && kind !== "codex" && kind !== "cursor") this.model = undefined;
+    this.model = configuredSeatModel(this.cfg, kind);
     this.emit({ type: "main", main: this.mainAgent() });
   }
 
   mainAgent(): MainAgent {
-    return { harness: this.harness.id as HarnessKind, model: this.model ?? (this.cfg.claudeModel || undefined) };
+    return {
+      harness: this.harness.id as HarnessKind,
+      model: this.model ?? configuredSeatModel(this.cfg, this.harness.id as HarnessKind),
+    };
   }
 
   mcpSession(who: { session: string; ticket?: string }): McpSession {
@@ -265,7 +270,11 @@ export class Hub {
     let talk = "";
     const tools: string[] = [];
     const inbox = this.bus.drainPrompt("main");
-    this.live = new LiveTurn("main", seatFromId(this.harness.id), this.model ?? (this.cfg.claudeModel || undefined));
+    this.live = new LiveTurn(
+      "main",
+      seatFromId(this.harness.id),
+      this.model ?? configuredSeatModel(this.cfg, this.harness.id as HarnessKind),
+    );
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
     try {
       for await (const ev of this.harness.run({

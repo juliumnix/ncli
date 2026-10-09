@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ncli stream jank probe</title>
+<style>
+  body { margin: 0; background: #0e0e0f; color: #ececec; font: 14px/1.5 sans-serif; }
+  #chat { height: 720px; overflow: auto; }
+  .m, .u { content-visibility: auto; contain-intrinsic-size: auto 80px; padding: 8px 16px; }
+  .live { border: 1px solid #262628; padding: 10px; }
+</style>
+<div id="chat"><div id="log"></div></div>
+<pre id="out"></pre>
+<script>
+const log = document.getElementById("log");
+const chat = document.getElementById("chat");
+const finished = Array.from({ length: 80 }, (_, i) =>
+  `<div class="m">msg ${i} user decided FACT_${i} applies before tax. <strong>ok</strong></div>`
+).join("");
+const stream = "Claude is writing a long reply about member discount. ";
+
+function fullRebuild(n) {
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    log.innerHTML = finished + `<div class="live">${stream.repeat(8)} token ${i}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+  }
+  return performance.now() - t0;
+}
+
+function liveOnly(n) {
+  log.innerHTML = finished + `<div class="live">${stream}</div>`;
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) {
+    const node = log.querySelector(".live");
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="live">${stream.repeat(8)} token ${i}</div>`;
+    node.replaceWith(wrap.firstElementChild);
+    chat.scrollTop = chat.scrollHeight;
+  }
+  return performance.now() - t0;
+}
+
+const longTasks = [];
+const po = new PerformanceObserver((list) => {
+  for (const e of list.getEntries()) longTasks.push(e.duration);
+});
+po.observe({ type: "longtask", buffered: true });
+
+const n = 200;
+const before = fullRebuild(n);
+const after = liveOnly(n);
+const maxLong = longTasks.length ? Math.max(...longTasks) : 0;
+const report = {
+  n,
+  finishedMsgs: 80,
+  fullRebuildMs: Number(before.toFixed(1)),
+  perTokenFullMs: Number((before / n).toFixed(2)),
+  liveOnlyMs: Number(after.toFixed(1)),
+  perTokenLiveMs: Number((after / n).toFixed(2)),
+  speedup: Number((before / Math.max(after, 0.01)).toFixed(1)),
+  longTasks: longTasks.length,
+  maxLongTaskMs: Number(maxLong.toFixed(1)),
+};
+document.getElementById("out").textContent = JSON.stringify(report, null, 2);
+document.title = "PROBE_DONE " + JSON.stringify(report);
+</script>

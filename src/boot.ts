@@ -1,9 +1,13 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "./config";
 import { loadConfig } from "./config";
 import { Hub } from "./hub";
 import { serve } from "./server";
 import { MCP_PROTOCOL_DEFAULT } from "./mcp/handle";
+import { cursorCliConfigPath, cursorPollutionWarning } from "./memory/cli-config";
+import { compactSdkStatus } from "./memory/sdk-compact";
+import { loadNcliSecrets } from "./secrets";
 
 export interface CliPresence {
   claude: boolean;
@@ -15,7 +19,8 @@ export interface BootReport {
   uiUrl: string;
   mcpUrl: string;
   main: { harness: string; model?: string };
-  compact: { backend: string; model: string; budget: number };
+  compact: { backend: string; model: string; budget: number; sdk: "ok" | "missing-key" };
+  warning?: string;
   clis: CliPresence;
   bus: string;
   views: string[];
@@ -47,10 +52,13 @@ export function formatBoot(r: BootReport): string {
     `agent ${r.main.harness}${r.main.model ? ` · ${r.main.model}` : ""}`,
     `mcp   ${r.mcpUrl}  (listening)`,
     `bus   ${r.bus}`,
-    `compact ${r.compact.backend} · ${r.compact.model} · budget ${r.compact.budget}`,
+    `compact: cursor-sdk ${r.compact.sdk} · ${r.compact.model} · budget ${r.compact.budget}`,
     `clis  ${cli}`,
     `views ${r.views.join(", ") || "(none)"}`,
-  ].join("\n");
+    r.warning,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export async function bootNcli(opts: {
@@ -60,6 +68,7 @@ export async function bootNcli(opts: {
   hub?: Hub;
 } = {}): Promise<Booted> {
   const root = opts.root ?? join(import.meta.dir, "..");
+  const secrets = loadNcliSecrets();
   const cfg = opts.cfg ?? loadConfig();
   const hub = opts.hub ?? new Hub(cfg, join(root, "views"), join(root, "fixtures/gh"));
   try {
@@ -89,7 +98,16 @@ export async function bootNcli(opts: {
     uiUrl: `http://127.0.0.1:${server.port}`,
     mcpUrl: hub.mcpUrl,
     main: { harness: main.harness, model: main.model },
-    compact: { backend: cfg.compactBackend, model: cfg.compactModel, budget: cfg.compactBudgetTokens },
+    compact: {
+      backend: cfg.compactBackend,
+      model: cfg.compactModel,
+      budget: cfg.compactBudgetTokens,
+      sdk: compactSdkStatus(),
+    },
+    warning: cursorPollutionWarning({
+      cliConfigPath: cursorCliConfigPath(homedir()),
+      compactModel: cfg.compactModel,
+    }) ?? undefined,
     clis: detectClis(cfg),
     bus: hub.bus.socketPath,
     views: hub.views.list().map((v) => v.id),
