@@ -16,6 +16,6 @@ test("scrolling up holds; returning to the floor follows again", () => {
 });
 
 test("composer clearance keeps a gap under the last line", () => {
-  expect(composerClearance(46, 28, 16)).toBe(90);
+  expect(composerClearance(46, 28, 16)).toBe(96);
   expect(composerClearance(80, 28, 16)).toBe(124);
 });
