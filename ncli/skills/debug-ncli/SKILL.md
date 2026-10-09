@@ -28,7 +28,7 @@ bun test
 bun run ncli skills
 ```
 
-Mock harness: `NCLI_HARNESS=mock bun dev`. Real Claude: `NCLI_HARNESS=claude bun start`. Never pass OAuth through.
+Mock harness: `NCLI_HARNESS=mock bun start`. Real Claude: `NCLI_HARNESS=claude bun start`. Never pass OAuth through.
 
 ## Check
 

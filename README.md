@@ -6,14 +6,20 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+.
+You need [Bun](https://bun.sh) 1.1+. One command starts everything in a single Bun process: HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
 
 ```bash
 bun install
-bun dev
+bun start
 ```
 
-Open http://127.0.0.1:47231. `bun dev` starts in mock harness with a short demo conversation so the page is usable without Claude Code.
+The process prints the UI URL, the main agent and model, the MCP URL, detected CLIs, and the compact model. It exits if HTTP, the bus, or MCP cannot start.
+
+Open the UI URL (default http://127.0.0.1:47231). For a mock harness and a short demo conversation, without Claude Code:
+
+```bash
+NCLI_HARNESS=mock NCLI_DEMO=1 bun start
+```
 
 Talk to a real Claude Code install (your own `claude` login; NCLI never touches OAuth tokens):
 
@@ -44,11 +50,12 @@ Optional env:
 | `NCLI_CURSOR` | `cursor-agent` | Cursor CLI for compaction (`--print`) |
 | `NCLI_ACP_CURSOR` | `cursor-agent acp` | first-party Cursor ACP entrypoint only |
 | `NCLI_CODEX` | `codex` | Codex binary; NCLI wraps `codex exec --json` |
-| `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock under `bun dev`, Cursor CLI otherwise |
+| `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor CLI otherwise |
 | `NCLI_COMPACT_MODEL` | `claude-haiku-5-5-low` | model for Cursor `--print` compaction |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per Cursor call |
 | `NCLI_COMPACT_SKIP` | `80` | skip the CLI when the node is already this many tokens or fewer |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
+| `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per `cursor-agent --print` call (stay under the Haiku 100k 5x band) |
 
 ## Harness boundary (ACP-shaped, in-process)
 
@@ -74,7 +81,7 @@ source
 
 Or MCP `ncli.render({kind, source})`. HTML/react land in an iframe with `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP on the `srcdoc` document. Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as it arrives.
 
-`bun dev` seeds one mermaid + html pair in chat and opens `view://live` (four previews). Open the modal from the right rail, or `?open=<fork-id>`.
+`NCLI_DEMO=1 bun start` seeds one mermaid + html pair in chat and opens `view://live` (four previews). Open the modal from the right rail, or `?open=<fork-id>`.
 
 ## Compaction
 
@@ -84,7 +91,7 @@ The memory tree still compresses in the background and never blocks the user tur
 cursor-agent --print --model claude-haiku-5-5-low --output-format json --trust "…"
 ```
 
-Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, log tokens to `data/compact-log.jsonl`. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p` if you want it; it is not the default.
+Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, and split a batch before a call would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). The header shows running state and today's tokens versus `NCLI_COMPACT_BUDGET`. Log tokens to `data/compact-log.jsonl`. Prove the Cursor path with `bun run compact:check`. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p` if you want it; it is not the default.
 
 ## Hack NCLI from inside NCLI
 
@@ -108,7 +115,7 @@ bun run demo:hop    # hop from the cover down to message #12
 bun test tests/hop.test.ts
 ```
 
-`demo:hop` uses the mock compressor. It does not call Claude or Cursor. To try the real Claude path, set `NCLI_HARNESS=claude` and send a question that needs an old fact. Claude Code gets `zoom` / `date` / `recall` / `ncli.render` through `--mcp-config` pointing at `bun run src/mcp/memory-zoom.ts`.
+`demo:hop` uses the mock compressor. It does not call Claude or Cursor. To try the real Claude path, set `NCLI_HARNESS=claude` and send a question that needs an old fact. Claude Code gets `zoom` / `date` / `recall` / `ncli.render` / `ask` through `--mcp-config` pointing at the HTTP MCP already served by `bun start` on `/mcp`.
 
 The drawer (☰) shows the current view, byte budget, and level mix (`16× 8× …`).
 
@@ -121,16 +128,20 @@ Unlimited, in parallel. Mix reviews, refinos, and live. Each fork has:
 - a `git worktree add` when the view touches a repo
 - cleanup on close
 
-A fork that needs you (`needs_user`: question pending, ready for review, or the live preview hold) appears as a round avatar on the right, with an unread badge and a short label. Running forks stay off that rail. Clicking the avatar opens the fork modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/forks/:id/act` to that fork. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
+A fork that is running, needs you, or just finished appears as a round avatar on the right, with an unread badge and a short label. New pills slide in. Forks that need input or just finished pulse. Clicking the avatar opens the fork modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/forks/:id/act` to that fork. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
 
 ## Seats (Claude / Codex / Cursor)
 
-The UI is a normal single-assistant thread (Claude Code answers). If that process fans out, NCLI shows Codex and Cursor as smaller Telegram-style messages with their logos, immediately before Claude's reply.
+The header shows the main agent and model. You can switch Claude, Codex, or Cursor from there without restarting. Every line in chat (and in a fork) has that agent's logo and name, plus the model when known (`Claude · Opus 5.5`). Bus `ask` / `wait` lines show who asked whom.
+
+While a turn runs, the chat shows a status line with elapsed time, collapsible thinking, live tool rows, and token-by-token text. Nested Codex or Cursor asks stream in place. If nothing arrives for 5s the status says still working. Parar cancels the child.
+
+Live ` ```ncli ` blocks show a small shimmer of the right shape (diagram, chart, card) until the fence closes, then the preview. Markdown in agent text is rendered, including while it streams.
 
 How detection works, in order:
 
 1. Parse `claude -p --output-format stream-json` tool events. A `Bash` command matching `pstack-codex` or `pstack-cursor --out <file>` starts a watcher on `<file>.log` and `<file>`.
-2. Tests and `bun dev` use `MockHarness` / `MockAcpAdapter`, which emit seat or ACP events directly. They do not spawn `pstack-*`.
+2. Tests and `NCLI_HARNESS=mock bun start` use `MockHarness` / `MockAcpAdapter`, which emit seat or ACP events directly. They do not spawn `pstack-*`.
 
 NCLI does not fan out the three CLIs on every turn. pstack-claude should call MCP `ask` / `wait` (ncli/skills/ncli-bus) instead of Bash `pstack-codex`. The NCLI server owns the child; it exits when the ticket completes. No bus watchers or pollers. `pstack-codex` / `pstack-cursor` still work if the orchestrator shells out. Direct NCLI fan-out remains `NCLI_FANOUT=1`.
 
@@ -141,6 +152,8 @@ Logos live in `public/icons/` (Simple Icons: Claude, OpenAI, Cursor).
 ```bash
 bun test
 ```
+
+`bunfig.toml` limits discovery to `tests/`. Vendored pstack skill tests do not run.
 
 | File | What it proves | Real / mock |
 | --- | --- | --- |
@@ -157,7 +170,15 @@ bun test
 | `tests/hop.test.ts` | 300 messages, recover `#12` by hops | mock compressor |
 | `tests/self-hack.test.ts` | skills in system prompt; add-view appears live; remove-view drops it | mock agent, real watch |
 | `tests/bus.test.ts` | idle = 0 extra processes; ask/wait promise; post→next prompt; depth/cycle | mock CLI |
-| `tests/mcp-inject.test.ts` | one ncli MCP; spawn files under data/; no global ~/.claude | temp dirs |
+| `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude | temp dirs |
+| `tests/mcp-http.test.ts` | initialize, tools/list, tools/call with a spawn token | in-process HTTP |
+| `tests/startup.test.ts` | `bootNcli` listens for UI, SSE, MCP, bus; favicon; summary | mock hub |
+| `tests/stream.test.ts` | POST /api/message returns at once; SSE deltas; harness switch | mock |
+| `tests/live-turn.test.ts` | Turn timeline, still-working, Claude stream-json parse | in-process |
+| `tests/author.test.ts` | every line has a seat; header snapshot switches | mock |
+| `tests/markdown.test.ts` | bold/code/table; no broken `**` while streaming | in-process |
+| `tests/shimmer.test.ts` | live-block skeleton labels and escaped errors | in-process |
+| `tests/pills.test.ts` | new forks pop; needs_user and done pulse | in-process |
 | `tests/fallback.test.ts` | Claude 429 → backup harness, announce, retry | mock |
 
 Hot reload while the app is up: `bun run ncli new view hello`, then `view://hello`. `/ncli remove view hello` takes it away.

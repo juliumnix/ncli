@@ -1,3 +1,3 @@
 [test]
+root = "./tests"
 timeout = 15000
-# NCLI tests live in tests/. Vendored pstack skills ship their own scripts; do not run them.

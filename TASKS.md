@@ -16,7 +16,7 @@ Work one item at a time. Finish, test, commit, then move on.
    Slide-in + fade/scale on create. Attention pulse when the fork needs input or finishes. prefers-reduced-motion.
 7. [x] Compaction
    UI indicator (running, nodes, tokens vs budget). Model in startup summary. `bun run compact:check`. Batch cap under 100k input tokens (default ~60k).
-8. [ ] Favicon + root `bun test`
+8. [x] Favicon + root `bun test`
    Serve `/favicon.ico`. Root `bun test` only runs NCLI tests.
 
 After all eight: README + ARCHITECTURE, screenshots, PR.
