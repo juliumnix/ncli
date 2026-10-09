@@ -64,7 +64,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactJobs: num("NCLI_JOBS", 4),
     compactTries: num("NCLI_TRIES", 3),
     compactBackend: compactEnv,
-    compactModel: process.env.NCLI_COMPACT_MODEL ?? "claude-haiku-5-5-low",
+    compactModel: process.env.NCLI_COMPACT_MODEL ?? "claude-haiku-5-5",
     compactSkipTokens: num("NCLI_COMPACT_SKIP", 80),
     compactBatch: num("NCLI_COMPACT_BATCH", 6),
     compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),
