@@ -1,5 +1,6 @@
 import { Agent } from "@cursor/sdk";
 import { compactSdkKey, missingCompactKeyMessage } from "../secrets";
+import { listCompactCatalog, resolveCompactModel } from "./compact-model";
 
 export type SdkCompactFn = (prompt: string, model: string, apiKey: string) => Promise<string>;
 
@@ -14,9 +15,11 @@ export async function runCursorSdkCompact(
   apiKey: string,
   cwd: string,
 ): Promise<string> {
+  const catalog = await listCompactCatalog(apiKey);
+  const choice = resolveCompactModel(catalog, model);
   const result = await Agent.prompt(prompt, {
     apiKey,
-    model: { id: model },
+    model: { id: choice.id, params: choice.params.length ? choice.params : undefined },
     local: { cwd, settingSources: [] },
   });
   if (result.status === "error") {

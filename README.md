@@ -54,7 +54,7 @@ Optional env:
 | `NCLI_CODEX` | `codex` | Codex binary; NCLI wraps `codex exec --json` |
 | `NCLI_CODEX_MODEL` | `gpt-5.4` | pinned on `codex exec --json --model` |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
-| `NCLI_COMPACT_MODEL` | `claude-haiku-5-5-low` | model for `@cursor/sdk` compaction |
+| `NCLI_COMPACT_MODEL` | `claude-haiku-5-5` | catalog id for `@cursor/sdk` compaction. No effort suffix. Low effort / no thinking come from `model.params` after `Cursor.models.list()` |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the node is already this many tokens or fewer |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
@@ -90,6 +90,8 @@ Or MCP `ncli.render({kind, source})`. HTML/react land in an iframe with `sandbox
 ## Compaction (Cursor SDK only)
 
 The memory tree still compresses in the background and never blocks the user turn (`void memory.pump()`). Compaction talks to the official Cursor TypeScript SDK (`@cursor/sdk`). It does **not** spawn `cursor-agent --print`. That `--print --model` path used to write the compact model into `~/.cursor/cli-config.json` and then the interactive CLI and NCLI ACP seats inherited Haiku.
+
+The compact model id is `claude-haiku-5-5`. The SDK rejects effort suffixes such as `-low`. Boot calls `Cursor.models.list()` when a key is present and fails with the valid ids if `NCLI_COMPACT_MODEL` is missing from the catalog. Low effort and no thinking are `model.params` taken from that catalog (`effort=low`, `thinking=false` when those parameters exist).
 
 The agentic Cursor seat stays on the local CLI: `cursor-agent --model $NCLI_CURSOR_MODEL acp` (default `composer-2.5`) with your `cursor-agent login`. Forks and bus `ask` / `wait` use that same CLI adapter. They never import `@cursor/sdk`.
 
@@ -176,6 +178,7 @@ bun test
 | `tests/review-guide.test.ts` | chapter order, plan fallback, two-column line numbers, fold, active-file overlap, guided-review chrome | fixtures, mock CLI |
 | `tests/compact-cursor.test.ts` | batch, cache, skip, daily budget, async, token log | injected runner; no `cursor-agent` |
 | `tests/compact-isolate.test.ts` | planted `cli-config.json` is byte-identical after compact; pollution warning | fake HOME |
+| `tests/compact-model.test.ts` | catalog id, cheap `model.params`, unknown-id error | injected catalog |
 | `tests/secrets.test.ts` | `secrets.env` load, process env wins, key redaction | temp home |
 | `tests/quiet-status.test.ts` | ask → Codex says Consultando o Codex | in-process |
 | `tests/chat-patch.test.ts` | token events paint only the live turn | source + CSS |

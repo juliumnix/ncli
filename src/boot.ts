@@ -6,8 +6,9 @@ import { Hub } from "./hub";
 import { serve } from "./server";
 import { MCP_PROTOCOL_DEFAULT } from "./mcp/handle";
 import { cursorCliConfigPath, cursorPollutionWarning } from "./memory/cli-config";
+import { assertCompactModel } from "./memory/compact-model";
 import { compactSdkStatus } from "./memory/sdk-compact";
-import { loadNcliSecrets } from "./secrets";
+import { compactSdkKey, loadNcliSecrets } from "./secrets";
 
 export interface CliPresence {
   claude: boolean;
@@ -31,6 +32,12 @@ export interface Booted {
   server: ReturnType<typeof Bun.serve>;
   report: BootReport;
   stop(): void;
+}
+
+export function shouldValidateCompactModel(cfg: NcliConfig): boolean {
+  if (cfg.compactBackend === "mock") return false;
+  if (cfg.compactBackend === "auto" && cfg.harness === "mock") return false;
+  return true;
 }
 
 export function detectClis(cfg: NcliConfig): CliPresence {
@@ -68,8 +75,11 @@ export async function bootNcli(opts: {
   hub?: Hub;
 } = {}): Promise<Booted> {
   const root = opts.root ?? join(import.meta.dir, "..");
-  const secrets = loadNcliSecrets();
+  loadNcliSecrets();
   const cfg = opts.cfg ?? loadConfig();
+  if (shouldValidateCompactModel(cfg) && compactSdkKey()) {
+    await assertCompactModel(cfg.compactModel);
+  }
   const hub = opts.hub ?? new Hub(cfg, join(root, "views"), join(root, "fixtures/gh"));
   try {
     await hub.start();
