@@ -37,6 +37,7 @@ const state = {
   turn: null,
   forkTurns: {},
   compact: null,
+  userName: "Você",
 };
 
 const SEAT = {
@@ -590,9 +591,25 @@ function contextRowHtml(row) {
     : "";
   return `<button type="button" class="${klass}" data-start="${row.start}" data-n="${row.n}">
     <span class="ctx-badge" style="background:${badgeTone(row.n)}">x${row.n}</span>
-    <span class="ctx-sum">${escapeHtml(row.text)}</span>
+    ${rowWhoHtml(row)}
+    <span class="ctx-sum">${escapeHtml(row.summary || "")}</span>
     <span class="ctx-time">${escapeHtml(relativeTime(row.to || row.from))}</span>
   </button>${zoom}`;
+}
+
+function rowWhoHtml(row) {
+  const a = row.author;
+  if (!a || a.kind === "mix") return "";
+  if (a.kind === "user") {
+    const name = a.name || state.userName;
+    return `<span class="ctx-who user"><span class="av user">${escapeHtml(authorInitial(name))}</span><b>${escapeHtml(name)}</b></span>`;
+  }
+  return `<span class="ctx-who agent">${avatar(a.seat)}<b>${escapeHtml(a.name)}</b></span>`;
+}
+
+function authorInitial(name) {
+  const ch = [...String(name ?? "").trim()][0];
+  return ch ? ch.toLocaleUpperCase("pt-BR") : "?";
 }
 
 function cascadeHtml(rows) {
@@ -653,7 +670,7 @@ function treeSvg(rows) {
     }
   }
   const boxes = nodes.map((n) => {
-    const label = escapeHtml(n.row.text.slice(0, 42));
+    const label = escapeHtml((n.row.summary || "").slice(0, 42));
     return `<g>
       <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="16" fill="#161618" stroke="#262628"/>
       <rect x="${n.x}" y="${n.y}" width="36" height="28" rx="6" fill="${badgeTone(n.row.n)}"/>
@@ -961,7 +978,11 @@ function applyEvent(ev) {
       state.debug = ev;
       renderContext();
       break;
+    case "hello":
+      if (ev.userName) state.userName = ev.userName;
+      break;
     case "context":
+      if (ev.userName) state.userName = ev.userName;
       state.ctxOps = diffContext(state.ctxPrev, ev.rows || []);
       state.ctxPrev = ev.rows || [];
       state.context = ev;

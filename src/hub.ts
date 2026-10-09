@@ -68,7 +68,7 @@ export class Hub {
       compressor: this.compressor,
       pumpBatch: cfg.compactBatch,
     });
-    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact));
+    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName));
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
     this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
@@ -171,7 +171,7 @@ export class Hub {
       forks: this.forks.list(),
       views: this.views.list(),
       debug: this.memory.debug(),
-      context: contextSnapshot(this.memory, this.compact),
+      context: contextSnapshot(this.memory, this.compact, this.cfg.userName),
       waiting: this.forks.waitingOnUser(),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,

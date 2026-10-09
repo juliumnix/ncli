@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
+import { loadConfig } from "../src/config";
 import { assemble } from "../src/memory/assemble";
-import { badgeTone, contextRows, diffContext, partsCover, relativeTime } from "../src/memory/context";
+import { badgeTone, contextAuthor, contextRows, contextSummary, diffContext, partsCover, relativeTime } from "../src/memory/context";
 import { Memory } from "../src/memory/store";
-import { tmpDir } from "./helpers";
+import { makeHub, tmpDir } from "./helpers";
+
+const cfg = loadConfig({ userName: "Ana" });
+const who = cfg.userName;
 
 function mem(dir: string, viewBytes = 4000, nodeBytes = 80): Memory {
   return new Memory({
@@ -17,13 +21,27 @@ test("contextRows tiles [0, T) with power-of-two n and no duplicate prefix", () 
   const m = mem("ctx-cover");
   m.append({ kind: "talk", text: "MCP ncli sem conexão, ask/wait indisponíveis" });
   m.append({ kind: "user", text: "volta?" });
-  const rows = contextRows(m);
+  const rows = contextRows(m, who);
   expect(partsCover(rows, m.T)).toBe(true);
   expect(rows[0]?.id).toBe("0+1");
   expect(rows[0]?.n).toBe(1);
   expect(rows[0]?.text).toBe("talk: MCP ncli sem conexão, ask/wait indisponíveis");
   expect(rows[0]?.text).not.toContain("0+1|");
   expect(rows[1]?.kind).toBe("user");
+  expect(rows[0]?.author).toEqual({ kind: "agent", seat: "claude", name: "Claude" });
+  expect(rows[0]?.summary).toBe("MCP ncli sem conexão, ask/wait indisponíveis");
+  expect(rows[1]?.author).toEqual({ kind: "user", name: who });
+  expect(rows[1]?.summary).toBe("volta?");
+});
+
+test("drawer copy drops user:/talk: and names the configured user or the seat", () => {
+  expect(contextAuthor(1, "user", undefined, who)).toEqual({ kind: "user", name: who });
+  expect(contextAuthor(1, "talk", "codex", who)).toEqual({ kind: "agent", seat: "codex", name: "Codex" });
+  expect(contextAuthor(4, "talk", "claude", who)).toEqual({ kind: "mix" });
+  expect(contextSummary("talk: MCP ncli sem conexão", 1, who)).toBe("MCP ncli sem conexão");
+  expect(contextSummary("user: desconto; talk: confirmei a regra", 2, who)).toBe(`${who}: desconto; Claude: confirmei a regra`);
+  expect(contextSummary("user: volta?", 1, who)).not.toMatch(/^user:/);
+  expect(contextSummary("tools: zoom, date", 1, who)).toBe("zoom, date");
 });
 
 test("assemble view stays id+n|text after context projection", () => {
@@ -31,17 +49,17 @@ test("assemble view stays id+n|text after context projection", () => {
   m.append({ kind: "talk", text: "MCP ncli sem conexão" });
   const ctx = assemble(m);
   expect(ctx.view).toContain("0+1|talk: MCP ncli sem conexão");
-  expect(contextRows(m)[0]?.id).toBe("0+1");
+  expect(contextRows(m, who)[0]?.id).toBe("0+1");
 });
 
 test("diffContext of two 1x plus a built parent is one merge", async () => {
   const m = mem("ctx-merge", 60, 40);
   m.append({ kind: "talk", text: "ALPHA_NODE long enough to force a leaf " + "x".repeat(80) });
   m.append({ kind: "talk", text: "BETA_NODE long enough to force a leaf " + "x".repeat(80) });
-  const before = contextRows(m);
+  const before = contextRows(m, who);
   expect(before.map((r) => r.id)).toEqual(["0+1", "1+1"]);
   await m.pump();
-  const after = contextRows(m);
+  const after = contextRows(m, who);
   expect(partsCover(after, m.T)).toBe(true);
   const ops = diffContext(before, after);
   const merge = ops.find((o) => o.op === "merge");
@@ -65,4 +83,13 @@ test("relativeTime speaks Portuguese", () => {
   expect(relativeTime("2026-10-09T19:59:55.000Z", now)).toBe("agora");
   expect(relativeTime("2026-10-09T19:58:00.000Z", now)).toBe("há 2 min");
   expect(relativeTime("2026-07-09T20:00:00.000Z", now)).toBe("~3 meses atrás");
+});
+
+test("hub context snapshot uses the configured user name", async () => {
+  const { hub } = await makeHub();
+  hub.memory.append({ kind: "user", text: "oi" });
+  const snap = hub.snapshot().context;
+  const row = snap.rows.find((r) => r.kind === "user");
+  expect(snap.userName).toBe(hub.cfg.userName);
+  expect(row?.author).toEqual({ kind: "user", name: hub.cfg.userName });
 });
