@@ -1,0 +1,9 @@
+node_modules
+data
+.ncli
+.env
+*.log
+.DS_Store
+agent-tools
+uploads
+artifacts/*.png

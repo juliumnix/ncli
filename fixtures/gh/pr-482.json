@@ -1,0 +1,18 @@
+{
+  "number": 482,
+  "title": "Apply member discount before tax",
+  "author": { "login": "ada" },
+  "body": "Move the discount before tax and limit it to members. Order: core, API, tests.",
+  "url": "https://github.com/acme/shop/pull/482",
+  "baseRefName": "main",
+  "headRefName": "feat/member-discount-before-tax",
+  "additions": 17,
+  "deletions": 3,
+  "files": [
+    { "path": "src/billing/calcTotal.ts", "additions": 6, "deletions": 1 },
+    { "path": "src/billing/discount.ts", "additions": 2, "deletions": 1 },
+    { "path": "src/billing/types.ts", "additions": 4, "deletions": 0 },
+    { "path": "src/api/budget.ts", "additions": 1, "deletions": 1 },
+    { "path": "src/billing/discount.test.ts", "additions": 4, "deletions": 0 }
+  ]
+}
