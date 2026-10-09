@@ -26,7 +26,7 @@ C. [x] Output contract + stream separators + real Markdown
 
 ## Then
 
-E. [ ] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
+E. [x] Vendor Emil Kowalski MIT design skills (`ncli/skills/emil/`) + sync script + harness index
 F. [ ] Visual redesign (Telegram-like dark, Emil motion rules) + review checklist + screenshots + PR
    Memory / compaction drawer is part of this pass, not a later polish.
    Replace raw `i+1|kind: text` lines with a tree a person can read.

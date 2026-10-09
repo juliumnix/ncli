@@ -13,7 +13,8 @@
     "mcp": "bun run src/mcp/server.ts",
     "ncli": "bun run src/cli.ts",
     "bus:hook": "bun run src/bus/hook.ts",
-    "sync-pstack": "bun run scripts/sync-pstack.ts"
+    "sync-pstack": "bun run scripts/sync-pstack.ts",
+    "sync-emil": "bun run scripts/sync-emil.ts"
   },
   "type": "module"
 }
