@@ -447,10 +447,6 @@ function renderShortcuts() {
   for (const f of pills) seenPills.add(f.id);
 }
 
-function renderDebug() {
-  renderContext();
-}
-
 function renderContext() {
   const ctx = state.context;
   const head = $("ctxHead");
@@ -838,11 +834,11 @@ function applyEvent(ev) {
     }
     case "views":
       state.views = ev.views;
-      renderDebug();
+      renderContext();
       break;
     case "debug":
       state.debug = ev;
-      renderDebug();
+      renderContext();
       break;
     case "context":
       state.ctxOps = diffContext(state.ctxPrev, ev.rows || []);
@@ -1066,7 +1062,7 @@ async function boot() {
   state.compact = snap.compact || null;
   renderChat();
   renderShortcuts();
-  renderDebug();
+  renderContext();
   const q = new URLSearchParams(location.search);
   const open = q.get("open");
   const tab = q.get("tab");
