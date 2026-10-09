@@ -21,6 +21,7 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
     dataDir: dir,
     compactBackend: "cursor",
     compactBatch: 2,
+    compactDebounceMs: 20,
     compactSkipTokens: 8,
     compactBudgetTokens: 250000,
     compactModel: "claude-haiku-5-5-low",

@@ -18,6 +18,7 @@ export interface NcliConfig {
   compactModel: string;
   compactSkipTokens: number;
   compactBatch: number;
+  compactDebounceMs: number;
   compactBudgetTokens: number;
   compactMaxInputTokens: number;
   toolCap: number;
@@ -64,6 +65,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactModel: process.env.NCLI_COMPACT_MODEL ?? "claude-haiku-5-5-low",
     compactSkipTokens: num("NCLI_COMPACT_SKIP", 80),
     compactBatch: num("NCLI_COMPACT_BATCH", 6),
+    compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),
     compactBudgetTokens: num("NCLI_COMPACT_BUDGET", 250000),
     compactMaxInputTokens: num("NCLI_COMPACT_MAX_INPUT", 60_000),
     toolCap: num("NCLI_CAP", 8000),

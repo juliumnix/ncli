@@ -8,6 +8,7 @@ import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
 import { assemble } from "./memory/assemble";
+import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
 import { isQuotaError } from "./harness/quota";
@@ -62,6 +63,7 @@ export class Hub {
       nodeBytes: cfg.nodeBytes,
       viewBytes: cfg.viewBytes,
       compressor: this.compressor,
+      pumpBatch: cfg.compactBatch,
     });
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
@@ -295,6 +297,7 @@ export class Hub {
     }
     this.live.finish(this.abort?.signal.aborted ? "stopped" : "done");
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    this.persistToolSummary(tools);
     if (talk.trim() && !this.abort?.signal.aborted) {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
@@ -401,36 +404,14 @@ export class Hub {
       case "text":
       case "thinking":
       case "model":
-        if (ev.type === "thinking" && applied?.step?.status === "done" && applied.step.text) {
-          const msg = this.memory.append({
-            kind: "think",
-            text: applied.step.text,
-            seat: applied.step.seat,
-            model: applied.step.model,
-            stepId: applied.step.id,
-          });
-          this.emit({ type: "message", session: "main", message: msg });
-        }
         break;
       case "tool": {
         tools.push(ev.name);
-        const msg = this.memory.append({
-          kind: "tool",
-          text: formatTool(ev.name, ev.input),
-          seat: seatFromId(this.harness.id),
-          model: this.live?.turn.model,
-          tool: { name: ev.name, input: ev.input },
-          stepId: applied?.step?.id,
-        });
-        this.emit({ type: "message", session: "main", message: msg });
         this.emit({ type: "tool", session: "main", name: ev.name, input: ev.input });
         break;
       }
-      case "tool_result": {
-        const msg = this.memory.append({ kind: "echo", text: ev.content, stepId: applied?.step?.id });
-        this.emit({ type: "message", session: "main", message: msg });
+      case "tool_result":
         break;
-      }
       case "seat":
         if (ev.status === "done" && ev.text) {
           const msg = this.memory.append({ kind: "seat", text: ev.text, seat: ev.seat, model: this.live?.turn.model });
@@ -438,7 +419,6 @@ export class Hub {
         }
         break;
       case "done":
-        this.persistClosedThink();
         break;
       case "error":
         this.emit({ type: "error", error: ev.error });
@@ -450,17 +430,13 @@ export class Hub {
     }
   }
 
-  private persistClosedThink(): void {
-    const step = this.live?.turn.steps.find((s) => s.kind === "thinking" && s.status === "done");
-    if (!step?.text) return;
-    if (this.memory.log.some((m) => m.stepId === step.id)) return;
+  private persistToolSummary(tools: string[]): void {
+    const text = toolActivityLine(tools);
+    if (!text) return;
     const msg = this.memory.append({
-      kind: "think",
-      text: step.text,
-      seat: step.seat,
-      model: step.model,
-      stepId: step.id,
-      durationMs: step.endedAt ? Date.parse(step.endedAt) - Date.parse(step.startedAt) : undefined,
+      kind: "note",
+      text,
+      seat: seatFromId(this.harness.id),
     });
     this.emit({ type: "message", session: "main", message: msg });
   }
@@ -522,24 +498,6 @@ function pickGh(cfg: NcliConfig, fixturesDir: string): GhClient {
   if (cfg.ghMode === "mock") return fixtures;
   if (cfg.ghMode === "real") return new RealGh(cfg.repo);
   return new AutoGh(new RealGh(cfg.repo), fixtures);
-}
-
-function formatTool(name: string, input: unknown): string {
-  if (name === "zoom" && input && typeof input === "object") {
-    const o = input as { id?: number; n?: number };
-    return `zoom(${o.id}+${o.n})`;
-  }
-  if (name === "date" && input && typeof input === "object") {
-    return `date(#${(input as { id?: number }).id})`;
-  }
-  if (name === "ncli.render" && input && typeof input === "object") {
-    return `ncli.render(${(input as { kind?: string }).kind ?? "?"})`;
-  }
-  if (name === "ask" && input && typeof input === "object") {
-    const o = input as { agent?: string };
-    return `ask(${o.agent ?? "?"})`;
-  }
-  return `${name}`;
 }
 
 function seatOf(id: string): SeatId {
