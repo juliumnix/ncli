@@ -19,10 +19,19 @@
   <aside class="drawer" id="drawer" hidden>
     <h2>NCLI</h2>
     <p class="muted">hub local · um chat infinito</p>
-    <div class="dbg" id="debugPanel">
-      <div class="dbg-h">contexto (memória)</div>
-      <div id="debugMeta" class="muted"></div>
-      <pre id="debugView"></pre>
+    <div class="ctx" id="debugPanel">
+      <div class="ctx-bar">
+        <div class="dbg-h">contexto</div>
+        <div class="ctx-tools">
+          <button type="button" class="ctx-tog" id="ctxTreeBtn">árvore</button>
+          <label class="ctx-tog"><input type="checkbox" id="ctxRaw" /> bruto</label>
+        </div>
+      </div>
+      <div id="ctxHead" class="ctx-head muted"></div>
+      <div id="ctxCascade" class="ctx-cascade" aria-hidden="true"></div>
+      <div id="ctxList" class="ctx-list"></div>
+      <div id="ctxTree" class="ctx-tree" hidden></div>
+      <pre id="debugView" hidden></pre>
     </div>
     <div>
       <div class="dbg-h">views</div>
