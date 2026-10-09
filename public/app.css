@@ -49,7 +49,7 @@ code { font: 12px ui-monospace, Menlo, monospace; }
 .md ul, .md ol { margin: 0 0 8px 18px; }
 .md table { border-collapse: collapse; font-size: 13px; margin: 6px 0; }
 .md th, .md td { border: 1px solid #eee; padding: 4px 8px; }
-.md pre { background: #f7f7f8; border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; overflow: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+.md pre { background: #f7f7f8; border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; overflow-x: auto; overflow-y: visible; max-height: none; font: 12px/1.5 ui-monospace, Menlo, monospace; }
 .md pre.open { opacity: .85; }
 .md .kw { color: #7c3aed; }
 .md .str { color: #047857; }
@@ -59,14 +59,33 @@ code { font: 12px ui-monospace, Menlo, monospace; }
   border-radius: 50%; display: inline-block; animation: ncli-spin .7s linear infinite;
 }
 @keyframes ncli-spin { to { transform: rotate(360deg); } }
-.col {
-  max-width: 720px; margin: 0 auto;
-  height: 100%;
+.scroller {
+  position: absolute;
+  inset: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 70px 24px var(--composer-space, 120px);
-  display: flex; flex-direction: column; gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(17, 17, 17, 0.28) transparent;
 }
+.scroller::-webkit-scrollbar { width: 8px; }
+.scroller::-webkit-scrollbar-track { background: transparent; }
+.scroller::-webkit-scrollbar-thumb {
+  background: rgba(17, 17, 17, 0.28);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.log, .col {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 70px 24px var(--composer-space, 120px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: visible;
+  min-height: min-content;
+}
+.log > *, .col > * { flex-shrink: 0; min-height: min-content; }
 .day { text-align: center; font-size: 11px; color: #bbb; margin: 8px 0 0; }
 .u, .row.user .bubble {
   align-self: flex-end;
@@ -329,7 +348,7 @@ code { font: 12px ui-monospace, Menlo, monospace; }
 .stream .bb { opacity: .85; }
 @media (max-width: 900px) {
   .ch .lbl, .sc .meta { display: none; }
-  .col { padding-left: 16px; padding-right: 72px; }
+  .log, .col { padding-left: 16px; padding-right: 72px; }
   .trio { grid-template-columns: 1fr; }
 }
 
