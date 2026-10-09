@@ -12,6 +12,8 @@ export interface SpawnInject {
   mcpServers: McpServerSpec[];
   addDir: string[];
   agentsMd: string;
+  token: string;
+  mcpUrl: string;
 }
 
 export function prepareSpawn(opts: {
@@ -20,8 +22,16 @@ export function prepareSpawn(opts: {
   harness: string;
   worktree?: string;
   ticket?: string;
+  token?: string;
+  mcpUrl?: string;
 }): SpawnInject {
-  const vars = spawnVars(opts.cfg, opts.session, opts.ticket ? { NCLI_TICKET: opts.ticket } : {});
+  const token = opts.token ?? "";
+  const mcpUrl = opts.mcpUrl ?? `http://127.0.0.1:${opts.cfg.port}/mcp`;
+  const vars = spawnVars(opts.cfg, opts.session, {
+    NCLI_TICKET: opts.ticket ?? "",
+    NCLI_MCP_TOKEN: token,
+    NCLI_MCP_URL: mcpUrl,
+  });
   const servers = resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars);
   const dir = join(opts.cfg.dataDir, "spawn", opts.session.replace(/[^a-zA-Z0-9._-]/g, "_"));
   assertLocal(dir, opts.cfg.dataDir);
@@ -40,6 +50,8 @@ export function prepareSpawn(opts: {
     mcpServers: servers,
     addDir: [skills],
     agentsMd,
+    token,
+    mcpUrl,
   };
 }
 
@@ -61,9 +73,17 @@ export function extraFor(harness: string, servers: McpServerSpec[], skillsDir: s
 export function codexMcpFlags(servers: McpServerSpec[]): string[] {
   const out: string[] = [];
   for (const s of servers) {
-    out.push("-c", `mcp_servers.${s.name}.command=${s.command}`);
-    out.push("-c", `mcp_servers.${s.name}.args=${JSON.stringify(s.args)}`);
-    for (const [k, v] of Object.entries(s.env)) {
+    if (s.type === "http" && s.url) {
+      out.push("-c", `mcp_servers.${s.name}.url=${s.url}`);
+      for (const [k, v] of Object.entries(s.headers ?? {})) {
+        if (!v) continue;
+        out.push("-c", `mcp_servers.${s.name}.http_headers.${k}=${v}`);
+      }
+      continue;
+    }
+    out.push("-c", `mcp_servers.${s.name}.command=${s.command ?? "bun"}`);
+    out.push("-c", `mcp_servers.${s.name}.args=${JSON.stringify(s.args ?? [])}`);
+    for (const [k, v] of Object.entries(s.env ?? {})) {
       if (!v) continue;
       out.push("-c", `mcp_servers.${s.name}.env.${k}=${v}`);
     }
@@ -71,9 +91,15 @@ export function codexMcpFlags(servers: McpServerSpec[]): string[] {
   return out;
 }
 
-export function asClaudeMap(servers: McpServerSpec[]): Record<string, { command: string; args: string[]; env: Record<string, string> }> {
-  const map: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {};
-  for (const s of servers) map[s.name] = { command: s.command, args: s.args, env: s.env };
+export function asClaudeMap(servers: McpServerSpec[]): Record<string, Record<string, unknown>> {
+  const map: Record<string, Record<string, unknown>> = {};
+  for (const s of servers) {
+    if (s.type === "http" && s.url) {
+      map[s.name] = { type: "http", url: s.url, headers: s.headers ?? {} };
+      continue;
+    }
+    map[s.name] = { command: s.command ?? "bun", args: s.args ?? [], env: s.env ?? {} };
+  }
   return map;
 }
 
@@ -81,7 +107,7 @@ function agentsBlock(skillsDir: string): string {
   return `NCLI skills and pstack live in ${skillsDir}.
 Read ncli/skills/<id>/SKILL.md for NCLI flows.
 Read ncli/skills/pstack/poteto-mode/SKILL.md for pstack.
-MCP tools come from the ncli server injected for this spawn only.
+MCP tools come from the ncli HTTP server already running on this machine.
 `;
 }
 

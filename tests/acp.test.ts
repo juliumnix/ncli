@@ -109,7 +109,7 @@ test("MockAcpAdapter through AcpHarness yields text, tools, plan, and permission
   const events = await collect(new AcpHarness(adapter).run({ prompt: "plano" }));
   expect(events).toContainEqual({ type: "tool", name: "plan", input: { entries: ["Ler o diff", "Escrever o teste"] }, id: "plan" });
   expect(events).toContainEqual({ type: "tool", name: "permission", input: { title: "edit config" }, id: "p1" });
-  expect(events).toContainEqual({ type: "tool", name: "Bash", input: { command: "ls" }, id: "bash-1" });
+  expect(events).toContainEqual({ type: "tool", name: "Bash", input: { command: "ls" }, id: "bash-1", seat: "claude" });
   expect(events).toContainEqual({ type: "tool_result", id: "bash-1", content: "ok" });
   expect(events.filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.text : ""))).toEqual(["ok ", "feito."]);
   expect(events.at(-1)).toEqual({ type: "done", text: "ok feito." });

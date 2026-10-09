@@ -27,4 +27,4 @@ Open it with `view://<id>?key=value` in the main chat, or `POST /api/forks` `{ "
 bun test tests/views.test.ts tests/self-hack.test.ts
 ```
 
-Leave `bun dev` running. Drawer ☰ lists `view://<id>` without a restart.
+Leave `bun start` running. Drawer ☰ lists `view://<id>` without a restart.

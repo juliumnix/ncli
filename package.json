@@ -7,6 +7,7 @@
     "dev": "NCLI_HARNESS=mock NCLI_DEMO=1 bun run src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test tests --timeout 15000",
+    "compact:check": "bun run scripts/compact-check.ts",
     "seed": "bun run scripts/seed.ts",
     "demo:hop": "bun run scripts/demo-hop.ts",
     "mcp": "bun run src/mcp/server.ts",

@@ -5,7 +5,15 @@ export interface RunOpts {
   system?: string;
   cwd?: string;
   mcpConfigPath?: string;
-  mcpServers?: Array<{ name: string; command: string; args: string[]; env: Record<string, string> }>;
+  mcpServers?: Array<{
+    name: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    type?: string;
+    url?: string;
+    headers?: Record<string, string>;
+  }>;
   addDir?: string[];
   model?: string;
   session?: string;
@@ -16,7 +24,9 @@ export interface RunOpts {
 
 export type HarnessEvent =
   | { type: "text"; text: string; seat?: SeatId }
-  | { type: "tool"; name: string; input: unknown; id: string }
+  | { type: "thinking"; text: string; seat?: SeatId }
+  | { type: "model"; model: string; seat?: SeatId }
+  | { type: "tool"; name: string; input: unknown; id: string; seat?: SeatId }
   | { type: "tool_result"; id: string; content: string }
   | { type: "seat"; seat: SeatId; status: "start" | "delta" | "done" | "error"; text?: string }
   | { type: "done"; text: string }

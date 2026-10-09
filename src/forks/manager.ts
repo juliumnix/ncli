@@ -11,7 +11,9 @@ import { assemble } from "../memory/assemble";
 import { addWorktree, removeWorktree, type GitRunner, type WorktreeHandle } from "./worktree";
 import { nowIso } from "../util";
 import type { Bus } from "../bus/bus";
-import { prepareSpawn } from "../mcp/inject";
+import { LiveTurn } from "../live/turn";
+import { seatOf } from "../agent";
+import type { SpawnInject } from "../mcp/inject";
 
 export interface ForkRuntime {
   fork: Fork;
@@ -28,6 +30,7 @@ export interface ForkManagerHooks {
   harness: Harness;
   git?: GitRunner;
   bus?: Bus;
+  inject?: (session: string, worktree?: string) => SpawnInject;
 }
 
 export class ForkManager {
@@ -213,28 +216,29 @@ export class ForkManager {
     let talk = "";
     try {
       const inbox = this.hooks.bus?.drainPrompt(rt.fork.id) ?? "";
-      const inj = prepareSpawn({
-        cfg: this.cfg,
-        session: rt.fork.id,
-        harness: this.hooks.harness.id,
-        worktree: rt.worktree?.path,
-      });
+      const inj = this.hooks.inject
+        ? this.hooks.inject(rt.fork.id, rt.worktree?.path)
+        : undefined;
+      const live = new LiveTurn(rt.fork.id, seatOf(this.hooks.harness.id));
+      this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
       for await (const ev of this.hooks.harness.run({
         prompt: `${inbox}${ctx.view}\n\n${userText}`,
         system: ctx.system,
         cwd: rt.worktree?.path ?? this.cfg.repo,
         session: rt.fork.id,
         signal: rt.abort.signal,
-        mcpConfigPath: inj.mcpConfigPath,
-        mcpServers: inj.mcpServers,
-        addDir: this.hooks.harness.id === "claude" ? inj.addDir : undefined,
-        extraArgs: this.hooks.harness.id === "codex" ? inj.extraArgs : undefined,
+        mcpConfigPath: inj?.mcpConfigPath,
+        mcpServers: inj?.mcpServers,
+        addDir: this.hooks.harness.id === "claude" ? inj?.addDir : undefined,
+        extraArgs: this.hooks.harness.id === "codex" ? inj?.extraArgs : undefined,
       })) {
-        this.handleHarness(rt, ev);
+        this.handleHarness(rt, ev, live);
         if (ev.type === "text") talk += ev.text;
         if (ev.type === "done") talk = ev.text || talk;
         if (ev.type === "error") throw new Error(ev.error);
       }
+      live.finish(rt.abort.signal.aborted ? "stopped" : "done");
+      this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
       rt.fork.summary = talk.trim().slice(0, 400) || rt.fork.summary;
       if (rt.fork.status === "merged") return;
       if (rt.fork.needsUser) {
@@ -259,13 +263,28 @@ export class ForkManager {
     }
   }
 
-  private handleHarness(rt: ForkRuntime, ev: HarnessEvent): void {
+  private handleHarness(rt: ForkRuntime, ev: HarnessEvent, live: LiveTurn): void {
+    const applied = live.apply(ev);
+    this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
+    if (applied.step) {
+      this.hooks.onEvent({ type: "step", session: rt.fork.id, payload: { turnId: live.id, step: applied.step } });
+    }
     switch (ev.type) {
       case "text":
+      case "thinking":
+      case "model":
         this.hooks.onEvent({ type: "delta", session: rt.fork.id, payload: ev });
+        if (ev.type === "thinking" && applied.step?.status === "done" && applied.step.text) {
+          rt.memory.append({ kind: "think", text: applied.step.text, seat: applied.step.seat, stepId: applied.step.id });
+        }
         break;
       case "tool":
-        rt.memory.append({ kind: "tool", text: `${ev.name} ${JSON.stringify(ev.input)}`, tool: { name: ev.name, input: ev.input } });
+        rt.memory.append({
+          kind: "tool",
+          text: `${ev.name} ${JSON.stringify(ev.input)}`,
+          seat: seatOf(this.hooks.harness.id),
+          tool: { name: ev.name, input: ev.input },
+        });
         this.hooks.onEvent({ type: "tool", session: rt.fork.id, payload: ev });
         break;
       case "tool_result":
@@ -281,7 +300,7 @@ export class ForkManager {
         break;
       case "done":
         if (ev.text) {
-          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: "claude" });
+          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.hooks.harness.id), model: live.turn.model });
           this.hooks.onEvent({ type: "message", session: rt.fork.id, payload: msg });
           const plugin = this.views.get(rt.fork.view);
           const patch = plugin?.onEvent?.(rt.fork, { type: "done", text: ev.text });

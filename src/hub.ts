@@ -1,16 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { Fork, HubEvent, Message, SeatId, ViewInfo } from "./types";
+import type { CompactStatus, Fork, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { haikuCompressor } from "./memory/compact";
-import { cursorCompressor } from "./memory/cursor-compact";
+import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
 import { assemble } from "./memory/assemble";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
 import { isQuotaError } from "./harness/quota";
 import { renderToolToFence } from "./live/parse";
+import { LiveTurn } from "./live/turn";
 import { ViewRegistry } from "./views/registry";
 import { ForkManager, mergeMessage } from "./forks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
@@ -21,6 +23,8 @@ import { runNcli } from "./skills/scaffold";
 import { defaultSkillsDir } from "./skills/catalog";
 import { Bus } from "./bus/bus";
 import { formatBusLine, isSeat, type BusLine } from "./bus/types";
+import { McpGate } from "./mcp/auth";
+import type { McpSession } from "./mcp/handle";
 import { prepareSpawn } from "./mcp/inject";
 
 export class Hub {
@@ -29,9 +33,15 @@ export class Hub {
   readonly forks: ForkManager;
   harness: Harness;
   readonly bus: Bus;
+  readonly mcp = new McpGate();
+  mcpUrl: string;
+  model?: string;
+  live: LiveTurn | null = null;
+  compact: CompactStatus;
   private listeners = new Set<(ev: HubEvent) => void>;
   readonly compressor: Compressor;
   private turning = false;
+  private abort: AbortController | null = null;
 
   constructor(
     readonly cfg: NcliConfig,
@@ -41,7 +51,12 @@ export class Hub {
     git?: GitRunner,
   ) {
     mkdirSync(cfg.dataDir, { recursive: true });
-    this.compressor = pickCompressor(cfg);
+    this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
+    this.compact = compactSnapshot(cfg);
+    this.compressor = pickCompressor(cfg, (ev) => {
+      this.compact = { running: ev.running, lastNodes: ev.nodes, tokensToday: ev.tokensToday, budget: ev.budget, model: ev.model };
+      this.emit({ type: "compact", compact: this.compact });
+    });
     this.memory = new Memory({
       dir: join(cfg.dataDir, "main"),
       nodeBytes: cfg.nodeBytes,
@@ -62,13 +77,19 @@ export class Hub {
       harness: this.harness,
       git,
       bus: this.bus,
+      inject: (session, worktree) => this.injectSpawn(session, this.harness.id, worktree),
       onEvent: (ev) => {
         if (ev.type === "fork") this.emit({ type: "fork", fork: ev.payload as Fork });
         if (ev.type === "message") this.emit({ type: "message", session: ev.session, message: ev.payload as Message });
         if (ev.type === "tool") this.emit({ type: "tool", session: ev.session, name: String((ev.payload as { name?: string }).name ?? "tool"), input: ev.payload });
         if (ev.type === "delta") {
-          const p = ev.payload as { text?: string; seat?: Message["seat"] };
-          this.emit({ type: "delta", session: ev.session, seat: p.seat, text: p.text ?? "" });
+          const p = ev.payload as { text?: string; seat?: Message["seat"]; model?: string };
+          this.emit({ type: "delta", session: ev.session, seat: p.seat, model: p.model, text: p.text ?? "" });
+        }
+        if (ev.type === "turn") this.emit({ type: "turn", session: ev.session, turn: ev.payload as Turn });
+        if (ev.type === "step") {
+          const p = ev.payload as { turnId: string; step: Turn["steps"][number] };
+          this.emit({ type: "step", session: ev.session, turnId: p.turnId, step: p.step });
         }
       },
       onMerge: (fork, summary) => {
@@ -84,6 +105,26 @@ export class Hub {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.forks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
+    if (kind !== "claude" && kind !== "codex" && kind !== "cursor") this.model = undefined;
+    this.emit({ type: "main", main: this.mainAgent() });
+  }
+
+  mainAgent(): MainAgent {
+    return { harness: this.harness.id as HarnessKind, model: this.model ?? (this.cfg.claudeModel || undefined) };
+  }
+
+  mcpSession(who: { session: string; ticket?: string }): McpSession {
+    return {
+      session: who.session,
+      ticket: who.ticket,
+      sock: this.bus.socketPath,
+      callControl: (name, args, from) => this.callMcp(name, args, from),
+    };
+  }
+
+  injectSpawn(session: string, harness: string, worktree?: string, ticket?: string) {
+    const token = this.mcp.mint(session, ticket);
+    return prepareSpawn({ cfg: this.cfg, session, harness, worktree, ticket, token, mcpUrl: this.mcpUrl });
   }
 
   async start(): Promise<void> {
@@ -109,6 +150,10 @@ export class Hub {
     views: ViewInfo[];
     debug: ReturnType<Memory["debug"]>;
     waiting: Fork[];
+    main: MainAgent;
+    turn: Turn | null;
+    compact: CompactStatus;
+    turning: boolean;
   } {
     return {
       messages: this.memory.log,
@@ -116,6 +161,10 @@ export class Hub {
       views: this.views.list(),
       debug: this.memory.debug(),
       waiting: this.forks.waitingOnUser(),
+      main: this.mainAgent(),
+      turn: this.live?.turn ?? null,
+      compact: this.compact,
+      turning: this.turning,
     };
   }
 
@@ -128,11 +177,35 @@ export class Hub {
     await this.openLinks(trimmed);
     if (this.turning) return;
     this.turning = true;
+    this.abort = new AbortController();
     try {
       await this.turn(trimmed);
     } finally {
       this.turning = false;
+      this.abort = null;
+      if (this.live?.turn.status === "running") this.live.finish("done");
+      if (this.live) this.emit({ type: "turn", session: "main", turn: this.live.turn });
     }
+  }
+
+  stopTurn(session = "main"): boolean {
+    if (session !== "main") {
+      const rt = this.forks.get(session);
+      if (!rt) return false;
+      rt.abort.abort();
+      return true;
+    }
+    if (!this.turning) return false;
+    this.abort?.abort();
+    this.live?.finish("stopped");
+    if (this.live) this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    const msg = this.memory.append({
+      kind: "note",
+      text: "turno interrompido",
+      seat: seatFromId(this.harness.id),
+    });
+    this.emit({ type: "message", session: "main", message: msg });
+    return true;
   }
 
   private async slash(text: string): Promise<boolean> {
@@ -180,22 +253,26 @@ export class Hub {
   private async turn(userText: string, retried = false): Promise<void> {
     void this.memory.pump();
     const ctx = assemble(this.memory);
-    const inj = prepareSpawn({ cfg: this.cfg, session: "main", harness: this.harness.id });
+    const inj = this.injectSpawn("main", this.harness.id);
     writeFileSync(join(this.cfg.dataDir, "last-view.txt"), ctx.view, "utf8");
     let talk = "";
     const tools: string[] = [];
     const inbox = this.bus.drainPrompt("main");
+    this.live = new LiveTurn("main", seatFromId(this.harness.id), this.model ?? (this.cfg.claudeModel || undefined));
+    this.emit({ type: "turn", session: "main", turn: this.live.turn });
     try {
       for await (const ev of this.harness.run({
         prompt: `${inbox}${ctx.view}\n\n${userText}`,
         system: ctx.system,
         cwd: this.cfg.repo,
         session: "main",
+        signal: this.abort?.signal,
         mcpConfigPath: inj.mcpConfigPath,
         mcpServers: inj.mcpServers,
         addDir: this.harness.id === "claude" ? inj.addDir : undefined,
         extraArgs: this.harness.id === "codex" ? inj.extraArgs : undefined,
       })) {
+        if (this.abort?.signal.aborted) break;
         if (ev.type === "error" && !retried && this.fallbackFrom(ev.error)) {
           await this.turn(userText, true);
           return;
@@ -216,11 +293,19 @@ export class Hub {
       }
       throw err;
     }
-    if (talk.trim()) {
+    this.live.finish(this.abort?.signal.aborted ? "stopped" : "done");
+    this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    if (talk.trim() && !this.abort?.signal.aborted) {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
-        const seat = seatOf(this.harness.id);
-        const msg = this.memory.append({ kind: "talk", text: talk, seat, hops: tools.includes("zoom") ? tools.join(" → ") : undefined });
+        const seat = seatFromId(this.harness.id);
+        const msg = this.memory.append({
+          kind: "talk",
+          text: talk,
+          seat,
+          model: this.live.turn.model,
+          hops: tools.includes("zoom") ? tools.join(" → ") : undefined,
+        });
         this.emit({ type: "message", session: "main", message: msg });
       }
       await this.openLinks(talk);
@@ -235,13 +320,14 @@ export class Hub {
     const backup = this.cfg.backupHarness;
     if (backup === "claude" || backup === "auto") return false;
     this.switchMain(backup);
-    const seat = seatOf(backup);
+    const seat = seatFromId(backup);
     const msg = this.memory.append({
-      kind: "talk",
+      kind: "note",
       text: `Claude bateu no limite (quota/rate-limit). Passei o harness principal para ${backup} e reintento o turno. Mesma memória, mesmas tools, mesmas skills.`,
       seat,
     });
     this.emit({ type: "message", session: "main", message: msg });
+    this.emit({ type: "main", main: this.mainAgent() });
     return true;
   }
 
@@ -293,35 +379,66 @@ export class Hub {
   }
 
   private handle(ev: HarnessEvent, tools: string[]): void {
+    if (ev.type === "model") {
+      this.model = ev.model;
+      this.emit({ type: "main", main: this.mainAgent() });
+    }
+    const applied = this.live?.apply(ev);
+    if (this.live) this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    if (applied?.step) this.emit({ type: "step", session: "main", turnId: this.live!.id, step: applied.step });
+    if (applied?.delta) {
+      this.emit({
+        type: "delta",
+        session: "main",
+        seat: this.live?.turn.seat,
+        model: this.live?.turn.model,
+        text: applied.delta,
+        turnId: this.live?.id,
+        stepId: applied.step?.id,
+      });
+    }
     switch (ev.type) {
       case "text":
-        this.emit({ type: "delta", session: "main", seat: ev.seat ?? "claude", text: ev.text });
+      case "thinking":
+      case "model":
+        if (ev.type === "thinking" && applied?.step?.status === "done" && applied.step.text) {
+          const msg = this.memory.append({
+            kind: "think",
+            text: applied.step.text,
+            seat: applied.step.seat,
+            model: applied.step.model,
+            stepId: applied.step.id,
+          });
+          this.emit({ type: "message", session: "main", message: msg });
+        }
         break;
       case "tool": {
         tools.push(ev.name);
         const msg = this.memory.append({
           kind: "tool",
           text: formatTool(ev.name, ev.input),
+          seat: seatFromId(this.harness.id),
+          model: this.live?.turn.model,
           tool: { name: ev.name, input: ev.input },
+          stepId: applied?.step?.id,
         });
         this.emit({ type: "message", session: "main", message: msg });
         this.emit({ type: "tool", session: "main", name: ev.name, input: ev.input });
         break;
       }
       case "tool_result": {
-        const msg = this.memory.append({ kind: "echo", text: ev.content });
+        const msg = this.memory.append({ kind: "echo", text: ev.content, stepId: applied?.step?.id });
         this.emit({ type: "message", session: "main", message: msg });
         break;
       }
       case "seat":
         if (ev.status === "done" && ev.text) {
-          const msg = this.memory.append({ kind: "seat", text: ev.text, seat: ev.seat });
+          const msg = this.memory.append({ kind: "seat", text: ev.text, seat: ev.seat, model: this.live?.turn.model });
           this.emit({ type: "message", session: "main", message: msg });
-        } else {
-          this.emit({ type: "delta", session: "main", seat: ev.seat, text: ev.text ?? ev.status });
         }
         break;
       case "done":
+        this.persistClosedThink();
         break;
       case "error":
         this.emit({ type: "error", error: ev.error });
@@ -331,6 +448,21 @@ export class Hub {
         void _n;
       }
     }
+  }
+
+  private persistClosedThink(): void {
+    const step = this.live?.turn.steps.find((s) => s.kind === "thinking" && s.status === "done");
+    if (!step?.text) return;
+    if (this.memory.log.some((m) => m.stepId === step.id)) return;
+    const msg = this.memory.append({
+      kind: "think",
+      text: step.text,
+      seat: step.seat,
+      model: step.model,
+      stepId: step.id,
+      durationMs: step.endedAt ? Date.parse(step.endedAt) - Date.parse(step.startedAt) : undefined,
+    });
+    this.emit({ type: "message", session: "main", message: msg });
   }
 
   private emit(ev: HubEvent): void {
@@ -368,16 +500,16 @@ export class Hub {
   }
 }
 
-function pickCompressor(cfg: NcliConfig): Compressor {
+function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string }) => void): Compressor {
   switch (cfg.compactBackend) {
     case "mock":
       return mockCompressor();
     case "claude":
       return haikuCompressor(cfg);
     case "cursor":
-      return cursorCompressor(cfg);
+      return cursorCompressor(cfg, undefined, onProgress);
     case "auto":
-      return cfg.harness === "mock" ? mockCompressor() : cursorCompressor(cfg);
+      return cfg.harness === "mock" ? mockCompressor() : cursorCompressor(cfg, undefined, onProgress);
     default: {
       const _n: never = cfg.compactBackend;
       return mockCompressor();
@@ -411,8 +543,7 @@ function formatTool(name: string, input: unknown): string {
 }
 
 function seatOf(id: string): SeatId {
-  if (id === "codex" || id === "cursor" || id === "claude") return id;
-  return "claude";
+  return seatFromId(id);
 }
 
 function paramsOf(raw: unknown): Record<string, string> {

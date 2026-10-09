@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Hub } from "./hub";
 import type { NcliConfig } from "./config";
+import type { HarnessKind } from "./config";
 import type { HubEvent } from "./types";
+import { handleMcpHttp } from "./mcp/http";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -21,8 +24,10 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
   return Bun.serve({
     port: cfg.port,
     hostname: cfg.host,
+    idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname === "/mcp") return handleMcpHttp(req, hub.mcp, (who) => hub.mcpSession(who));
       if (url.pathname === "/api/events") {
         let controller: ReadableStreamDefaultController<Uint8Array>;
         const stream = new ReadableStream<Uint8Array>({
@@ -32,6 +37,9 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "hello" })}\n\n`));
             const snap: HubEvent = { type: "views", views: hub.views.list() };
             c.enqueue(enc.encode(`data: ${JSON.stringify(snap)}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "main", main: hub.mainAgent() })}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "compact", compact: hub.compact })}\n\n`));
+            if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
           },
           cancel() {
             clients.delete(controller);
@@ -50,8 +58,21 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string };
-        await hub.send(body.text ?? "");
-        return Response.json({ ok: true, state: hub.snapshot() });
+        void hub.send(body.text ?? "");
+        return Response.json({ ok: true });
+      }
+      if (url.pathname === "/api/stop" && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as { session?: string };
+        return Response.json({ ok: hub.stopTurn(body.session ?? "main") });
+      }
+      if (url.pathname === "/api/harness" && req.method === "POST") {
+        const body = (await req.json()) as { harness?: string };
+        const kind = body.harness as HarnessKind;
+        if (kind !== "claude" && kind !== "codex" && kind !== "cursor" && kind !== "mock") {
+          return Response.json({ ok: false, error: `harness desconhecido: ${body.harness}` }, { status: 400 });
+        }
+        hub.switchMain(kind);
+        return Response.json({ ok: true, main: hub.mainAgent() });
       }
       if (url.pathname === "/api/forks" && req.method === "POST") {
         const body = (await req.json()) as { view?: string; params?: Record<string, string> };
@@ -61,7 +82,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       const forkMsg = url.pathname.match(/^\/api\/forks\/([^/]+)\/message$/);
       if (forkMsg && req.method === "POST") {
         const body = (await req.json()) as { text?: string };
-        await hub.forks.message(decodeURIComponent(forkMsg[1]), body.text ?? "");
+        void hub.forks.message(decodeURIComponent(forkMsg[1]), body.text ?? "");
         return Response.json({ ok: true });
       }
       const forkAck = url.pathname.match(/^\/api\/forks\/([^/]+)\/ack$/);
@@ -118,6 +139,11 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
 
 function staticFile(root: string, pathname: string): Response {
   const rel = pathname === "/" ? "/index.html" : pathname;
-  const file = Bun.file(join(root, rel));
-  return new Response(file);
+  const wanted = rel === "/favicon.ico" ? ["/favicon.svg", "/favicon.ico"] : [rel];
+  for (const p of wanted) {
+    const abs = join(root, p);
+    if (!existsSync(abs)) continue;
+    return new Response(Bun.file(abs));
+  }
+  return new Response("not found", { status: 404 });
 }
