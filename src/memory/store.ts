@@ -453,6 +453,8 @@ function persistLine(path: string, obj: unknown): void {
 
 export function mockCompressor(): Compressor {
   return async (input) => {
+    const delay = Number(process.env.NCLI_COMPACT_DELAY ?? 0);
+    if (Number.isFinite(delay) && delay > 0) await Bun.sleep(delay);
     const limit = input.nodeBytes;
     const raw = input.kind === "merge"
       ? `${input.left ?? ""} ${input.right ?? ""}`

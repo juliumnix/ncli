@@ -460,7 +460,6 @@ export class Hub {
       budget: d.budget,
       levels: d.levels,
     });
-    this.emit(contextSnapshot(this.memory, this.compact));
   }
 
   close(): void {
