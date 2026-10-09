@@ -11,6 +11,8 @@ The NCLI server is the only long-lived process. `ask` spawns a CLI in the fork w
 
 - `ask(agent, prompt, {fork?, mode?, timeout?})` → ticket
 - `wait(ticket|tickets, timeout)` → text
+
+`timeout` is seconds when the number is below 1000 (so `120` is two minutes), or milliseconds when it is 1000 or more. Default ask is 120s. Default wait is 30s.
 - `post(to, msg)` → short note to a seat, fork id, or `main`
 - `inbox()` → drain pending posts (also prepended on the next turn)
 - `read(query)` → search the bus ledger

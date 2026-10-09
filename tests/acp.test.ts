@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { buildClaudeArgs, parseClaudeLine, resolveClaudeSession } from "../src/acp/claude";
 import { parseCodexLine } from "../src/acp/codex";
-import { cursorAcpSpawn, cursorUpdate } from "../src/acp/cursor";
+import { cursorAcpServers, cursorAcpSpawn, cursorUpdate } from "../src/acp/cursor";
+import { formatRpcError } from "../src/acp/error";
 import { MockAcpAdapter } from "../src/acp/mock";
 import { NdjsonRpc } from "../src/acp/rpc";
 import { toHarnessEvents } from "../src/acp/map";
@@ -192,5 +193,66 @@ test("NdjsonRpc speaks JSON-RPC ndjson over a fake stdio pair", async () => {
   });
   controller.enqueue(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } })}\n`));
   expect(await pending).toEqual({ ok: true });
+  rpc.close();
+});
+
+test("cursor session/new MCP servers keep HTTP type/url/headers and env as name/value pairs", () => {
+  expect(
+    cursorAcpServers([
+      {
+        name: "ncli",
+        type: "http",
+        url: "http://127.0.0.1:47231/mcp",
+        headers: { Authorization: "Bearer tok" },
+        env: { FOO: "bar" },
+      },
+      { name: "stdio", command: "bun", args: ["run", "x"], env: { A: "1" } },
+    ]),
+  ).toEqual([
+    {
+      type: "http",
+      name: "ncli",
+      url: "http://127.0.0.1:47231/mcp",
+      headers: [{ name: "Authorization", value: "Bearer tok" }],
+    },
+    {
+      type: "stdio",
+      name: "stdio",
+      command: "bun",
+      args: ["run", "x"],
+      env: [{ name: "A", value: "1" }],
+    },
+  ]);
+});
+
+test("JSON-RPC errors become a readable Error, not [object Object]", async () => {
+  expect(formatRpcError({ code: -32603, message: "Invalid input", data: { path: "mcpServers.0" } }).message).toContain(
+    "Invalid input",
+  );
+  expect(formatRpcError({ code: -32603, message: "Invalid input" }).message).not.toBe("[object Object]");
+
+  const enc = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stdout = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const rpc = new NdjsonRpc(
+    {
+      write() {
+        return 0;
+      },
+      end() {
+        controller.close();
+      },
+    },
+    stdout,
+  );
+  const pending = rpc.request("session/new", {});
+  controller.enqueue(
+    enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32603, message: "Invalid input" } })}\n`),
+  );
+  await expect(pending).rejects.toThrow("Invalid input");
   rpc.close();
 });

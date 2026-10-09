@@ -98,7 +98,7 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
     return new Promise((resolve, reject) => {
       queue.push({ input, hash, resolve, reject });
       if (queue.length >= batchN) flush();
-      else if (!timer) timer = setTimeout(flush, 20);
+      else if (!timer) timer = setTimeout(flush, cfg.compactDebounceMs || 2500);
     });
   };
 }

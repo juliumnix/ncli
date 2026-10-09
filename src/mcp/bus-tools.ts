@@ -1,4 +1,5 @@
 import { busRpc } from "../bus/client";
+import { timeoutMs } from "../bus/timeout";
 import type { WireMsg } from "../bus/types";
 
 export const BUS_TOOLS = [
@@ -73,7 +74,7 @@ export async function callBusTool(
         kind: "ask",
         body: String(args.prompt ?? ""),
         fork: args.fork ? String(args.fork) : undefined,
-        timeout: num(args.timeout),
+        timeout: timeoutMs(num(args.timeout), 120_000),
         parent,
       });
       return r.body;
@@ -88,9 +89,9 @@ export async function callBusTool(
           op: "wait",
           body: JSON.stringify(ids),
           ticket: ids.join(","),
-          timeout: num(args.timeout) ?? 30_000,
+          timeout: timeoutMs(num(args.timeout), 30_000),
         },
-        (num(args.timeout) ?? 30_000) + 1000,
+        timeoutMs(num(args.timeout), 30_000) + 1000,
       );
       return r.body;
     }

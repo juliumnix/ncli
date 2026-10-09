@@ -1,3 +1,4 @@
+import { formatRpcError } from "../acp/error";
 import type { AcpAdapter } from "../acp/types";
 import { toHarnessEvents } from "../acp/map";
 import type { Harness, HarnessEvent, RunOpts } from "./types";
@@ -17,7 +18,7 @@ export class AcpHarness implements Harness {
       }
       yield { type: "done", text };
     } catch (err) {
-      yield { type: "error", error: err instanceof Error ? err.message : String(err) };
+      yield { type: "error", error: formatRpcError(err).message };
     }
   }
 }
