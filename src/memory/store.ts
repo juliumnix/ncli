@@ -64,11 +64,15 @@ export class Memory {
     kind: MsgKind;
     text: string;
     seat?: SeatId;
+    model?: string;
     to?: string;
     forkId?: string;
     tool?: Message["tool"];
     hops?: string;
     date?: string;
+    stepId?: string;
+    parentId?: string;
+    durationMs?: number;
   }): Message {
     const text = capText(partial.text, 80_000);
     const msg: Message = {
@@ -78,10 +82,14 @@ export class Memory {
       size: utf8Bytes(`${partial.kind}: ${text}`),
       date: partial.date ?? nowIso(),
       seat: partial.seat,
+      model: partial.model,
       to: partial.to,
       forkId: partial.forkId,
       tool: partial.tool,
       hops: partial.hops,
+      stepId: partial.stepId,
+      parentId: partial.parentId,
+      durationMs: partial.durationMs,
     };
     this.log.push(msg);
     persistLine(join(this.dir, "log.jsonl"), msg);

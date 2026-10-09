@@ -19,6 +19,7 @@ export interface NcliConfig {
   compactSkipTokens: number;
   compactBatch: number;
   compactBudgetTokens: number;
+  compactMaxInputTokens: number;
   toolCap: number;
   repo: string;
   ghMode: "real" | "mock" | "auto";
@@ -64,6 +65,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactSkipTokens: num("NCLI_COMPACT_SKIP", 80),
     compactBatch: num("NCLI_COMPACT_BATCH", 6),
     compactBudgetTokens: num("NCLI_COMPACT_BUDGET", 250000),
+    compactMaxInputTokens: num("NCLI_COMPACT_MAX_INPUT", 60_000),
     toolCap: num("NCLI_CAP", 8000),
     repo: process.env.NCLI_REPO ?? process.cwd(),
     ghMode: ghEnv,

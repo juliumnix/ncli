@@ -10,6 +10,23 @@ export const CURSOR_COMPACT_PROMPT =
 
 export type CompactRunner = (prompt: string, model: string) => Promise<string>;
 
+export interface CompactProgress {
+  running: boolean;
+  nodes: number;
+  tokensToday: number;
+  budget: number;
+  model: string;
+}
+
+export type CompactListener = (ev: CompactProgress) => void;
+
+interface Job {
+  input: CompactInput;
+  hash: string;
+  resolve: (s: string) => void;
+  reject: (e: unknown) => void;
+}
+
 export interface CompactLog {
   t: string;
   model: string;
@@ -41,23 +58,24 @@ export function nodeHash(input: CompactInput): string {
     .slice(0, 24);
 }
 
-export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner): Compressor {
+export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProgress?: CompactListener): Compressor {
   const run = runner ?? defaultCursorRunner(cfg);
   const cache = loadCache(cfg.dataDir);
-  const queue: Array<{
-    input: CompactInput;
-    hash: string;
-    resolve: (s: string) => void;
-    reject: (e: unknown) => void;
-  }> = [];
+  const queue: Job[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
   const batchN = cfg.compactBatch;
 
   const flush = () => {
     timer = null;
-    const jobs = queue.splice(0, batchN);
-    if (!jobs.length) return;
-    void runBatch(cfg, run, cache, jobs);
+    const taken = queue.splice(0, Math.max(queue.length, batchN));
+    if (!taken.length) return;
+    const batches = splitJobsByTokens(taken, {
+      maxItems: batchN,
+      maxInputTokens: cfg.compactMaxInputTokens,
+    });
+    void (async () => {
+      for (const jobs of batches) await runBatch(cfg, run, cache, jobs, onProgress);
+    })();
   };
 
   return async (input) => {
@@ -85,12 +103,7 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner): Compr
   };
 }
 
-async function runBatch(
-  cfg: NcliConfig,
-  run: CompactRunner,
-  cache: Map<string, string>,
-  jobs: Array<{ input: CompactInput; hash: string; resolve: (s: string) => void; reject: (e: unknown) => void }>,
-): Promise<void> {
+export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
   const body = jobs
     .map((j, i) => {
       const step =
@@ -100,8 +113,51 @@ async function runBatch(
       return `### ${i + 1} (max ${j.input.nodeBytes} bytes)\n${step}`;
     })
     .join("\n\n");
-  const prompt = `${CURSOR_COMPACT_PROMPT}\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
+  return `${CURSOR_COMPACT_PROMPT}\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
+}
+
+export function splitJobsByTokens<T extends { input: CompactInput }>(
+  jobs: T[],
+  opts: { maxItems: number; maxInputTokens: number },
+): T[][] {
+  const out: T[][] = [];
+  let cur: T[] = [];
+  for (const job of jobs) {
+    const next = [...cur, job];
+    const overItems = next.length > opts.maxItems;
+    const overTokens = estimateTokens(jobPrompt(next)) > opts.maxInputTokens;
+    if (cur.length && (overItems || overTokens)) {
+      out.push(cur);
+      cur = [job];
+      continue;
+    }
+    cur = next;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0): CompactProgress {
+  const b = loadBudget(cfg);
+  return {
+    running,
+    nodes: lastNodes,
+    tokensToday: b.tokens,
+    budget: cfg.compactBudgetTokens,
+    model: cfg.compactModel,
+  };
+}
+
+async function runBatch(
+  cfg: NcliConfig,
+  run: CompactRunner,
+  cache: Map<string, string>,
+  jobs: Job[],
+  onProgress?: CompactListener,
+): Promise<void> {
+  const prompt = jobPrompt(jobs);
   const tokensIn = estimateTokens(prompt);
+  onProgress?.(compactSnapshot(cfg, true, jobs.length));
   try {
     const reply = await run(prompt, cfg.compactModel);
     const lines = parseNumbered(reply, jobs.length);
@@ -122,7 +178,9 @@ async function runBatch(
       persistCache(cfg.dataDir, j.hash, line);
       j.resolve(line);
     });
+    onProgress?.(compactSnapshot(cfg, false, jobs.length));
   } catch (err) {
+    onProgress?.(compactSnapshot(cfg, false, 0));
     for (const j of jobs) j.reject(err);
   }
 }
