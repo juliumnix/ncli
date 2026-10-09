@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { assemble } from "../src/memory/assemble";
-import { badgeTone, contextRows, diffContext, partsCover, relativeTime } from "../src/memory/context";
+import { badgeTone, contextAuthor, contextRows, contextSummary, diffContext, partsCover, relativeTime } from "../src/memory/context";
 import { Memory } from "../src/memory/store";
 import { tmpDir } from "./helpers";
 
@@ -24,6 +24,19 @@ test("contextRows tiles [0, T) with power-of-two n and no duplicate prefix", () 
   expect(rows[0]?.text).toBe("talk: MCP ncli sem conexão, ask/wait indisponíveis");
   expect(rows[0]?.text).not.toContain("0+1|");
   expect(rows[1]?.kind).toBe("user");
+  expect(rows[0]?.author).toEqual({ kind: "agent", seat: "claude", name: "Claude" });
+  expect(rows[0]?.summary).toBe("MCP ncli sem conexão, ask/wait indisponíveis");
+  expect(rows[1]?.author).toEqual({ kind: "user", name: "Julio" });
+  expect(rows[1]?.summary).toBe("volta?");
+});
+
+test("drawer copy drops user:/talk: and names Julio or the seat", () => {
+  expect(contextAuthor(1, "user")).toEqual({ kind: "user", name: "Julio" });
+  expect(contextAuthor(1, "talk", "codex")).toEqual({ kind: "agent", seat: "codex", name: "Codex" });
+  expect(contextAuthor(4, "talk", "claude")).toEqual({ kind: "mix" });
+  expect(contextSummary("talk: MCP ncli sem conexão", 1)).toBe("MCP ncli sem conexão");
+  expect(contextSummary("user: desconto; talk: confirmei a regra", 2)).toBe("Julio: desconto; Claude: confirmei a regra");
+  expect(contextSummary("user: volta?", 1)).not.toMatch(/^user:/);
 });
 
 test("assemble view stays id+n|text after context projection", () => {

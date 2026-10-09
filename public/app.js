@@ -590,9 +590,38 @@ function contextRowHtml(row) {
     : "";
   return `<button type="button" class="${klass}" data-start="${row.start}" data-n="${row.n}">
     <span class="ctx-badge" style="background:${badgeTone(row.n)}">x${row.n}</span>
-    <span class="ctx-sum">${escapeHtml(row.text)}</span>
+    ${rowWhoHtml(row)}
+    <span class="ctx-sum">${escapeHtml(row.summary || contextSummary(row.text, row.n))}</span>
     <span class="ctx-time">${escapeHtml(relativeTime(row.to || row.from))}</span>
   </button>${zoom}`;
+}
+
+function rowWhoHtml(row) {
+  const a = row.author || contextAuthor(row.n, row.kind, row.seat);
+  if (a.kind === "mix") return "";
+  if (a.kind === "user") {
+    return `<span class="ctx-who user"><span class="av ju">J</span><b>Julio</b></span>`;
+  }
+  return `<span class="ctx-who agent">${avatar(a.seat)}<b>${escapeHtml(a.name)}</b></span>`;
+}
+
+function contextAuthor(n, kind, seat) {
+  if (n !== 1) return { kind: "mix" };
+  if (kind === "user") return { kind: "user", name: "Julio" };
+  const id = seat === "codex" || seat === "cursor" ? seat : "claude";
+  const name = id === "codex" ? "Codex" : id === "cursor" ? "Cursor" : "Claude";
+  return { kind: "agent", seat: id, name };
+}
+
+function contextSummary(text, n) {
+  const raw = String(text ?? "");
+  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tool):\s*/i, "").trim();
+  return raw
+    .replace(/\buser:\s*/gi, "Julio: ")
+    .replace(/\b(?:talk|seat):\s*/gi, "Claude: ")
+    .replace(/\b(?:note|merge|bus|echo|tool):\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cascadeHtml(rows) {
@@ -653,12 +682,12 @@ function treeSvg(rows) {
     }
   }
   const boxes = nodes.map((n) => {
-    const label = escapeHtml(n.row.text.slice(0, 42));
+    const label = escapeHtml((n.row.summary || contextSummary(n.row.text, n.row.n)).slice(0, 42));
     return `<g>
       <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="16" fill="#161618" stroke="#262628"/>
       <rect x="${n.x}" y="${n.y}" width="36" height="28" rx="6" fill="${badgeTone(n.row.n)}"/>
       <text x="${n.x + 18}" y="${n.y + 18}" text-anchor="middle" fill="#fff" font-size="10" font-family="ui-monospace,monospace">x${n.row.n}</text>
-      <text x="${n.x + 44}" y="${n.y + 18}" fill="#d0d0d0" font-size="10" font-family="ui-monospace,monospace">${label}</text>
+      <text x="${n.x + 44}" y="${n.y + 18}" fill="#d0d0d0" font-size="10" font-family="ui-monospace,monospace">${escapeHtml((n.row.summary || contextSummary(n.row.text, n.row.n)).slice(0, 42))}</text>
     </g>`;
   }).join("");
   return `<svg viewBox="0 0 ${w} ${h}" height="${h}">${lines.join("")}${boxes}</svg>`;

@@ -89,16 +89,23 @@ export interface ViewPart {
   built: boolean;
 }
 
+export type ContextAuthor =
+  | { kind: "user"; name: "Julio" }
+  | { kind: "agent"; seat: SeatId; name: "Claude" | "Codex" | "Cursor" }
+  | { kind: "mix" };
+
 export interface ContextRow {
   id: string;
   start: number;
   n: number;
   text: string;
+  summary: string;
   built: boolean;
   from: string;
   to: string;
   kind?: MsgKind;
   seat?: SeatId;
+  author: ContextAuthor;
 }
 
 export type ContextOp =

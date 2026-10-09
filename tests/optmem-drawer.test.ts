@@ -17,6 +17,8 @@ test("drawer ships the OptMem list and raw toggle, not a default pre dump", () =
   expect(css).toContain("-webkit-line-clamp: 2");
   expect(css).not.toMatch(/\.ctx-sum\s*\{[^}]*white-space:\s*nowrap/);
   expect(js).toContain("bloco");
+  expect(js).toContain("rowWhoHtml");
+  expect(js).toContain("Julio");
   expect(js).toContain('case "context"');
   expect(js).toContain("Trabalhou por");
   expect(js).toContain("workOpen");

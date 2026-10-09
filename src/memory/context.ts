@@ -1,5 +1,11 @@
-import type { CompactStatus, ContextOp, ContextRow, ContextSnapshot } from "../types";
+import type { CompactStatus, ContextAuthor, ContextOp, ContextRow, ContextSnapshot, MsgKind, SeatId } from "../types";
 import type { Memory } from "./store";
+
+const SEAT_NAME = {
+  claude: "Claude",
+  codex: "Codex",
+  cursor: "Cursor",
+} as const;
 
 const TONE_STOPS: Array<[number, [number, number, number]]> = [
   [0, [61, 51, 48]],
@@ -9,20 +15,42 @@ const TONE_STOPS: Array<[number, [number, number, number]]> = [
   [8, [143, 74, 54]],
 ];
 
+export function contextAuthor(n: number, kind?: MsgKind, seat?: SeatId): ContextAuthor {
+  if (n !== 1) return { kind: "mix" };
+  if (kind === "user") return { kind: "user", name: "Julio" };
+  const id = seat ?? "claude";
+  return { kind: "agent", seat: id, name: SEAT_NAME[id] };
+}
+
+export function contextSummary(text: string, n: number): string {
+  const raw = String(text ?? "");
+  if (n === 1) return raw.replace(/^(user|talk|seat|note|merge|bus|echo|tool):\s*/i, "").trim();
+  return raw
+    .replace(/\buser:\s*/gi, "Julio: ")
+    .replace(/\b(?:talk|seat):\s*/gi, "Claude: ")
+    .replace(/\b(?:note|merge|bus|echo|tool):\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function contextRows(mem: Memory): ContextRow[] {
   return mem.view.map((p) => {
     const first = mem.log[p.start];
     const last = mem.log[Math.min(p.start + p.n - 1, mem.T - 1)] ?? first;
+    const kind = p.n === 1 ? first?.kind : undefined;
+    const seat = p.n === 1 ? first?.seat : undefined;
     return {
       id: `${p.start}+${p.n}`,
       start: p.start,
       n: p.n,
       text: p.text,
+      summary: contextSummary(p.text, p.n),
       built: p.built,
       from: first?.date ?? "",
       to: last?.date ?? first?.date ?? "",
-      kind: p.n === 1 ? first?.kind : undefined,
-      seat: p.n === 1 ? first?.seat : undefined,
+      kind,
+      seat,
+      author: contextAuthor(p.n, kind, seat),
     };
   });
 }
