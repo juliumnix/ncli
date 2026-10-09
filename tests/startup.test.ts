@@ -65,7 +65,8 @@ test("loadConfig keeps Haiku 5.5 as the cheap compact default and a 60k input ca
   expect(cfg.compactModel).toBe("claude-haiku-5-5");
   expect(cfg.compactMaxInputTokens).toBe(60_000);
   expect(cfg.cursorModel).toBe("composer-2.5");
-  expect(cfg.codexModel).toBe("gpt-5.4");
+  expect(cfg.codexModel).toBe("");
+  expect(cfg.cursorModel).toBe("composer-2.5");
 });
 
 test("mock compact skips the live Cursor.models.list check", () => {

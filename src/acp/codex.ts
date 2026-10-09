@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
@@ -8,7 +11,8 @@ export class CodexExecAdapter implements AcpAdapter {
   constructor(private readonly cfg: NcliConfig) {}
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
-    yield { sessionUpdate: "model", model: this.cfg.codexModel };
+    const shown = this.cfg.codexModel || readCodexConfigModel();
+    if (shown) yield { sessionUpdate: "model", model: shown };
     const args = buildCodexArgs(this.cfg, opts);
     const proc = Bun.spawn(args, {
       cwd: opts.cwd ?? this.cfg.repo,
@@ -65,7 +69,11 @@ export function parseCodexLine(line: string): AcpUpdate[] {
   }
   const type = String(ev.type ?? ev.event ?? "");
   const item = (ev.item ?? ev.data ?? ev) as Record<string, unknown>;
+  const model = pickModel(ev);
   const text = pickText(item) || pickText(ev);
+  if (model && /session|thread|turn\.started|model/i.test(type)) {
+    return [{ sessionUpdate: "model", model }];
+  }
   if (/reason|thinking|agent_thought/i.test(type) && text) {
     return [{ sessionUpdate: "agent_thought_chunk", text }];
   }
@@ -92,4 +100,36 @@ function pickText(obj: Record<string, unknown>): string {
     if (typeof v === "string" && v.trim()) return v;
   }
   return "";
+}
+
+function pickModel(ev: Record<string, unknown>): string {
+  for (const obj of [ev, ev.item, ev.thread, ev.session, ev.data]) {
+    if (!obj || typeof obj !== "object") continue;
+    const model = (obj as { model?: unknown }).model;
+    if (typeof model === "string" && model.trim()) return model.trim();
+  }
+  return "";
+}
+
+export function parseCodexConfigModel(toml: string): string | undefined {
+  const line = toml.match(/^\s*model\s*=\s*(.+)$/m);
+  if (!line) return undefined;
+  const raw = line[1].trim().replace(/\s+#.*$/, "");
+  const quoted = raw.match(/^["']([^"']+)["']$/);
+  const id = (quoted?.[1] ?? raw).trim();
+  return id || undefined;
+}
+
+export function defaultCodexConfigPath(): string {
+  const dir = process.env.CODEX_HOME || join(homedir(), ".codex");
+  return join(dir, "config.toml");
+}
+
+export function readCodexConfigModel(path = defaultCodexConfigPath()): string | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    return parseCodexConfigModel(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
 }

@@ -1,3 +1,4 @@
+import { readCodexConfigModel } from "../acp/codex";
 import type { HarnessKind, NcliConfig } from "../config";
 
 export function configuredSeatModel(cfg: NcliConfig, harness: HarnessKind): string | undefined {
@@ -7,7 +8,7 @@ export function configuredSeatModel(cfg: NcliConfig, harness: HarnessKind): stri
     case "cursor":
       return cfg.cursorModel;
     case "codex":
-      return cfg.codexModel;
+      return cfg.codexModel || undefined;
     case "mock":
     case "auto":
       return undefined;
@@ -16,4 +17,8 @@ export function configuredSeatModel(cfg: NcliConfig, harness: HarnessKind): stri
       return _n;
     }
   }
+}
+
+export function displaySeatModel(cfg: NcliConfig, harness: HarnessKind): string | undefined {
+  return configuredSeatModel(cfg, harness) ?? (harness === "codex" ? readCodexConfigModel() : undefined);
 }

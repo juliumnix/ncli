@@ -24,8 +24,11 @@ export function displayModel(raw: string | undefined): string | undefined {
     const head = named[1]![0]!.toUpperCase() + named[1]!.slice(1).toLowerCase();
     return named[3] ? `${head} ${named[2]}.${named[3]}` : `${head} ${named[2]}`;
   }
-  const gpt = raw.match(/gpt-?(\d+)(?:[.-](\d+))?/i);
-  if (gpt) return gpt[2] ? `GPT ${gpt[1]}.${gpt[2]}` : `GPT ${gpt[1]}`;
+  const gpt = raw.match(/gpt-?(\d+)(?:[.-](\d+))?(-[a-z0-9]+)?/i);
+  if (gpt) {
+    const base = gpt[2] ? `GPT ${gpt[1]}.${gpt[2]}` : `GPT ${gpt[1]}`;
+    return gpt[3] ? `${base}${gpt[3]}` : base;
+  }
   return raw.replace(/^claude-?/i, "").replace(/-\d{8}$/, "") || raw;
 }
 
