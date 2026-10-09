@@ -14,6 +14,7 @@ import { pickHarness } from "./harness/pick";
 import { isQuotaError } from "./harness/quota";
 import { renderToolToFence } from "./live/parse";
 import { LiveTurn } from "./live/turn";
+import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
 import { ForkManager, mergeMessage } from "./forks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
@@ -280,7 +281,7 @@ export class Hub {
           return;
         }
         this.handle(ev, tools);
-        if (ev.type === "text") talk += ev.text;
+        if (ev.type === "text") talk = joinText(talk, ev.text);
         if (ev.type === "done" && ev.text) talk = ev.text;
         if (ev.type === "tool" && ev.name === "ncli.render") {
           const inp = ev.input as { kind?: string; source?: string };

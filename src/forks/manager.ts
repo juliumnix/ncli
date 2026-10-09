@@ -13,6 +13,7 @@ import { addWorktree, removeWorktree, type GitRunner, type WorktreeHandle } from
 import { nowIso } from "../util";
 import type { Bus } from "../bus/bus";
 import { LiveTurn } from "../live/turn";
+import { joinText } from "../live/join-text";
 import { seatOf } from "../agent";
 import type { SpawnInject } from "../mcp/inject";
 
@@ -237,7 +238,7 @@ export class ForkManager {
         extraArgs: this.hooks.harness.id === "codex" ? inj?.extraArgs : undefined,
       })) {
         this.handleHarness(rt, ev, live, tools);
-        if (ev.type === "text") talk += ev.text;
+        if (ev.type === "text") talk = joinText(talk, ev.text);
         if (ev.type === "done") talk = ev.text || talk;
         if (ev.type === "error") throw new Error(ev.error);
       }

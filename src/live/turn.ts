@@ -2,6 +2,7 @@ import { agentLabel, seatOf, toolTitle } from "../agent";
 import type { HarnessEvent } from "../harness/types";
 import type { SeatId, Turn, TurnStep } from "../types";
 import { nowIso } from "../util";
+import { joinText } from "./join-text";
 
 const STILL_MS = 5000;
 
@@ -127,8 +128,10 @@ export class LiveTurn {
       status: "running",
     });
     this.openText = step;
-    step.text += text;
-    return { step, delta: text };
+    const joined = joinText(step.text, text);
+    const added = joined.slice(step.text.length);
+    step.text = joined;
+    return { step, delta: added };
   }
 
   private startTool(id: string, name: string, input: unknown, seat?: SeatId): TurnStep {

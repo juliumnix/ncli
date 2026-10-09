@@ -42,6 +42,8 @@ code { font: 12px ui-monospace, Menlo, monospace; }
 .tout { margin: 0 0 0 44px; font-size: 12px; color: #666; }
 .tout pre { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 8px; overflow: auto; max-height: 180px; }
 .md { overflow: visible; overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+.md h1, .md h2, .md h3, .md h4 { font-size: 15px; font-weight: 650; margin: 10px 0 6px; line-height: 1.3; }
+.md h1:first-child, .md h2:first-child, .md h3:first-child, .md h4:first-child { margin-top: 0; }
 .md p { margin: 0 0 8px; }
 .md p:last-child { margin-bottom: 0; }
 .md ul, .md ol { margin: 0 0 8px 18px; }
