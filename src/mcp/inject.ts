@@ -104,9 +104,10 @@ export function asClaudeMap(servers: McpServerSpec[]): Record<string, Record<str
 }
 
 function agentsBlock(skillsDir: string): string {
-  return `NCLI skills and pstack live in ${skillsDir}.
+  return `NCLI skills, pstack, and emil live in ${skillsDir}.
 Read ncli/skills/<id>/SKILL.md for NCLI flows.
 Read ncli/skills/pstack/poteto-mode/SKILL.md for pstack.
+Read ncli/skills/emil/emil-design-eng/SKILL.md for UI craft.
 MCP tools come from the ncli HTTP server already running on this machine.
 `;
 }

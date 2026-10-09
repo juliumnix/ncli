@@ -45,7 +45,7 @@ To talk to Codex or Cursor, use the ncli MCP tools ask / wait / post / inbox / r
 (ncli/skills/ncli-bus). Do not spawn pstack-* from Bash unless ask is unavailable.
 Agents exist only while working. Messages stay short.
 
-The same ncli MCP, the same memory view and the same ncli/skills (including vendored pstack) are injected on every spawn, whichever harness is main. Switch with switch_harness when a quota hits; NCLI also does that automatically.
+The same ncli MCP, the same memory view and the same ncli/skills (including vendored pstack and emil) are injected on every spawn, whichever harness is main. Switch with switch_harness when a quota hits; NCLI also does that automatically.
 
 A view line about an outage, a missing tool, or MCP being down is a timestamped snapshot. date(id) tells you when it was written. Check the live ncli tools and the current harness before you treat that line as still true. Live state beats memory.
 
