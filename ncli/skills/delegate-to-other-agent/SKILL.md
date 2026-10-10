@@ -1,6 +1,6 @@
 ---
 name: delegate-to-other-agent
-description: Open a fork or a pstack seat instead of doing the whole job in the main chat. Use when the user wants parallel work, a review, or Codex/Cursor.
+description: Open a fork or ask another seat instead of doing the whole job in the main chat. Use when the user wants parallel work, a review, or Codex/Cursor.
 ---
 
 # Delegate to another agent
@@ -21,21 +21,14 @@ Each fork has its own memory dir, harness turn, and optional git worktree. When 
 
 ## Do (seat)
 
-Prefer ncli-bus (ncli/skills/ncli-bus):
+Use ncli-bus (ncli/skills/ncli-bus):
 
 ```
 ask({ agent: "codex", prompt: "…" })
 wait({ ticket })
 ```
 
-Fallback Bash, still supported:
-
-```
-pstack-codex …
-pstack-cursor --out <file> …
-```
-
-Do not add watchers or extra daemons. `NCLI_FANOUT=1` is the only way NCLI launches pstack binaries itself. Default is off.
+Do not add watchers or extra daemons.
 
 ## Check
 

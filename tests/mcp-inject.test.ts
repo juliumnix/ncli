@@ -36,7 +36,8 @@ test("prepareSpawn writes under data/spawn and never touches ~/.claude ~/.codex 
   expect(json.mcpServers.ncli.type).toBe("http");
   expect(json.mcpServers.ncli.url).toBe("http://127.0.0.1:47231/mcp");
   expect(json.mcpServers.ncli.headers.Authorization).toBe("Bearer abc");
-  expect(inj.addDir.some((d) => d.endsWith("ncli/skills"))).toBe(true);
+  expect(inj.addDir.some((d) => d.endsWith("ncli/skills/ncli-bus"))).toBe(true);
+  expect(inj.addDir.every((d) => !d.includes("pstack"))).toBe(true);
   const home = homedir();
   for (const banned of [join(home, ".claude"), join(home, ".codex"), join(home, ".cursor")]) {
     expect(inj.mcpConfigPath.startsWith(banned)).toBe(false);
