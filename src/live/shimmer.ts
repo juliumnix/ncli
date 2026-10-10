@@ -5,7 +5,7 @@ export type LiveShape = "diagram" | "chart" | "card" | "page";
 export function liveShape(kind: LiveKind, source = ""): LiveShape {
   if (kind === "mermaid") return "diagram";
   if (kind === "url") return "page";
-  if (kind === "react") return "card";
+  if (kind === "react" || kind === "ui") return "card";
   if (/chart|canvas|svg|bar|plot/i.test(source)) return "chart";
   return "card";
 }
@@ -17,7 +17,7 @@ export function liveLabel(kind: LiveKind, source = ""): string {
     case "chart":
       return "desenhando gráfico…";
     case "card":
-      return kind === "react" ? "montando componente…" : "montando prévia…";
+      return kind === "ui" ? "montando o card…" : kind === "react" ? "montando componente…" : "montando prévia…";
     case "page":
       return "carregando página…";
     default: {

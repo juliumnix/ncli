@@ -22,7 +22,7 @@ export const NCLI_TOOLS: McpToolDef[] = [
   },
   {
     name: "ncli.render",
-    description: "Show a live preview in chat. kind is mermaid, html, react, or url. Repeat the returned fence in your reply.",
+    description: "Show a live preview in chat. kind is mermaid, html, react, url, or ui. ui is an interactive mini-app. Repeat the returned fence in your reply.",
     inputSchema: {
       type: "object",
       properties: { kind: { type: "string" }, source: { type: "string" } },

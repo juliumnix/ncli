@@ -1,3 +1,4 @@
+import { demoUiFence } from "./live/ui-demo";
 import type { Memory } from "./memory/store";
 import type { Fork } from "./types";
 
@@ -75,6 +76,17 @@ C --> D[total]
 \`\`\``,
     seat: "claude",
     date: todayAt(12, 8),
+  });
+  host.memory.append({
+    kind: "user",
+    text: "mostra o checkout como um card com abas e um gráfico",
+    date: todayAt(12, 9),
+  });
+  host.memory.append({
+    kind: "talk",
+    text: `Aqui o recorte do plano B.\n\n${demoUiFence()}`,
+    seat: "claude",
+    date: todayAt(12, 9),
   });
   host.seedViewSeq("review", 2);
   host.seedViewSeq("refino", 1);
