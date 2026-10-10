@@ -498,7 +498,7 @@ code { font: 12px ui-monospace, Menlo, monospace; }
     transition: opacity 160ms var(--ease-out);
     transform: none;
   }
-  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text, .live-answer .chunk {
+  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text {
     animation: none;
     transition: none;
     transform: none;
