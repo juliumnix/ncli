@@ -27,6 +27,10 @@ test("mermaid becomes an inline SVG (no CDN) and html/react/url go through a san
   expect(html).toContain("srcdoc=");
   expect(html).toContain("Content-Security-Policy");
   expect(frameHtml({ kind: "html", source: "<p>x</p>" })).toContain("default-src 'none'");
+  const pickup = frameHtml({ kind: "html", source: "<b>Pickup scheduling</b><p>customer picks a slot</p>" });
+  expect(pickup).toContain("--fg:#ececec");
+  expect(pickup).toContain("color:var(--fg)");
+  expect(pickup).toContain("background:var(--bg)");
   expect(jsxLite(`function Card() {\n  return (\n    <div className="card">ok</div>\n  );\n}`)).toContain('class="card"');
 });
 
@@ -38,11 +42,11 @@ test("url previews only allow http(s)", () => {
   expect(iframeTag({ kind: "url", source: "javascript:alert(1)" })).toContain("url bloqueada");
 });
 
-test("view://live holds four sandboxed previews and stays on the waiting rail", async () => {
+test("view://live holds five sandboxed previews and stays on the waiting rail", async () => {
   const { hub } = await makeHub();
   const rt = await hub.forks.open("live", {});
   expect(rt.fork.hold).toBe(true);
-  expect(rt.fork.needsUser?.label).toBe("4 prévias");
+  expect(rt.fork.needsUser?.label).toBe("5 prévias");
   expect(hub.forks.waitingOnUser().some((f) => f.id === rt.fork.id)).toBe(true);
   const html = live.render!(rt.fork);
   expect(html).toContain("live-frame");
@@ -50,6 +54,8 @@ test("view://live holds four sandboxed previews and stays on the waiting rail", 
   expect(html).toContain("HTML");
   expect(html).toContain("REACT");
   expect(html).toContain("URL");
+  expect(html).toContain("UI");
+  expect(html).toContain("ui-card");
   expect(html).toContain("sandbox=");
   hub.close();
 });

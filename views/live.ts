@@ -1,5 +1,6 @@
 import { iframeTag } from "../src/live/frame";
 import type { LiveBlock } from "../src/live/parse";
+import { DEMO_UI_SOURCE } from "../src/live/ui-demo";
 import type { ViewPlugin } from "../src/views/types";
 
 const DEMOS: LiveBlock[] = [
@@ -29,12 +30,16 @@ C --> D[total]`,
     kind: "url",
     source: "https://example.com",
   },
+  {
+    kind: "ui",
+    source: DEMO_UI_SOURCE,
+  },
 ];
 
 const live: ViewPlugin = {
   id: "live",
   label: "live",
-  description: "Demo das quatro prévias ao vivo (mermaid, html, react, url) em iframe sandboxed.",
+  description: "Demo das prévias ao vivo (mermaid, html, react, url, ui) em iframe sandboxed.",
   tabs: [],
   parseLink() {
     return {};
@@ -44,9 +49,9 @@ const live: ViewPlugin = {
       title: "prévias ao vivo",
       needsWorktree: false,
       hold: true,
-      needsUser: { kind: "review", label: "4 prévias", count: 4 },
+      needsUser: { kind: "review", label: "5 prévias", count: 5 },
       ui: { blocks: DEMOS },
-      prompt: "Modo live. As quatro prévias já estão no painel. Não feche o fork.",
+      prompt: "Modo live. As cinco prévias já estão no painel. Não feche o fork.",
     };
   },
   render(fork) {
@@ -59,7 +64,7 @@ const live: ViewPlugin = {
       .join("");
     return `
       <div class="mh">
-        <b>live #${fork.seq}</b> quatro prévias
+        <b>live #${fork.seq}</b> cinco prévias
         <button class="x" id="closeModal" type="button">✕</button>
       </div>
       <div class="mbody">${frames}</div>

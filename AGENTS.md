@@ -50,6 +50,7 @@ Follow the matching skill, do not improvise a second registry.
 | new / edit / delete a `view://` surface | `ncli/skills/add-view`, `edit-view`, `remove-view` |
 | fork type (hold, needs_user, worktree) | `ncli/skills/add-mode` |
 | new ` ```ncli ` kind | `ncli/skills/add-render-kind` |
+| interactive in-chat mini-app (`ncli ui`) | `ncli/skills/ncli-ui` |
 | wrap another CLI | `ncli/skills/add-harness` |
 | view budget / compaction | `ncli/skills/tune-memory` |
 | right-rail avatar | `ncli/skills/add-shortcut` |

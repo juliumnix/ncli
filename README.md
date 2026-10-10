@@ -79,14 +79,16 @@ Child processes get a scrubbed env: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKE
 Chat and the `view://live` modal render fenced blocks:
 
 ````
-```ncli mermaid|html|react|url
+```ncli mermaid|html|react|url|ui
 source
 ```
 ````
 
-Or MCP `ncli.render({kind, source})`. HTML/react land in an iframe with `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP on the `srcdoc` document. Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as it arrives.
+Or MCP `ncli.render({kind, source})`. `ui` is an interactive mini-app (tabs, metric cards, tables, charts). NCLI wraps it in a sandboxed iframe, injects the dark theme tokens, sizes the frame to the content via `postMessage`, and keeps an expand control in the parent. HTML/react use the same `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP (`default-src 'none'`). Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as a shimmer card, then the finished app. The fence is stored in the chat log, so reload and forks restore it.
 
-`NCLI_DEMO=1 bun start` seeds one mermaid + html pair in chat and opens `view://live` (four previews). Open the modal from the right rail, or `?open=<fork-id>`.
+The in-repo skill is `ncli/skills/ncli-ui/SKILL.md`. Agents read it on spawn. Users just ask in plain language. Interactions stay inside the iframe. An optional `ncliUi.send(text)` posts a normal user message.
+
+`NCLI_DEMO=1 bun start` seeds a mermaid + html pair plus a tabbed `ui` card, and opens `view://live` (five previews). Open the modal from the right rail, or `?open=<fork-id>`.
 
 ## Compaction (Cursor SDK only)
 
@@ -120,7 +122,7 @@ bun run ncli new view foo     # writes views/foo.ts, hot-reloads
 bun run ncli remove view foo
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped views: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90), `live` (four sandboxed previews). Each view is one file in `views/` (`review` also uses `src/review/model.ts`). Example data is a fictional `acme/shop` PR.
+Same commands as a slash in chat: `/ncli new view foo`. Shipped views: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90), `live` (five sandboxed previews, including `ui`). Each view is one file in `views/` (`review` also uses `src/review/model.ts`). Example data is a fictional `acme/shop` PR.
 
 ## Memory tree
 
@@ -176,6 +178,7 @@ bun test
 | --- | --- | --- |
 | `tests/acp.test.ts` | `claude -p` args, UUID `--resume`, env strip, mocked ACP session, Cursor/Codex parsers, no SDK deps | in-process mock; never spawn vendor CLIs |
 | `tests/live.test.ts` | fences, SVG mermaid, sandbox/CSP, blocked `javascript:` URLs, `view://live` | fixtures |
+| `tests/ncli-ui.test.ts` | `ui` fence, theme wrap, host messages, persist in the log | fixtures |
 | `tests/review-guide.test.ts` | chapter order, plan fallback, two-column line numbers, fold, active-file overlap, guided-review chrome | fixtures, mock CLI |
 | `tests/compact-cursor.test.ts` | batch, cache, skip, daily budget, async, token log | injected runner; no `cursor-agent` |
 | `tests/compact-isolate.test.ts` | planted `cli-config.json` is byte-identical after compact; pollution warning | fake HOME |
