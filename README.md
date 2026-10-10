@@ -40,7 +40,6 @@ Optional env:
 | `NCLI_NODE` | `280` | summary line target |
 | `NCLI_GH` | `auto` | `real` uses `gh`; `mock` uses `fixtures/gh` |
 | `NCLI_DEMO` | unset | `1` seeds the v4 demo on an empty log |
-| `NCLI_FANOUT` | unset | `1` would launch pstack-codex/cursor from NCLI (not the default) |
 | `NCLI_BUS_DEPTH` | `1` | max nested `ask` (set `2` to allow one hop) |
 | `NCLI_BUS_CHILDREN` | `4` | max concurrent on-demand CLIs |
 | `NCLI_BUS_BUDGET` | `8` | `ask` calls per fork |
@@ -112,7 +111,7 @@ If an older NCLI build already changed your Cursor CLI default to Haiku, startup
 
 ## Hack NCLI from inside NCLI
 
-The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md` (pstack vendored in `ncli/skills/pstack/`, Emil in `ncli/skills/emil/`). One MCP registry: `ncli/mcp.json`. NCLI translates both into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a fork worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
+The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md`. Runtime spawns get those NCLI skills plus Emil (`ncli/skills/emil/`) when the work is UI. pstack is vendored at `ncli/skills/pstack/` for **coding agents developing NCLI** (see `AGENTS.md`); it is not injected into the chat system prompt, spawn `AGENTS.md`, or Claude `--add-dir`. One MCP registry: `ncli/mcp.json`. NCLI translates the runtime skills and MCP into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a fork worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
 
 ```bash
 bun run ncli skills
@@ -155,12 +154,7 @@ While a turn runs, the chat shows a status line with elapsed time, collapsible t
 
 Live ` ```ncli ` blocks show a small shimmer of the right shape (diagram, chart, card) until the fence closes, then the preview. Markdown in agent text is rendered, including while it streams.
 
-How detection works, in order:
-
-1. Parse `claude -p --output-format stream-json` tool events. A `Bash` command matching `pstack-codex` or `pstack-cursor --out <file>` starts a watcher on `<file>.log` and `<file>`.
-2. Tests and `NCLI_HARNESS=mock bun start` use `MockHarness` / `MockAcpAdapter`, which emit seat or ACP events directly. They do not spawn `pstack-*`.
-
-NCLI does not fan out the three CLIs on every turn. pstack-claude should call MCP `ask` / `wait` (ncli/skills/ncli-bus) instead of Bash `pstack-codex`. The NCLI server owns the child; it exits when the ticket completes. No bus watchers or pollers. `pstack-codex` / `pstack-cursor` still work if the orchestrator shells out. Direct NCLI fan-out remains `NCLI_FANOUT=1`.
+Routing to another seat is MCP `ask` / `wait` (ncli/skills/ncli-bus). The NCLI server owns the child; it exits when the ticket completes. No bus watchers or pollers. Tests and `NCLI_HARNESS=mock bun start` use `MockHarness` / `MockAcpAdapter`, which emit seat or ACP events directly.
 
 Logos live in `public/icons/` (Simple Icons: Claude, OpenAI, Cursor).
 
@@ -191,6 +185,8 @@ bun test
 | `tests/concurrent-forks.test.ts` | three refinos at once, isolated worktrees and logs, all merge | real `git worktree`, mock CLI |
 | `tests/hop.test.ts` | 300 messages, recover `#12` by hops | mock compressor |
 | `tests/self-hack.test.ts` | skills in system prompt; add-view appears live; remove-view drops it | mock agent, real watch |
+| `tests/runtime-skills.test.ts` | assembled system + spawn AGENTS omit pstack; add-dir is runtime + emil | in-process |
+| `tests/motion.test.ts` | overlay/drawer exit class; ease-out; reduced motion | source |
 | `tests/bus.test.ts` | idle = 0 extra processes; ask/wait promise; post→next prompt; depth/cycle | mock CLI |
 | `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude | temp dirs |
 | `tests/mcp-http.test.ts` | initialize, tools/list, tools/call with a spawn token | in-process HTTP |
@@ -207,4 +203,4 @@ Hot reload while the app is up: `bun run ncli new view hello`, then `view://hell
 
 ## Development
 
-All development uses pstack. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`. Sync Emil with `bun run scripts/sync-emil.ts`.
+Coding agents developing this repo use pstack. The NCLI chat at runtime does not. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`. Sync Emil with `bun run scripts/sync-emil.ts`.

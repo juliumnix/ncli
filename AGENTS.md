@@ -1,8 +1,8 @@
 # NCLI development uses pstack
 
-All work on this repo goes through [pstack](https://github.com/cursor/plugins/tree/main/pstack) (v0.15.10 or later). Do not skip it for "small" changes.
+pstack is for **developing** this repo in Cursor. It is not used at runtime. The NCLI chat is a normal chat: Claude, Codex, and Cursor talk through NCLI's own bus (`ask` / `wait`). Runtime spawns get only NCLI skills (`ncli-bus`, views, …) and Emil when the work is UI. The vendored copy lives at `ncli/skills/pstack/` so every coding agent working on NCLI sees the same playbooks. Do not inject those files into harness `AGENTS.md`, `--add-dir`, or the assembled system prompt.
 
-The agent **inside** NCLI hacks NCLI from `ncli/skills/*/SKILL.md` (injected into every harness on spawn). MCP servers live in `ncli/mcp.json`. Map: `docs/ARCHITECTURE.md`. Scaffold: `bun run ncli new view <id>` / `bun run ncli remove view <id>` or `/ncli` in chat.
+The agent **inside** NCLI hacks NCLI from `ncli/skills/*/SKILL.md` (runtime skills only on spawn). MCP servers live in `ncli/mcp.json`. Map: `docs/ARCHITECTURE.md`. Scaffold: `bun run ncli new view <id>` / `bun run ncli remove view <id>` or `/ncli` in chat.
 
 ## How to start
 
@@ -54,7 +54,7 @@ Follow the matching skill, do not improvise a second registry.
 | view budget / compaction | `ncli/skills/tune-memory` |
 | right-rail avatar | `ncli/skills/add-shortcut` |
 | parallel work / other seat | `ncli/skills/delegate-to-other-agent` |
-| ask Codex/Cursor (no Bash pstack) | `ncli/skills/ncli-bus` |
+| ask Codex/Cursor | `ncli/skills/ncli-bus` |
 | add a skill / MCP once | `ncli/skills/add-skill`, `add-mcp` |
 | stuck turn | `ncli/skills/debug-ncli` |
 

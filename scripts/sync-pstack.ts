@@ -27,6 +27,8 @@ writeFileSync(
 - Synced from: ${src}
 - Date: ${new Date().toISOString().slice(0, 10)}
 - Sync: bun run scripts/sync-pstack.ts
+
+These files are for developing NCLI in Cursor. They are not injected into runtime Claude/Codex/Cursor spawns.
 `,
   "utf8",
 );

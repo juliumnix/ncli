@@ -10,6 +10,75 @@ const viewList = $("viewList");
 
 const stick = { follow: true };
 const STICK_SLOP = 64;
+const seenMsgs = new Set();
+let chatPrimed = false;
+let scrollRaf = 0;
+let overlayGen = 0;
+let drawerGen = 0;
+
+function reducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function waitMotion(el) {
+  if (!el || reducedMotion()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener("transitionend", onEnd);
+      resolve();
+    };
+    const onEnd = (e) => {
+      if (e.target === el) finish();
+    };
+    el.addEventListener("transitionend", onEnd);
+    setTimeout(finish, 240);
+  });
+}
+
+function followScroll() {
+  if (!chat || !stick.follow) return;
+  if (reducedMotion()) {
+    chat.scrollTop = chat.scrollHeight;
+    return;
+  }
+  if (scrollRaf) return;
+  const step = () => {
+    if (!stick.follow) {
+      scrollRaf = 0;
+      return;
+    }
+    const target = chat.scrollHeight - chat.clientHeight;
+    const cur = chat.scrollTop;
+    const next = cur + (target - cur) * 0.22;
+    if (Math.abs(target - next) < 0.6) {
+      chat.scrollTop = target;
+      scrollRaf = 0;
+      return;
+    }
+    chat.scrollTop = next;
+    scrollRaf = requestAnimationFrame(step);
+  };
+  scrollRaf = requestAnimationFrame(step);
+}
+
+function markEnter() {
+  const nodes = log.querySelectorAll("[data-mid]");
+  if (!chatPrimed) {
+    nodes.forEach((el) => seenMsgs.add(el.dataset.mid));
+    chatPrimed = true;
+    return;
+  }
+  nodes.forEach((el) => {
+    const id = el.dataset.mid;
+    if (!id || seenMsgs.has(id)) return;
+    seenMsgs.add(id);
+    el.classList.add("enter");
+    el.addEventListener("animationend", () => el.classList.remove("enter"), { once: true });
+  });
+}
 
 const state = {
   messages: [],
@@ -245,7 +314,7 @@ function renderChat() {
       }
     }
     if (m.kind === "user") {
-      parts.push(`<div class="u">${rich(m.text)}</div>`);
+      parts.push(`<div class="u" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${rich(m.text)}</div>`);
       continue;
     }
     if (m.kind === "tool") {
@@ -258,11 +327,11 @@ function renderChat() {
       continue;
     }
     if (m.kind === "merge") {
-      parts.push(`<div class="ret">${md(m.text)}</div>`);
+      parts.push(`<div class="ret" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
       continue;
     }
     if (m.kind === "note") {
-      parts.push(`<div class="note">${md(m.text)}</div>`);
+      parts.push(`<div class="note" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
       continue;
     }
     const seat = m.seat || "claude";
@@ -271,7 +340,7 @@ function renderChat() {
     const who = m.kind === "bus"
       ? busWho(m)
       : agentLabel(seat, m.model);
-    parts.push(`<div class="m${sm}">${avatar(seat)}<div class="bb">
+    parts.push(`<div class="m${sm}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${avatar(seat)}<div class="bb">
       <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
       <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
     </div></div>`);
@@ -291,8 +360,9 @@ function renderChat() {
   }
   const keep = chat.scrollTop;
   log.innerHTML = parts.join("");
+  markEnter();
   measureComposer();
-  if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  if (stick.follow) followScroll();
   else chat.scrollTop = keep;
   paintScrollHints();
   renderChrome();
@@ -325,7 +395,7 @@ function paintLive() {
     if (next) node.replaceWith(next);
   }
   measureComposer();
-  if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  if (stick.follow) followScroll();
   paintScrollHints();
   renderChrome();
 }
@@ -354,7 +424,7 @@ function paintScrollHints() {
 
 function jumpToLatest() {
   stick.follow = true;
-  chat.scrollTop = chat.scrollHeight;
+  followScroll();
   paintScrollHints();
 }
 
@@ -480,6 +550,18 @@ function elapsedLabel(iso) {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+function setSwitchOpen(open) {
+  state.switchOpen = open;
+  const menu = $("switchMenu");
+  const btn = $("switchBtn");
+  if (menu && btn) {
+    menu.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    return;
+  }
+  renderChrome();
+}
+
 function renderChrome() {
   const sw = $("agentSwitch");
   if (sw) {
@@ -523,6 +605,8 @@ const seenPills = new Set();
 
 function renderShortcuts() {
   const pills = state.forks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
+  const nextIds = new Set(pills.map((f) => f.id));
+  const leaving = [...shortcuts.querySelectorAll("[data-fork]")].filter((el) => !nextIds.has(el.dataset.fork));
   const glyph = { review: "⌥", refino: "✎", live: "▣" };
   shortcuts.innerHTML = pills
     .map((f) => {
@@ -539,6 +623,12 @@ function renderShortcuts() {
       </button>`;
     })
     .join("");
+  for (const el of leaving) {
+    el.classList.add("out");
+    el.classList.remove("pop");
+    shortcuts.appendChild(el);
+    waitMotion(el).then(() => el.remove());
+  }
   for (const f of pills) seenPills.add(f.id);
 }
 
@@ -642,10 +732,27 @@ function setDrawer(open) {
   const d = $("drawer");
   const s = $("scrim");
   if (!d) return;
-  d.hidden = !open;
   const wide = window.matchMedia("(min-width: 1100px)").matches;
-  if (s) s.hidden = !open || wide;
-  document.body.classList.toggle("drawer-open", open);
+  drawerGen += 1;
+  const gen = drawerGen;
+  if (open) {
+    d.hidden = false;
+    if (s && !wide) s.hidden = false;
+    document.body.classList.add("drawer-open");
+    requestAnimationFrame(() => {
+      d.classList.add("in");
+      if (s && !wide) s.classList.add("in");
+    });
+    return;
+  }
+  d.classList.remove("in");
+  if (s) s.classList.remove("in");
+  document.body.classList.remove("drawer-open");
+  waitMotion(d).then(() => {
+    if (gen !== drawerGen) return;
+    d.hidden = true;
+    if (s) s.hidden = true;
+  });
 }
 
 function treeSvg(rows) {
@@ -755,9 +862,14 @@ async function openFork(id) {
     if (qTab === "Overview" || qTab === "Guide" || qTab === "Diff") state.forkTab = qTab;
     else state.forkTab = (f.ui && f.ui.tab) || (state.views.find((v) => v.id === f.view)?.tabs?.[0]) || "Guide";
   }
+  const already = !overlay.hidden && overlay.classList.contains("in");
   overlay.hidden = false;
   document.body.classList.toggle("rv-open", f.view === "review");
   drawModal();
+  if (!already) {
+    overlayGen += 1;
+    requestAnimationFrame(() => overlay.classList.add("in"));
+  }
 }
 
 async function postAct(action) {
@@ -798,11 +910,16 @@ function cssId(path) {
 }
 
 function hideOverlay() {
-  overlay.hidden = true;
-  overlay.classList.remove("rv");
-  modal.classList.remove("rv");
-  document.body.classList.remove("rv-open");
-  state.openFork = null;
+  const gen = overlayGen;
+  overlay.classList.remove("in");
+  waitMotion(overlay).then(() => {
+    if (gen !== overlayGen) return;
+    overlay.hidden = true;
+    overlay.classList.remove("rv");
+    modal.classList.remove("rv");
+    document.body.classList.remove("rv-open");
+    state.openFork = null;
+  });
 }
 
 function bindGuidedReview(root) {
@@ -1001,31 +1118,27 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("#switchBtn");
   if (btn) {
     e.preventDefault();
-    state.switchOpen = !state.switchOpen;
-    renderChrome();
+    setSwitchOpen(!state.switchOpen);
     return;
   }
   const opt = e.target.closest("[data-harness]");
   if (opt) {
     e.preventDefault();
-    state.switchOpen = false;
+    setSwitchOpen(false);
     fetch("/api/harness", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ harness: opt.dataset.harness }),
     });
-    renderChrome();
     return;
   }
   if (state.switchOpen && !e.target.closest(".agent-switch")) {
-    state.switchOpen = false;
-    renderChrome();
+    setSwitchOpen(false);
   }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !state.switchOpen) return;
-  state.switchOpen = false;
-  renderChrome();
+  setSwitchOpen(false);
 });
 
 setInterval(() => {
@@ -1036,13 +1149,17 @@ document.addEventListener("click", (e) => {
   const sum = e.target.closest(".work-sum");
   if (sum) {
     e.preventDefault();
-    const id = sum.parentElement?.dataset?.turn;
+    const disc = sum.closest(".work-disc");
+    const id = disc?.dataset?.turn;
     if (id) {
       if (state.workOpen.has(id)) state.workOpen.delete(id);
       else state.workOpen.add(id);
+      disc.classList.toggle("open", state.workOpen.has(id));
     }
-    if (id && state.workOpen.has(id)) stick.follow = true;
-    renderChat();
+    if (id && state.workOpen.has(id)) {
+      stick.follow = true;
+      followScroll();
+    }
     return;
   }
   const row = e.target.closest(".ctx-row");
@@ -1197,7 +1314,7 @@ overlay.addEventListener("submit", async (e) => {
 });
 
 $("menuBtn").addEventListener("click", () => {
-  setDrawer($("drawer").hidden);
+  setDrawer(!document.body.classList.contains("drawer-open"));
 });
 $("scrim").addEventListener("click", () => setDrawer(false));
 
@@ -1208,7 +1325,7 @@ chat.addEventListener("scroll", () => {
 $("jumpLatest")?.addEventListener("click", jumpToLatest);
 window.addEventListener("resize", () => {
   measureComposer();
-  if (stick.follow) chat.scrollTop = chat.scrollHeight;
+  if (stick.follow) followScroll();
   paintScrollHints();
 });
 
