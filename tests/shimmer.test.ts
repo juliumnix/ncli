@@ -10,6 +10,8 @@ test("shimmer label and shape follow the ncli kind", () => {
   expect(liveLabel("html", "<canvas class='chart'></canvas>")).toBe("desenhando gráfico…");
   expect(liveShape("html", "bar chart")).toBe("chart");
   expect(liveLabel("url")).toBe("carregando página…");
+  expect(liveLabel("ui")).toBe("montando o card…");
+  expect(liveShape("ui")).toBe("card");
 });
 
 test("shimmer html is a placeholder, not a live iframe", () => {

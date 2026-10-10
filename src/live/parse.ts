@@ -1,4 +1,9 @@
-export type LiveKind = "mermaid" | "html" | "react" | "url";
+export const LIVE_KINDS = ["mermaid", "html", "react", "url", "ui"] as const;
+export type LiveKind = (typeof LIVE_KINDS)[number];
+
+export function isLiveKind(v: string): v is LiveKind {
+  return (LIVE_KINDS as readonly string[]).includes(v);
+}
 
 export interface LiveBlock {
   kind: LiveKind;
@@ -7,7 +12,7 @@ export interface LiveBlock {
 
 export type LiveSeg = { type: "text"; text: string } | { type: "live"; block: LiveBlock };
 
-const FENCE = /```ncli[ \t]+(mermaid|html|react|url)[ \t]*\n([\s\S]*?)```/g;
+const FENCE = /```ncli[ \t]+(mermaid|html|react|url|ui)[ \t]*\n([\s\S]*?)```/g;
 
 export function parseLive(text: string): LiveSeg[] {
   const segs: LiveSeg[] = [];
@@ -29,6 +34,6 @@ export function liveBlocks(text: string): LiveBlock[] {
 }
 
 export function renderToolToFence(kind: string, source: string): string {
-  const k = kind === "mermaid" || kind === "html" || kind === "react" || kind === "url" ? kind : "html";
+  const k = isLiveKind(kind) ? kind : "html";
   return `\`\`\`ncli ${k}\n${source.trim()}\n\`\`\``;
 }

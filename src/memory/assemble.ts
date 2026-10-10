@@ -32,11 +32,11 @@ isolated forks with their own worktree). Examples:
 
 Rich previews in chat use a fenced block:
 
-\`\`\`ncli mermaid|html|react|url
+\`\`\`ncli mermaid|html|react|url|ui
 source
 \`\`\`
 
-Or the MCP tool ncli.render({kind, source}). NCLI draws them in a sandboxed iframe.
+Or the MCP tool ncli.render({kind, source}). kind=ui is an interactive mini-app (tabs, charts, tables). NCLI draws them in a sandboxed iframe. Follow ncli/skills/ncli-ui/SKILL.md.
 
 When a fork finishes it comes back here as a single merge line; zoom the
 fork id if you need its full log.

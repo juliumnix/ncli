@@ -28,6 +28,7 @@ test("skill catalog covers every self-hack flow", () => {
     "delegate-to-other-agent",
     "edit-view",
     "ncli-bus",
+    "ncli-ui",
     "remove-view",
     "tune-memory",
   ]);

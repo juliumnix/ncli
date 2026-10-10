@@ -1,5 +1,6 @@
 import { escapeHtml } from "../util";
 import type { LiveBlock, LiveKind } from "./parse";
+import { uiKey, wrapUiSource } from "./ui-frame";
 
 const CSP =
   "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'";
@@ -14,6 +15,8 @@ export function frameHtml(block: LiveBlock): string {
       return doc(jsxLite(block.source));
     case "url":
       return doc(`<p style="font:13px sans-serif;color:#555">preview</p>`);
+    case "ui":
+      return wrapUiSource(block.source);
     default: {
       const _n: never = block.kind;
       return String(_n);
@@ -30,7 +33,11 @@ export function iframeTag(block: LiveBlock, id?: string): string {
   const srcdoc = frameHtml(block)
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;");
-  return `<iframe class="live-frame" title="live ${block.kind}"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe>`;
+  const frame = `<iframe class="live-frame${block.kind === "ui" ? " live-ui" : ""}" title="live ${block.kind}"${id ? ` data-live="${id}"` : ""}${block.kind === "ui" ? ` data-ui-key="${uiKey(block.source)}"` : ""} sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe>`;
+  if (block.kind === "ui") {
+    return `<div class="ui-card live-wrap in" data-ui-key="${uiKey(block.source)}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${frame}</div>`;
+  }
+  return frame;
 }
 
 export function safeUrl(raw: string): string | null {

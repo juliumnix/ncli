@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Harness, HarnessEvent, RunOpts } from "./types";
 import { mockWriteSeat } from "./seats";
+import { demoUiFence } from "../live/ui-demo";
 import { parseViewLink } from "../util";
 
 export interface MockScript {
@@ -67,6 +68,11 @@ function defaultScript(prompt: string, session?: string): MockScript {
         { seat: "cursor", text: "Confirmo, e só aplica pra member desde o commit a3f9." },
       ],
       text: `Confirmei pelos dois: desconto antes do imposto, só member. Abri ${chips}, te chamo quando precisarem de você.`,
+    };
+  }
+  if (/ncli-ui|mini-app|visualiz|\babas?\b|\btabs?\b|gr[aá]fico|como um card|card com|mostra .*card/i.test(user)) {
+    return {
+      text: `Aqui o recorte do plano B.\n\n${demoUiFence()}`,
     };
   }
   if (/desconto|discount|member/i.test(user)) {
