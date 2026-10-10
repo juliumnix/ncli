@@ -59,6 +59,13 @@ export function readSkill(id: string, root = defaultSkillsDir()): SkillMeta | un
   );
 }
 
+export function runtimeSkillDirs(root = defaultSkillsDir()): string[] {
+  const dirs = listSkills(root).map((s) => s.dir);
+  const emil = join(root, "emil");
+  if (existsSync(emil)) dirs.push(emil);
+  return dirs;
+}
+
 let promptMemo: { key: string; text: string } | null = null;
 
 function vendorSkillCount(vendor: string, root: string): number {
@@ -98,7 +105,6 @@ export function skillPrompt(root = defaultSkillsDir()): string {
     return "";
   }
   const index = skills.map((s) => `- ${s.id} — ${s.description}  (${s.dir}/SKILL.md)`).join("\n");
-  const pstackN = vendorSkillCount("pstack", root);
   const emilN = vendorSkillCount("emil", root);
   const text = `NCLI is self-hackable. You are inside this live repo. Views in views/ hot-reload. Skills and MCP servers have one source of truth: ncli/skills/ and ncli/mcp.json. When the user asks to change NCLI itself, read the matching ncli/skills/<id>/SKILL.md and follow it. Do not invent a parallel registry. Do not write ~/.claude, ~/.codex or ~/.cursor.
 
@@ -110,9 +116,7 @@ Scaffold from the terminal or a slash in this chat:
 
 If the job needs isolation or another seat, open a view:// fork or ask() (ncli/skills/ncli-bus). Keep the change small; subtract before you add.
 
-pstack (${pstackN} skills) is vendored at ncli/skills/pstack/. Same playbooks for every main harness. Start with ncli/skills/pstack/poteto-mode/SKILL.md. Sync: bun run scripts/sync-pstack.ts.
-
-emil (${emilN} skills) is vendored at ncli/skills/emil/. Motion and UI craft for every harness. Start with ncli/skills/emil/emil-design-eng/SKILL.md. Sync: bun run scripts/sync-emil.ts.
+emil (${emilN} skills) is vendored at ncli/skills/emil/. Motion and UI craft when the work is visual. Start with ncli/skills/emil/emil-design-eng/SKILL.md. Sync: bun run scripts/sync-emil.ts.
 
 Skills:
 ${index}`;

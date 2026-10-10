@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
-import { defaultSkillsDir } from "../skills/catalog";
+import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
 import { loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
 
 export interface SpawnInject {
@@ -39,26 +39,27 @@ export function prepareSpawn(opts: {
   const mcpConfigPath = join(dir, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: asClaudeMap(servers) }, null, 2), "utf8");
   const skills = defaultSkillsDir(opts.cfg.ncliRoot);
+  const addDir = runtimeSkillDirs(skills);
   const agentsMd = agentsBlock(skills);
   writeFileSync(join(dir, "AGENTS.md"), agentsMd, "utf8");
-  const extraArgs = extraFor(opts.harness, servers, skills);
+  const extraArgs = extraFor(opts.harness, servers, addDir);
   maybeWriteCursorWorkspace(opts.worktree, opts.cfg, servers, agentsMd);
   return {
     dir,
     mcpConfigPath,
     extraArgs,
     mcpServers: servers,
-    addDir: [skills],
+    addDir,
     agentsMd,
     token,
     mcpUrl,
   };
 }
 
-export function extraFor(harness: string, servers: McpServerSpec[], skillsDir: string): string[] {
+export function extraFor(harness: string, servers: McpServerSpec[], addDirs: string[]): string[] {
   switch (harness) {
     case "claude":
-      return ["--add-dir", skillsDir];
+      return addDirs.flatMap((d) => ["--add-dir", d]);
     case "codex":
       return codexMcpFlags(servers);
     case "cursor":
@@ -104,10 +105,10 @@ export function asClaudeMap(servers: McpServerSpec[]): Record<string, Record<str
 }
 
 function agentsBlock(skillsDir: string): string {
-  return `NCLI skills, pstack, and emil live in ${skillsDir}.
+  return `NCLI runtime skills live in ${skillsDir} (ncli-bus, views, and the other ncli/skills/<id> folders).
 Read ncli/skills/<id>/SKILL.md for NCLI flows.
-Read ncli/skills/pstack/poteto-mode/SKILL.md for pstack.
-Read ncli/skills/emil/emil-design-eng/SKILL.md for UI craft.
+Read ncli/skills/emil/emil-design-eng/SKILL.md when the work is UI.
+Talk to Codex or Cursor with the ncli MCP tools ask / wait / post / inbox / read.
 MCP tools come from the ncli HTTP server already running on this machine.
 `;
 }

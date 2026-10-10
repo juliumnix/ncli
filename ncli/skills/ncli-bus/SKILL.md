@@ -1,11 +1,11 @@
 ---
 name: ncli-bus
-description: Ask Codex/Cursor/Claude through NCLI. Use instead of Bash pstack-*. Agents exist only while working. No watchers.
+description: Ask Codex/Cursor/Claude through NCLI. Agents exist only while working. No watchers.
 ---
 
 # ncli-bus
 
-The NCLI server is the only long-lived process. `ask` spawns a CLI in the fork worktree, returns a ticket, the child exits. `wait` is an in-memory promise — zero polling.
+The NCLI server is the only long-lived process. `ask` spawns a CLI in the fork worktree, returns a ticket, the child exits. `wait` is an in-memory promise — zero polling. This is the only way to talk to another seat.
 
 ## Tools (MCP `ncli`, same stdio server as zoom)
 
@@ -17,7 +17,7 @@ The NCLI server is the only long-lived process. `ask` spawns a CLI in the fork w
 - `inbox()` → drain pending posts (also prepended on the next turn)
 - `read(query)` → search the bus ledger
 
-`agent` is `claude` | `codex` | `cursor`. Prefer this over `pstack-codex` / `pstack-cursor` in Bash. Those still work; do not add a new watcher around them.
+`agent` is `claude` | `codex` | `cursor`.
 
 ## Wire
 

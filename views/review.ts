@@ -18,16 +18,16 @@ function uiOf(fork: Fork): ReviewUi {
 
 function fileIcon(path: string): string {
   const ext = (path.split(".").pop() ?? "").toLowerCase();
-  const map: Record<string, [string, string]> = {
-    ts: ["TS", "#3b82f6"],
-    tsx: ["TS", "#3b82f6"],
-    js: ["JS", "#ca8a04"],
-    json: ["{}", "#d97706"],
-    md: ["MD", "#7c83ff"],
-    swift: ["S", "#f05138"],
+  const map: Record<string, string> = {
+    ts: "TS",
+    tsx: "TS",
+    js: "JS",
+    json: "{}",
+    md: "MD",
+    swift: "SW",
   };
-  const [label, color] = map[ext] ?? [(ext.slice(0, 2) || "·").toUpperCase(), "#a3a3a3"];
-  return `<span class="rv-ico" style="background:${color}">${escapeHtml(label)}</span>`;
+  const label = map[ext] ?? (ext.slice(0, 2) || "·").toUpperCase();
+  return `<span class="rv-ico">${escapeHtml(label)}</span>`;
 }
 
 function plusMinus(add: number, del: number): string {
