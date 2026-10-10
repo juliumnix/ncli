@@ -82,9 +82,10 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .ncli-tip{position:fixed;z-index:9;pointer-events:none;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;box-shadow:0 8px 24px #0006}
 .ncli-chart{width:100%;height:180px;display:block}
 html.ui-fill,html.ui-fill body{height:100%;box-sizing:border-box}
-html.ui-fill body{display:flex;flex-direction:column;overflow:auto}
-html.ui-fill #c1,html.ui-fill .ncli-chart-host{flex:1 1 auto;min-height:280px;width:100%}
-html.ui-fill .ncli-chart{height:100%}`;
+html.ui-fill body{display:flex;flex-direction:column;overflow:hidden}
+html.ui-fill body>section:not([hidden]){flex:1;display:flex;flex-direction:column;min-height:0}
+html.ui-fill #c1,html.ui-fill .ncli-chart-host{flex:1 1 auto;min-height:42vh;width:100%}
+html.ui-fill .ncli-chart{height:100%;min-height:280px}`;
 }
 
 export function uiHostScript(): string {

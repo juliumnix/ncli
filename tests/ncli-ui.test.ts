@@ -27,6 +27,7 @@ test("wrap injects NCLI tokens, CSP, chart helper and height reporter", () => {
   expect(html).toContain("ui-fill");
   expect(html).toContain('op==="layout"');
   expect(html).toContain("clientHeight");
+  expect(html).toContain("body>section:not([hidden])");
   expect(html).not.toContain("cdn");
   expect(html).not.toContain("https://");
   expect(frameHtml({ kind: "ui", source: "<p>x</p>" })).toContain("ncliChart");
