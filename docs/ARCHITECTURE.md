@@ -28,7 +28,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/live/shimmer.ts` | skeleton for an open live fence |
 | `src/live/pills.ts` | which forks sit on the right rail, and their CSS classes |
 | `src/config.ts` | env; memory and compaction knobs |
-| `src/skills/` + `ncli/skills/` | catalog injected on every spawn; pstack under `ncli/skills/pstack/`; emil under `ncli/skills/emil/` |
+| `src/skills/` + `ncli/skills/` | runtime catalog injected on every spawn (NCLI skills + Emil for UI). `ncli/skills/pstack/` is vendored for coding agents developing NCLI; it is not in the spawn prompt or `--add-dir` |
 | `ncli/mcp.json` | the only MCP registry; injected per spawn, never into ~/.claude ~/.codex ~/.cursor |
 | `src/mcp/` | Streamable HTTP `ncli` on `/mcp` (memory + bus + control). Token per spawn. No shim process |
 | `src/bus/` | ncli-bus: unix socket + in-memory tickets. `ask`/`wait`/`post`/`inbox`/`read` |
@@ -44,6 +44,6 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Delegate** — `ask(agent, prompt)` on ncli-bus, or a `view://` fork. No extra daemons.
 - **Bus** — one socket on the NCLI server. On-demand children. Posts land on the next turn (optional Claude hook is a single socket call).
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
-- **Main harness** — same view + tools + pstack. Claude quota → `NCLI_BACKUP` (default Codex) and retry.
+- **Main harness** — same view + tools + ncli-bus. Claude quota → `NCLI_BACKUP` (default Codex) and retry.
 
 Shipped views: `review`, `refino`, `live`. Scaffold: `bun run ncli new view foo` / `remove`. Skills: `bun run ncli skills`.

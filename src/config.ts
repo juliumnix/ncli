@@ -32,9 +32,6 @@ export interface NcliConfig {
   acpCursor: string;
   codexBin: string;
   codexModel: string;
-  pstackCodex: string;
-  pstackCursor: string;
-  fanout: boolean;
   busDepth: number;
   busChildren: number;
   busBudget: number;
@@ -97,9 +94,6 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     acpCursor: process.env.NCLI_ACP_CURSOR ?? "cursor-agent acp",
     codexBin: process.env.NCLI_CODEX ?? "codex",
     codexModel: parseCodexModel(codexOverride ?? process.env.NCLI_CODEX_MODEL),
-    pstackCodex: process.env.NCLI_PSTACK_CODEX ?? "pstack-codex",
-    pstackCursor: process.env.NCLI_PSTACK_CURSOR ?? "pstack-cursor",
-    fanout: process.env.NCLI_FANOUT === "1",
     busDepth: num("NCLI_BUS_DEPTH", 1),
     busChildren: num("NCLI_BUS_CHILDREN", 4),
     busBudget: num("NCLI_BUS_BUDGET", 8),

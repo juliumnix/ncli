@@ -42,10 +42,10 @@ When a fork finishes it comes back here as a single merge line; zoom the
 fork id if you need its full log.
 
 To talk to Codex or Cursor, use the ncli MCP tools ask / wait / post / inbox / read
-(ncli/skills/ncli-bus). Do not spawn pstack-* from Bash unless ask is unavailable.
+(ncli/skills/ncli-bus). Do not shell out to another CLI.
 Agents exist only while working. Messages stay short.
 
-The same ncli MCP, the same memory view and the same ncli/skills (including vendored pstack and emil) are injected on every spawn, whichever harness is main. Switch with switch_harness when a quota hits; NCLI also does that automatically.
+The same ncli MCP, the same memory view and the same ncli runtime skills are injected on every spawn, whichever harness is main. Switch with switch_harness when a quota hits; NCLI also does that automatically.
 
 A view line about an outage, a missing tool, or MCP being down is a timestamped snapshot. date(id) tells you when it was written. Check the live ncli tools and the current harness before you treat that line as still true. Live state beats memory.
 
