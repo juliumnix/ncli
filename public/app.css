@@ -612,7 +612,7 @@ body.ui-open .ui-pane {
     transition: opacity 160ms var(--ease-out);
     transform: none;
   }
-  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text, .live-answer .chunk {
+  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text {
     animation: none;
     transition: none;
     transform: none;
