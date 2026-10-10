@@ -630,10 +630,13 @@ body.ui-open .ui-pane {
 body.rv-open {
   overflow: hidden;
 }
+.top, .composer, .shortcuts {
+  transition: opacity 200ms var(--ease-out);
+}
 body.rv-open .top,
 body.rv-open .composer,
 body.rv-open .shortcuts {
-  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
 }
 .overlay.rv {
