@@ -27,6 +27,10 @@ test("mermaid becomes an inline SVG (no CDN) and html/react/url go through a san
   expect(html).toContain("srcdoc=");
   expect(html).toContain("Content-Security-Policy");
   expect(frameHtml({ kind: "html", source: "<p>x</p>" })).toContain("default-src 'none'");
+  const pickup = frameHtml({ kind: "html", source: "<b>Pickup scheduling</b><p>customer picks a slot</p>" });
+  expect(pickup).toContain("--fg:#ececec");
+  expect(pickup).toContain("color:var(--fg)");
+  expect(pickup).toContain("background:var(--bg)");
   expect(jsxLite(`function Card() {\n  return (\n    <div className="card">ok</div>\n  );\n}`)).toContain('class="card"');
 });
 

@@ -24,6 +24,9 @@ test("wrap injects NCLI tokens, CSP, chart helper and height reporter", () => {
   expect(html).toContain("ncliChart");
   expect(html).toContain("ncliUi");
   expect(html).toContain("ncli-ui");
+  expect(html).toContain("ui-fill");
+  expect(html).toContain('op==="layout"');
+  expect(html).toContain("clientHeight");
   expect(html).not.toContain("cdn");
   expect(html).not.toContain("https://");
   expect(frameHtml({ kind: "ui", source: "<p>x</p>" })).toContain("ncliChart");
@@ -78,10 +81,17 @@ test("ui fence persists in the log and still parses after reload", async () => {
 
 test("client chat parser stays in lockstep with the ui kind", () => {
   const js = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
   expect(js).toContain("mermaid|html|react|url|ui");
   expect(js).toContain("ncliChart");
   expect(js).toContain('op === "send"');
   expect(js).toContain("ui-expand");
+  expect(js).toContain("function liveDocCss");
+  expect(js).toContain("signalLayout");
+  expect(js).toContain('op: "layout"');
+  expect(css).toContain("body.ui-open .composer");
+  expect(css).toContain("--ui-pane-w");
+  expect(css).toContain("height: 100% !important");
 });
 
 test("assembled prompt and demo conversation teach the ui contract", async () => {

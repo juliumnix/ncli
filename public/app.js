@@ -147,7 +147,7 @@ function iframeFor(kind, source) {
     if (kind === "mermaid" && !/<rect |<svg /.test(inner)) {
       return liveError(kind, source, "diagrama sem nós");
     }
-    const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"></head><body>${inner}</body></html>`
+    const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"><style>${liveDocCss()}</style></head><body>${inner}</body></html>`
       .replaceAll("&", "&amp;")
       .replaceAll('"', "&quot;");
     return `<div class="live-wrap in"><iframe class="live-frame" title="live ${kind}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
@@ -172,6 +172,12 @@ function extractUiBody(source) {
 function wrapUiSource(source) {
   const body = extractUiBody(source);
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'"><style>${uiThemeCss()}</style><script>${uiLibScript()}</script></head><body>${body}<script>${uiHeightScript()}</script></body></html>`;
+}
+
+function liveDocCss() {
+  return `:root{--bg:#0e0e0f;--card:#161618;--line:#262628;--fg:#ececec;--muted:#8a8a8a;--accent:#c2603d}
+html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
+a{color:var(--accent)}`;
 }
 
 function uiThemeCss() {
@@ -199,21 +205,33 @@ th{color:var(--muted);font-weight:600}
 .gallery .ph{height:140px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 input[type=range]{width:100%;accent-color:var(--accent)}
 .ncli-tip{position:fixed;z-index:9;pointer-events:none;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;box-shadow:0 8px 24px #0006}
-.ncli-chart{width:100%;height:180px;display:block}`;
+.ncli-chart{width:100%;height:180px;display:block}
+html.ui-fill,html.ui-fill body{height:100%;box-sizing:border-box}
+html.ui-fill body{display:flex;flex-direction:column;overflow:auto}
+html.ui-fill #c1,html.ui-fill .ncli-chart-host{flex:1 1 auto;min-height:280px;width:100%}
+html.ui-fill .ncli-chart{height:100%}`;
 }
 
 function uiLibScript() {
   return `window.ncliUi={send:function(t){parent.postMessage({type:"ncli-ui",op:"send",text:String(t||"")},"*")}};
+window._ncliCharts=window._ncliCharts||[];
 window.ncliChart=function(el,spec){
   if(!el||!spec)return;
-  var labels=spec.labels||[], vals=(spec.values||[]).map(Number), w=el.clientWidth||320, h=180, pad=28;
+  var labels=spec.labels||[], vals=(spec.values||[]).map(Number), pad=28;
   var max=Math.max.apply(null,vals.concat([1])), min=Math.min.apply(null,vals.concat([0]));
-  var span=max-min||1, n=vals.length, inner=w-pad*2, step=n>1?inner/(n-1):inner;
+  var span=max-min||1, n=vals.length;
   var tip=el._ncliTip;
   if(!tip){tip=document.createElement("div"); tip.className="ncli-tip"; tip.hidden=true; document.body.appendChild(tip); el._ncliTip=tip}
-  var focus=-1;
+  var focus=-1, w=320, h=180, inner=264, step=inner;
+  function measure(){
+    w=Math.max(160, el.clientWidth||320);
+    h=Math.max(180, el.clientHeight||180);
+    inner=w-pad*2;
+    step=n>1?inner/(n-1):inner;
+  }
   function xy(i){var x=pad+i*step; var y=pad+(h-pad*2)*(1-(vals[i]-min)/span); return [x,y]}
   function draw(){
+    measure();
     var d="", bars="", dots="";
     for(var i=0;i<n;i++){var p=xy(i); d+=(i?"L":"M")+p[0].toFixed(1)+","+p[1].toFixed(1)}
     if(spec.type==="bar"){
@@ -221,7 +239,12 @@ window.ncliChart=function(el,spec){
       for(var j=0;j<n;j++){var q=xy(j); bars+='<rect data-i="'+j+'" x="'+(q[0]-bw/2).toFixed(1)+'" y="'+q[1].toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(h-pad-q[1]).toFixed(1)+'" rx="3" fill="var(--accent)" opacity="'+(focus<0||focus===j?"1":".35")+'"/>'}
     }
     for(var k=0;k<n;k++){var r=xy(k); dots+='<circle data-i="'+k+'" cx="'+r[0].toFixed(1)+'" cy="'+r[1].toFixed(1)+'" r="'+(focus===k?6:4)+'" fill="var(--accent)"/>'}
-    el.innerHTML='<svg class="ncli-chart" viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'">'+(spec.type==="bar"?bars:'<path d="'+d+'" fill="none" stroke="var(--accent)" stroke-width="2"/>')+dots+'</svg>';
+    el.innerHTML='<svg class="ncli-chart" viewBox="0 0 '+w+' '+h+'" width="100%" height="100%">'+(spec.type==="bar"?bars:'<path d="'+d+'" fill="none" stroke="var(--accent)" stroke-width="2"/>')+dots+'</svg>';
+  }
+  if(!el._ncliBound){
+    el._ncliBound=true;
+    window._ncliCharts.push(draw);
+    if(window.ResizeObserver) new ResizeObserver(draw).observe(el);
   }
   draw();
   el.onmousemove=function(ev){
@@ -241,7 +264,9 @@ window.ncliChart=function(el,spec){
 }
 
 function uiHeightScript() {
-  return `function ncliReport(){var h=Math.max(document.body.scrollHeight,document.documentElement.scrollHeight);parent.postMessage({type:"ncli-ui",op:"height",h:h},"*")}
+  return `function ncliReport(){if(document.documentElement.classList.contains("ui-fill"))return;var h=Math.max(document.body.scrollHeight,document.documentElement.scrollHeight);parent.postMessage({type:"ncli-ui",op:"height",h:h},"*")}
+function ncliLayout(mode){document.documentElement.classList.toggle("ui-fill",mode==="fill");(window._ncliCharts||[]).forEach(function(fn){fn()});ncliReport()}
+addEventListener("message",function(ev){var d=ev.data;if(d&&d.type==="ncli-ui"&&d.op==="layout")ncliLayout(d.mode)});
 new ResizeObserver(ncliReport).observe(document.body);
 addEventListener("load",ncliReport);
 ncliReport();`;
@@ -279,7 +304,11 @@ function expandUi(card) {
   card.classList.add("expanded");
   body.appendChild(frame);
   pane.hidden = false;
-  requestAnimationFrame(() => document.body.classList.add("ui-open"));
+  requestAnimationFrame(() => {
+    document.body.classList.add("ui-open");
+    signalLayout(frame, "fill");
+    measureComposer();
+  });
 }
 
 function collapseUi() {
@@ -287,6 +316,7 @@ function collapseUi() {
   const body = $("uiPaneBody");
   const frame = body && body.querySelector("iframe.live-ui");
   const home = uiExpanded && document.querySelector(`.ui-card[data-ui-key="${uiExpanded.key}"]`);
+  signalLayout(frame, "inline");
   if (frame && home) home.appendChild(frame);
   if (home) home.classList.remove("expanded");
   document.body.classList.remove("ui-open");
@@ -294,6 +324,18 @@ function collapseUi() {
     if (!document.body.classList.contains("ui-open") && pane) pane.hidden = true;
   }, 220);
   uiExpanded = null;
+  measureComposer();
+}
+
+function signalLayout(frame, mode) {
+  if (!frame || !frame.contentWindow) return;
+  if (mode === "fill") frame.style.height = "100%";
+  else frame.style.removeProperty("height");
+  const msg = { type: "ncli-ui", op: "layout", mode };
+  frame.contentWindow.postMessage(msg, "*");
+  requestAnimationFrame(() => {
+    if (frame.contentWindow) frame.contentWindow.postMessage(msg, "*");
+  });
 }
 
 function reattachUi() {
@@ -304,6 +346,7 @@ function reattachUi() {
     const stale = home.querySelector("iframe.live-ui");
     if (stale && stale !== frame) stale.remove();
     home.classList.add("expanded");
+    signalLayout(frame, "fill");
   } else if (!frame) {
     collapseUi();
   }
@@ -330,14 +373,14 @@ function mermaidSvg(source) {
   const boxes = ids.map((id, i) => {
     const x = 20 + i * 120;
     const label = escapeHtml(nodes.get(id) || id);
-    return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="#e8f1ff" stroke="#93c5fd"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif">${label}</text>`;
+    return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="#161618" stroke="#262628"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif" fill="#ececec">${label}</text>`;
   }).join("");
   const arrows = edges.map(([a, b]) => {
     const x1 = 20 + ids.indexOf(a) * 120 + 100;
     const x2 = 20 + ids.indexOf(b) * 120;
-    return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="#2563eb" marker-end="url(#ncli-arrow)"/>`;
+    return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="#c2603d" marker-end="url(#ncli-arrow)"/>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2563eb"/></marker></defs>${arrows}${boxes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c2603d"/></marker></defs>${arrows}${boxes}</svg>`;
 }
 
 function jsxLite(source) {
@@ -1363,6 +1406,7 @@ window.addEventListener("message", (ev) => {
   const frame = [...frames].find((f) => f.contentWindow === ev.source);
   if (!frame) return;
   if (msg.op === "height") {
+    if (uiExpanded && frame.closest(".ui-pane-body")) return;
     frame.style.height = `${msg.h}px`;
     return;
   }

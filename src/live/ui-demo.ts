@@ -10,7 +10,7 @@ export const DEMO_UI_SOURCE = `<div class="tabs">
     <div class="metric"><b>4.1%</b><span>conversão</span></div>
     <div class="metric"><b>38s</b><span>tempo médio</span></div>
   </div>
-  <div id="c1"></div>
+  <div id="c1" class="ncli-chart-host"></div>
 </section>
 <section data-page="dados" hidden>
   <table>
