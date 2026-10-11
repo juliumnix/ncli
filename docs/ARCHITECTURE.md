@@ -48,7 +48,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Queue** — `data/queue.json`. Send during a turn steers (mock, same turn) or waits for the next boundary. `fila` persists across restart. The memory tree does not see an item until it is delivered as `user`.
 - **Bus** — one socket on the NCLI server. On-demand children. Posts land on the next turn (optional Claude hook is a single socket call).
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
-- **Main harness** — same view + tools + ncli-bus. Claude quota → `NCLI_BACKUP` (default Codex) and retry.
+- **Main harness** — same view + tools + ncli-bus. Quota walks `NCLI_FALLBACK` (default `NCLI_BACKUP` then claude/codex/cursor), stores `data/usage.json`, and emits an SSE chip. One `setTimeout` resumes the queue at the reset time parsed from the error. Snooze skips that auto-resume.
 
 Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `remove`. Skills: `bun run ncli skills`.
 

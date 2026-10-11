@@ -32,7 +32,8 @@ Optional env:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NCLI_HARNESS` | `auto` | `claude`, `cursor`, `codex`, `mock`, or `auto` (`auto` uses `claude` if the binary exists) |
-| `NCLI_BACKUP` | `codex` | main harness to switch to when Claude reports quota/rate-limit |
+| `NCLI_BACKUP` | `codex` | first backup seat when a quota hits (still used if `NCLI_FALLBACK` is unset) |
+| `NCLI_FALLBACK` | `codex,claude,cursor` | ordered seat chain on quota. A limited seat shows a header chip. One timer resumes the queue at the extracted reset time |
 | `NCLI_DATA` | `./data` | log + tree + sparks |
 | `NCLI_PORT` | `47231` | HTTP port |
 | `NCLI_REPO` | cwd | repo used for `git worktree add` |

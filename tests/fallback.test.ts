@@ -19,13 +19,12 @@ test("isQuotaError matches rate-limit and quota text", () => {
 });
 
 test("Claude quota switches main harness to the backup, announces it, and retries the turn", async () => {
-  const { hub } = await makeHub({ harness: new QuotaClaude() });
-  hub.cfg.backupHarness = "mock";
+  const { hub } = await makeHub({ harness: new QuotaClaude(), backupHarness: "mock", fallbackChain: ["claude", "mock"] });
   try {
     await hub.send("continua o desconto");
     expect(hub.harness.id).toBe("mock");
     const texts = hub.memory.log.map((m) => m.text).join("\n");
-    expect(texts).toMatch(/Claude bateu no limite/);
+    expect(texts).toMatch(/bateu no limite/);
     expect(texts).toMatch(/harness principal para mock/);
     expect(hub.snapshot().main.harness).toBe("mock");
     expect(hub.memory.log.some((m) => m.kind === "talk" && /Ok\.|desconto|Pode mandar/i.test(m.text))).toBe(true);
