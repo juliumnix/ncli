@@ -1,0 +1,18 @@
+{
+  "name": "review",
+  "version": "1.0.0",
+  "description": "Guided PR review: núcleo first, then API, tests last. Exclusive review-flow skill.",
+  "requires": {
+    "harnesses": ["claude", "mock"]
+  },
+  "agents": [
+    { "id": "reviewer", "role": "reviewer", "harness": "claude" }
+  ],
+  "skills": ["skills"],
+  "flow": [
+    { "id": "spark", "title": "Brief", "agent": "reviewer", "kind": "spark", "next": "plan" },
+    { "id": "plan", "title": "Plan", "agent": "reviewer", "kind": "work", "next": "wait" },
+    { "id": "wait", "title": "Review", "agent": "reviewer", "kind": "wait_user", "next": "result" },
+    { "id": "result", "title": "Return", "agent": "reviewer", "kind": "result" }
+  ]
+}

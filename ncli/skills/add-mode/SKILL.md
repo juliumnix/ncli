@@ -5,11 +5,11 @@ description: Add a fork type with hold / needs_user / merge. Use when a view mus
 
 # Add a mode (fork type)
 
-A mode is a view that owns a fork lifecycle. Same file as a view; extra fields on `createFork`.
+A mode is a fork package that owns a lifecycle. Same folder as a view; extra fields on `createFork`.
 
 ## Files
 
-- `views/<id>.ts` — from `ncli/skills/add-mode/template.ts`
+- `views/<id>/` — package from `ncli new mode <id>` (`add-mode/template.ts` + add-view manifest)
 - `src/views/types.ts` — `ViewCreateResult` (`hold`, `needsUser`, `needsWorktree`)
 - `src/forks/manager.ts` — already merges when `applyAction` returns `{ merge: true }`
 - `src/types.ts` — `NeedsUserKind` is `"question" | "review"`

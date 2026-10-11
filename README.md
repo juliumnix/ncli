@@ -117,11 +117,13 @@ The agent in the main chat is supposed to change this repo. One tree: `ncli/skil
 
 ```bash
 bun run ncli skills
-bun run ncli new view foo     # writes views/foo.ts, hot-reloads
+bun run ncli new view foo     # writes views/foo/ (manifest + view.ts + exclusive skill)
+bun run ncli view pack foo    # shareable folder <name>-<version>
+bun run ncli view add ./foo-1.0.0
 bun run ncli remove view foo
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped views: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90), `live` (five sandboxed previews, including `ui`). Each view is one file in `views/` (`review` also uses `src/review/model.ts`). Example data is a fictional `acme/shop` PR.
+Same commands as a slash in chat: `/ncli new view foo`. Shipped fork packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR.
 
 ## Memory tree
 

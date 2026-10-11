@@ -59,4 +59,4 @@ Follow the matching skill, do not improvise a second registry.
 | add a skill / MCP once | `ncli/skills/add-skill`, `add-mcp` |
 | stuck turn | `ncli/skills/debug-ncli` |
 
-One file in `views/`, default export, hot-reloaded. No registry edit.
+A fork type is a package in `views/<id>/` (`manifest.json`, `view.ts`, exclusive `skills/`). Loose `views/<id>.ts` is only for previews. Default export, hot-reloaded. No registry edit. Share with `bun run ncli view pack` / `view add`.

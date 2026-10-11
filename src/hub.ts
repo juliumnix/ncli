@@ -30,6 +30,7 @@ import { formatBusLine, isSeat, type BusLine } from "./bus/types";
 import { McpGate } from "./mcp/auth";
 import type { McpSession } from "./mcp/handle";
 import { prepareSpawn } from "./mcp/inject";
+import { forkSkillPrompt } from "./views/manifest";
 
 export class Hub {
   readonly memory: Memory;
@@ -138,7 +139,19 @@ export class Hub {
 
   injectSpawn(session: string, harness: string, worktree?: string, ticket?: string) {
     const token = this.mcp.mint(session, ticket);
-    return prepareSpawn({ cfg: this.cfg, session, harness, worktree, ticket, token, mcpUrl: this.mcpUrl });
+    const view = this.forks.get(session)?.fork.view;
+    const pack = view ? this.views.packageOf(view) : undefined;
+    return prepareSpawn({
+      cfg: this.cfg,
+      session,
+      harness,
+      worktree,
+      ticket,
+      token,
+      mcpUrl: this.mcpUrl,
+      addDir: pack ? pack.skillDirs : undefined,
+      agentsMd: pack ? forkSkillPrompt(pack) : undefined,
+    });
   }
 
   private mainSpawn() {

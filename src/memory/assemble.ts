@@ -71,10 +71,9 @@ whenever a summary only mentions something you need, such as what your
 last reply said, a decision, a past attempt or where a file is, before
 you act, guess or ask. date(id) gives the date and time of message id.`;
 
-export function assemble(mem: Memory, extraSystem = ""): AssembledContext {
+export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
   const d = mem.debug();
-  const skills = skillPrompt();
-  const system = [MASTER, skills, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
+  const system = [master, skillsText, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
   return {
     system,
     view: mem.renderView(),

@@ -1,4 +1,5 @@
 import type { HarnessKind } from "./config";
+import type { ForkResult } from "./views/manifest";
 
 export type SeatId = "claude" | "codex" | "cursor";
 
@@ -147,6 +148,8 @@ export interface Fork {
   summary?: string;
   ui?: unknown;
   hold?: boolean;
+  flowStep?: string;
+  result?: ForkResult;
 }
 
 export interface SeatSnapshot {

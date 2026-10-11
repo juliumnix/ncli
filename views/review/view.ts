@@ -1,6 +1,7 @@
-import type { Fork } from "../src/types";
-import type { ViewAction, ViewActionResult, ViewPlugin } from "../src/views/types";
-import type { PrInfo } from "../src/gh/pr";
+import type { Fork } from "../../src/types";
+import type { ViewAction, ViewActionResult, ViewPlugin } from "../../src/views/types";
+import type { ForkResult } from "../../src/views/manifest";
+import type { PrInfo } from "../../src/gh/pr";
 import {
   buildReviewUi,
   extractPlan,
@@ -10,8 +11,8 @@ import {
   type ReviewChapter,
   type ReviewRisk,
   type ReviewUi,
-} from "../src/review/model";
-import { escapeHtml } from "../src/util";
+} from "../../src/review/model";
+import { escapeHtml } from "../../src/util";
 
 function uiOf(fork: Fork): ReviewUi {
   return fork.ui as ReviewUi;
@@ -311,6 +312,7 @@ const review: ViewPlugin = {
       repo: ctx.repo,
       ui,
       needsUser: { kind: "review", label: "pronta pra revisar", count: 1 },
+      flowStep: "spark",
       prompt: `Você está no modo review do NCLI, PR ${pr}.
 Dados já vieram de gh pr view --json + gh pr diff. Percorra os capítulos na ordem núcleo → API → glue → db → gerados → testes.
 Não misture produção e testes no mesmo capítulo.
@@ -345,7 +347,16 @@ Se não puder, não invente paths. O hub já tem um fallback.`,
     next.chapters.forEach((ch, i) => {
       ch.reviewed = ui.chapters[i]?.reviewed ?? false;
     });
-    return { ui: next };
+    return { ui: next, flowStep: "wait" };
+  },
+  result(fork): ForkResult {
+    const ui = uiOf(fork);
+    return {
+      summary: ui.overview || ui.pr.title,
+      artifacts: ui.chapters.map((ch) => ({ kind: "chapter", label: ch.title, text: ch.body })),
+      decisions: ui.chapters.filter((ch) => ch.reviewed).map((ch) => ({ id: ch.id, text: ch.title })),
+      links: [`view://review?pr=${ui.pr.number}`],
+    };
   },
   render,
 };
