@@ -39,6 +39,18 @@ test("intraword underscores stay literal and screaming-snake ids wrap in code", 
   expect(italic).toContain("<em>ênfase</em>");
 });
 
+test("the browser markdown copy keeps the same identifier rules", async () => {
+  const src = await Bun.file(new URL("../public/markdown.js", import.meta.url)).text();
+  const g = Object.create(null) as { renderMarkdown?: (s: string, streaming?: boolean) => string };
+  new Function("window", src)(g);
+  const html = g.renderMarkdown!("Na msg #12 (FACT_MEMBER_DISCOUNT_BEFORE_TAX) ficou decidido.");
+  expect(html).toContain("FACT_MEMBER_DISCOUNT_BEFORE_TAX");
+  expect(html).toContain("<code>FACT_MEMBER_DISCOUNT_BEFORE_TAX</code>");
+  expect(html).not.toContain("<em>");
+  expect(html).not.toContain("FACTMEMBERDISCOUNTBEFORETAX");
+  expect(g.renderMarkdown!("isso é _ênfase_ de verdade")).toContain("<em>ênfase</em>");
+});
+
 test("an open fence streams as a code block instead of leaking backticks", () => {
   const html = renderMarkdown("```js\nconst x = 1", true);
   expect(html).toContain("<pre");
