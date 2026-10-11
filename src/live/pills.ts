@@ -1,7 +1,9 @@
 import type { Spark, SparkStatus } from "../types";
+import { inboxRows } from "./inbox";
 
 export function railSparks(sparks: Spark[]): Spark[] {
-  return sparks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
+  const ids = new Set(inboxRows(sparks).map((r) => r.id));
+  return sparks.filter((s) => ids.has(s.id));
 }
 
 export function pillClass(opts: { fresh: boolean; status: SparkStatus }): string {

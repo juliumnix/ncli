@@ -149,7 +149,7 @@ A spark is a running instance of a view, started by the main chat. Unlimited, in
 - a `git worktree add` when the view touches a repo
 - cleanup on close
 
-A spark that is running, needs you, or just finished appears as a round avatar on the right, with an unread badge and a short label. New pills slide in. Sparks that need input or just finished pulse. Clicking the avatar opens the spark modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/sparks/:id/act` to that spark. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
+The right rail is the spark inbox. One glance: **trabalhando**, **precisa de você**, **pronto**. Settled (merged or closed) drops off. New pills slide in; ones that need you or just finished pulse. `próximo` (Alt+N) opens the next spark that needs you. If the tab is in the background, the browser Notification API fires (`spark precisa de você` / `spark pronto`) — no extra process. Clicking the avatar opens the spark modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/sparks/:id/act` to that spark. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
 
 ## Seats (Claude / Codex / Cursor)
 
