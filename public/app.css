@@ -69,8 +69,11 @@ code { font: 12px ui-monospace, Menlo, monospace; }
   background: var(--card); border: 1px solid var(--line);
   border-radius: 999px; padding: 5px 10px; white-space: nowrap;
 }
-.limit-ind {
+.compact-ind:not([hidden]), .limit-ind:not([hidden]) {
   display: inline-flex; align-items: center; gap: 8px;
+}
+.compact-ind[hidden], .limit-ind[hidden] { display: none; }
+.limit-ind:not([hidden]) {
   animation: ncli-enter 180ms var(--ease-out);
 }
 .limit-ind button {
@@ -1052,12 +1055,17 @@ body.rv-open .shortcuts {
   .ctx-row:hover { border-color: #3a3a3c; }
   .work-sum:hover { color: #ececec; }
   .jump-latest:hover { border-color: #3a3a3c; }
-  .rv-ord:hover, .rv-risk:hover { opacity: 0.72; }
+  .rv-ord:hover, .rv-find-go:hover { opacity: 0.72; }
 }
 .rv-find {
   display: flex; align-items: flex-start; gap: 10px;
   padding: 8px 0; border-bottom: 1px solid var(--line);
   font-size: 13px;
+}
+.rv-find-go {
+  display: flex; align-items: flex-start; gap: 10px;
+  border: 0; background: none; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; padding: 0; min-width: 0;
 }
 .rv-find b { font-weight: 500; display: block; }
 .rv-find small { color: var(--muted); }
