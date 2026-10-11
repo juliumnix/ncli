@@ -1,4 +1,5 @@
 import type { HarnessKind } from "./config";
+import type { QueueItem } from "./queue/turn-queue";
 import type { SparkResult } from "./views/manifest";
 
 export type SeatId = "claude" | "codex" | "cursor";
@@ -178,6 +179,7 @@ export type HubEvent =
   | { type: "main"; main: MainAgent }
   | { type: "compact"; compact: CompactStatus }
   | { type: "spark"; spark: Spark }
+  | { type: "queue"; items: QueueItem[] }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
   | ContextSnapshot

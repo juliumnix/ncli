@@ -107,6 +107,7 @@ const state = {
   sparkTurns: {},
   compact: null,
   userName: "Você",
+  queue: [],
 };
 
 const SEAT = {
@@ -641,7 +642,7 @@ function jumpToLatest() {
 }
 
 function measureComposer() {
-  const el = $("form");
+  const el = $("dock") || $("form");
   if (!el) return;
   const box = el.getBoundingClientRect();
   const bottom = Number.parseFloat(getComputedStyle(el).bottom) || 28;
@@ -802,6 +803,39 @@ function renderChrome() {
   }
   const stop = $("stopBtn");
   if (stop) stop.hidden = !(state.turn && state.turn.status === "running");
+  const qbtn = $("queueBtn");
+  if (qbtn) qbtn.hidden = !(state.turn && state.turn.status === "running");
+  if (input) {
+    input.placeholder = state.turn && state.turn.status === "running"
+      ? "Ajustar o turno… Enter entra · fila ao lado"
+      : "Escreve…";
+  }
+}
+
+function renderQueue() {
+  const bar = $("qbar");
+  if (!bar) return;
+  const main = (state.queue || []).filter((i) => i.session === "main");
+  const nextIds = new Set(main.map((i) => i.id));
+  const leaving = [...bar.querySelectorAll(".qitem")].filter((el) => !nextIds.has(el.dataset.qid));
+  bar.hidden = main.length === 0 && leaving.length === 0;
+  bar.innerHTML = main
+    .map((i) => {
+      const tag = i.mode === "steer" ? "steer" : "fila";
+      return `<div class="qitem" data-qid="${escapeHtml(i.id)}"><span>${tag}</span><b>${escapeHtml(i.text)}</b><button type="button" class="qx" data-qid="${escapeHtml(i.id)}" aria-label="tirar">×</button></div>`;
+    })
+    .join("");
+  for (const el of leaving) {
+    el.classList.add("out");
+    bar.appendChild(el);
+    bar.hidden = false;
+    waitMotion(el).then(() => {
+      el.remove();
+      if (!bar.querySelector(".qitem")) bar.hidden = true;
+      measureComposer();
+    });
+  }
+  measureComposer();
 }
 
 function dayLabel(iso) {
@@ -1356,9 +1390,15 @@ function applyEvent(ev) {
         scheduleLivePaint();
       }
       break;
+    case "queue":
+      state.queue = ev.items || [];
+      renderQueue();
+      break;
     case "turn":
       if (ev.session === "main") {
         state.turn = ev.turn;
+        renderQueue();
+        renderChrome();
         if (ev.turn && ev.turn.status !== "running") {
           state.stream = "";
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
@@ -1615,17 +1655,20 @@ overlay.addEventListener("click", (e) => {
   postAct({ type: act, id: btn.dataset.id, value: btn.dataset.value });
 });
 
-async function sendUser(text) {
+async function sendUser(text, mode) {
   const t = String(text || "").trim();
   if (!t) return;
-  const pending = {
-    kind: "user",
-    text: t,
-    date: new Date().toISOString(),
-    i: -Date.now(),
-  };
-  state.messages.push(pending);
-  if (!state.turn || state.turn.status !== "running") {
+  const running = state.turn && state.turn.status === "running";
+  const body = { text: t };
+  if (running) body.mode = mode || "steer";
+  if (!running) {
+    const pending = {
+      kind: "user",
+      text: t,
+      date: new Date().toISOString(),
+      i: -Date.now(),
+    };
+    state.messages.push(pending);
     state.turn = {
       id: "local-" + Date.now().toString(36),
       session: "main",
@@ -1636,13 +1679,18 @@ async function sendUser(text) {
       lastEventAt: pending.date,
       steps: [],
     };
+    renderChat();
   }
-  renderChat();
-  await fetch("/api/message", {
+  const res = await fetch("/api/message", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: t }),
+    body: JSON.stringify(body),
   });
+  const data = await res.json().catch(() => ({}));
+  if (data.queue) {
+    state.queue = data.queue;
+    renderQueue();
+  }
 }
 
 $("form").addEventListener("submit", (e) => {
@@ -1650,7 +1698,23 @@ $("form").addEventListener("submit", (e) => {
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  void sendUser(text);
+  void sendUser(text, e.shiftKey ? "queue" : undefined);
+});
+
+$("queueBtn")?.addEventListener("click", () => {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  void sendUser(text, "queue");
+});
+
+$("qbar")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-qid]");
+  if (!btn) return;
+  const res = await fetch(`/api/queue/${encodeURIComponent(btn.dataset.qid)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (data.queue) state.queue = data.queue;
+  renderQueue();
 });
 
 window.addEventListener("message", (ev) => {
@@ -1733,6 +1797,8 @@ async function boot() {
   if (!state.lastTurn) state.lastTurn = snap.turn && snap.turn.status !== "running" ? snap.turn : null;
   if (!state.turn) state.turn = snap.turn || null;
   if (!state.compact) state.compact = snap.compact || null;
+  if (!state.queue.length) state.queue = snap.queue || [];
+  renderQueue();
   renderChat();
   renderShortcuts();
   renderContext();
