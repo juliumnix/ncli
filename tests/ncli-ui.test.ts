@@ -111,7 +111,7 @@ test("assembled prompt and demo conversation teach the ui contract", async () =>
   const talk = hub.memory.log.find((m) => m.kind === "talk" && m.text.includes("```ncli ui"));
   expect(talk).toBeDefined();
   expect(liveBlocks(talk!.text)[0]?.kind).toBe("ui");
-  const forkTalk = hub.sparks.list().some((f) => f.view === "live");
-  expect(forkTalk).toBe(true);
+  const sparkTalk = hub.sparks.list().some((f) => f.view === "live");
+  expect(sparkTalk).toBe(true);
   hub.close();
 });
