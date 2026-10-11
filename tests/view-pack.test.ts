@@ -5,7 +5,7 @@ import { assemble } from "../src/memory/assemble";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { prepareSpawn } from "../src/mcp/inject";
 import { addView, packView } from "../src/views/pack";
-import { formatForkResult, validateManifest } from "../src/views/manifest";
+import { assertRunnable, formatForkResult, validateManifest } from "../src/views/manifest";
 import { ViewRegistry } from "../src/views/registry";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
 
@@ -52,6 +52,7 @@ function writeEcho(dir: string): string {
       requires: { harnesses: ["mock"] },
       agents: [{ id: "lead", role: "lead", harness: "mock" }],
       skills: ["skills"],
+      mcp: "mcp.json",
       flow: [
         { id: "spark", title: "Brief", agent: "lead", kind: "spark", next: "result" },
         { id: "result", title: "Return", agent: "lead", kind: "result" },
@@ -65,7 +66,24 @@ function writeEcho(dir: string): string {
     "---\nname: echo-flow\ndescription: Exclusive echo flow.\n---\n\nStay in the echo fork.\n",
     "utf8",
   );
+  writeFileSync(
+    join(pack, "mcp.json"),
+    JSON.stringify({ mcpServers: { echo: { command: "true", args: [] } } }),
+    "utf8",
+  );
   return pack;
+}
+
+function gitCommit(dir: string): void {
+  const run = (args: string[]) => {
+    const r = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString() || r.stdout.toString());
+  };
+  run(["init"]);
+  run(["config", "user.email", "pack@ncli.test"]);
+  run(["config", "user.name", "ncli"]);
+  run(["add", "-A"]);
+  run(["commit", "-m", "pack"]);
 }
 
 test("formatForkResult uses Portuguese singular and plural", () => {
@@ -181,6 +199,91 @@ test("ncli view add from a clean dir runs the flow on mock and returns a structu
     expect(line.text).toContain("1 artefato");
     expect(line.text).toContain("view://echo");
     expect(hub.forks.get(rt.fork.id)?.fork.result?.decisions[0]?.text).toBe("ship");
+    expect(hub.injectSpawn(rt.fork.id, "mock").mcpServers.some((s) => s.name === "echo")).toBe(true);
+    expect(hub.injectSpawn("main", "mock").mcpServers.some((s) => s.name === "echo")).toBe(false);
+  } finally {
+    hub.close();
+  }
+});
+
+test("manifest rejects personal model pins; missing harness fails install and open", () => {
+  expect(() =>
+    validateManifest({
+      name: "x",
+      version: "1.0.0",
+      description: "x",
+      requires: { harnesses: ["claude"], models: { claude: "~/.claude/model" } },
+      agents: [{ id: "a", role: "a", harness: "claude" }],
+      skills: ["skills"],
+      flow: [
+        { id: "spark", title: "s", agent: "a", kind: "spark", next: "result" },
+        { id: "result", title: "r", agent: "a", kind: "result" },
+      ],
+    }),
+  ).toThrow(/pessoal|claude/i);
+
+  expect(() => assertRunnable(
+    validateManifest({
+      name: "onlycx",
+      version: "1.0.0",
+      description: "x",
+      requires: { harnesses: ["codex"] },
+      agents: [{ id: "a", role: "a", harness: "codex" }],
+      skills: ["skills"],
+      flow: [
+        { id: "spark", title: "s", agent: "a", kind: "spark", next: "result" },
+        { id: "result", title: "r", agent: "a", kind: "result" },
+      ],
+    }),
+    ["mock"],
+  )).toThrow(/onlycx@1\.0\.0.*codex/);
+
+  const src = writeEcho(tmpDir("echo-req"));
+  const raw = JSON.parse(readFileSync(join(src, "manifest.json"), "utf8")) as {
+    requires: { harnesses: string[] };
+    agents: Array<{ harness: string }>;
+  };
+  raw.requires.harnesses = ["codex"];
+  raw.agents[0]!.harness = "codex";
+  writeFileSync(join(src, "manifest.json"), JSON.stringify(raw), "utf8");
+  expect(() => addView(src, tmpDir("echo-req-views"), ["mock"])).toThrow(/codex/);
+});
+
+test("opening a pack fails when no required harness is on this host", async () => {
+  const src = writeEcho(tmpDir("echo-open-src"));
+  const raw = JSON.parse(readFileSync(join(src, "manifest.json"), "utf8")) as {
+    requires: { harnesses: string[] };
+    agents: Array<{ harness: string }>;
+  };
+  raw.requires.harnesses = ["cursor"];
+  raw.agents[0]!.harness = "cursor";
+  writeFileSync(join(src, "manifest.json"), JSON.stringify(raw), "utf8");
+  const viewsDir = tmpDir("echo-open-views");
+  addView(src, viewsDir);
+  const { hub } = await makeHub({ viewsDir });
+  try {
+    await waitUntil(() => Boolean(hub.views.get("echo")));
+    await expect(hub.forks.open("echo", {})).rejects.toThrow(/echo@1\.0\.0.*cursor/);
+  } finally {
+    hub.close();
+  }
+});
+
+test("ncli view add from a local git url installs the pack and runs the mock flow", async () => {
+  const src = writeEcho(tmpDir("echo-git-src"));
+  gitCommit(src);
+  const viewsDir = tmpDir("echo-git-views");
+  const installed = addView(`file://${src}`, viewsDir, ["mock"]);
+  expect(JSON.parse(readFileSync(join(installed, "manifest.json"), "utf8")).name).toBe("echo");
+  expect(readFileSync(join(installed, "mcp.json"), "utf8")).toContain("\"echo\"");
+
+  const { hub } = await makeHub({ viewsDir });
+  try {
+    await waitUntil(() => Boolean(hub.views.get("echo")));
+    const rt = await hub.forks.open("echo", {});
+    await hub.actFork(rt.fork.id, { type: "say", value: "from-git" });
+    await waitUntil(() => hub.memory.log.some((m) => m.kind === "merge" && m.text.includes("from-git")));
+    expect(hub.forks.get(rt.fork.id)?.fork.result?.links).toEqual(["view://echo"]);
   } finally {
     hub.close();
   }

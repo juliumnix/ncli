@@ -5,7 +5,7 @@ import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
 import type { ViewRegistry } from "../views/registry";
-import { emptyResult, formatForkResult, forkSkillPrompt, type ForkResult } from "../views/manifest";
+import { assertRunnable, availableHarnesses, emptyResult, formatForkResult, forkSkillPrompt, type ForkResult } from "../views/manifest";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
@@ -100,6 +100,8 @@ export class ForkManager {
   async open(viewId: string, params: Record<string, string>): Promise<ForkRuntime> {
     const plugin = this.views.get(viewId);
     if (!plugin) throw new Error(`view desconhecida: ${viewId}`);
+    const pack = this.views.packageOf(viewId);
+    if (pack) assertRunnable(pack.manifest, availableHarnesses({ harness: this.cfg.harness }));
     const seq = (this.seqByView.get(viewId) ?? 0) + 1;
     this.seqByView.set(viewId, seq);
     const id = `${viewId}-${seq}`;

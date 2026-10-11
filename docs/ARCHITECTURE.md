@@ -20,7 +20,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/views/registry.ts` | load `views/*.ts` (loose) and `views/<id>/` packages; watch = hot reload |
 | `src/views/types.ts` | `ViewPlugin` / `createFork` / `applyAction` / `render` / `result` |
 | `src/views/manifest.ts` | `ViewManifest` schema, exclusive skills, `FlowStep`, `ForkResult` |
-| `src/views/pack.ts` | `ncli view add` / `ncli view pack` |
+| `src/views/pack.ts` | `ncli view add <path|git-url>` / `ncli view pack` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
 | `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json` with `--model` only when `NCLI_CODEX_MODEL` is set). The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
@@ -57,4 +57,4 @@ The main chat is the orchestrator. A `view://` line is a start spark. Each packa
 
 When the flow reaches `result`, `ViewPlugin.result` builds `{ summary, artifacts, decisions, links }`. That object is stored on the fork and appended to the main log as one merge line. The main agent can start several forks and keep using memory, compaction, bus, and live cards.
 
-A package is shareable. `manifest.json` is schema-validated. Paths must be package-relative. `ncli view pack <id>` writes `<name>-<version>/` plus `PACK.json`. `ncli view add <path>` copies into `views/<name>/` and validates again. Authoring: `ncli/skills/add-view/SKILL.md`.
+A package is shareable. `manifest.json` is schema-validated. Paths must be package-relative. `ncli view pack <id>` writes `<name>-<version>/` plus `PACK.json`. `ncli view add <path|git-url>` copies into `views/<name>/` and checks that a required harness exists on this host. Optional `mcp` is injected only on that fork's spawn. Authoring: `ncli/skills/add-view/SKILL.md`.

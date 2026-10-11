@@ -137,6 +137,24 @@ export function checkRequirements(manifest: ViewManifest, available: Iterable<st
   return manifest.requires.harnesses.filter((h) => h !== "auto" && !have.has(h));
 }
 
+export function availableHarnesses(have: { harness?: string; clis?: Partial<Record<ManifestHarness, boolean>> }): string[] {
+  const out = new Set<string>(["mock"]);
+  if (have.harness) out.add(have.harness);
+  for (const id of HARNESS_IDS) {
+    if (have.clis?.[id]) out.add(id);
+  }
+  return [...out];
+}
+
+export function assertRunnable(manifest: ViewManifest, available: Iterable<string>): void {
+  const have = [...new Set(available)];
+  const needed = manifest.requires.harnesses.filter((h) => h !== "auto");
+  if (!needed.length || needed.some((h) => have.includes(h))) return;
+  throw new Error(
+    `view ${manifest.name}@${manifest.version} exige ${needed.join(" ou ")}; neste host: ${have.join(", ") || "(nenhum)"}`,
+  );
+}
+
 export function stepById(manifest: ViewManifest, id: string): FlowStep | undefined {
   return manifest.flow.find((s) => s.id === id);
 }
@@ -160,7 +178,10 @@ function parseRequires(raw: unknown): ViewRequirements {
   const models: ViewRequirements["models"] = {};
   if (o.models && typeof o.models === "object") {
     for (const [k, v] of Object.entries(o.models as Record<string, unknown>)) {
-      models[asHarness(k)] = String(v);
+      const id = asHarness(k);
+      const model = String(v);
+      assertNoPersonal(model, `requires.models.${id}`);
+      models[id] = model;
     }
   }
   return { harnesses, models };

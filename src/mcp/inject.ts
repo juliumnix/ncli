@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
 import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
-import { loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
+import { loadMcpFile, loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
 
 export interface SpawnInject {
   dir: string;
@@ -26,6 +26,7 @@ export function prepareSpawn(opts: {
   mcpUrl?: string;
   addDir?: string[];
   agentsMd?: string;
+  extraMcp?: string;
 }): SpawnInject {
   const token = opts.token ?? "";
   const mcpUrl = opts.mcpUrl ?? `http://127.0.0.1:${opts.cfg.port}/mcp`;
@@ -34,7 +35,10 @@ export function prepareSpawn(opts: {
     NCLI_MCP_TOKEN: token,
     NCLI_MCP_URL: mcpUrl,
   });
-  const servers = resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars);
+  const extra = opts.extraMcp
+    ? resolveServers({ servers: loadMcpFile(opts.extraMcp), path: opts.extraMcp }, vars)
+    : [];
+  const servers = [...resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars), ...extra];
   const dir = join(opts.cfg.dataDir, "spawn", opts.session.replace(/[^a-zA-Z0-9._-]/g, "_"));
   assertLocal(dir, opts.cfg.dataDir);
   mkdirSync(dir, { recursive: true });
