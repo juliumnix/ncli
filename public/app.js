@@ -888,7 +888,9 @@ function renderShortcuts() {
   const nextBtn = next
     ? `<button type="button" class="inbox-next" data-inbox="next" title="Alt+N">próximo</button>`
     : "";
+  const head = rows.length || next ? `<div class="inbox-h">Sparks</div>` : "";
   shortcuts.innerHTML =
+    head +
     nextBtn +
     rows
       .map((r) => {
