@@ -5,7 +5,7 @@ description: Add a skill once under ncli/skills. Every harness reads that tree o
 
 # Add a skill
 
-One tree: `ncli/skills/<id>/SKILL.md`. Installing a skill means adding it there. NCLI injects the index into Claude / Codex / Cursor on spawn. Do not put skills in `~/.claude`, `~/.codex`, or `~/.cursor`.
+One tree: `ncli/skills/<id>/SKILL.md`. Installing a skill means adding it there. NCLI injects the runtime index (not the vendored pstack tree) into Claude / Codex / Cursor on spawn. Do not put skills in `~/.claude`, `~/.codex`, or `~/.cursor`.
 
 ## Do
 
@@ -14,7 +14,7 @@ One tree: `ncli/skills/<id>/SKILL.md`. Installing a skill means adding it there.
 3. If it is a pstack upstream skill, put it in `ncli/skills/pstack/` via `bun run scripts/sync-pstack.ts`, not by hand.
 4. If it is an Emil design skill, put it in `ncli/skills/emil/` via `bun run scripts/sync-emil.ts`, not by hand.
 
-Id: `[a-z][a-z0-9-]*`. Keep the body short. The catalog picks up any folder with `SKILL.md` except the vendored `pstack/` and `emil/` trees (listed separately).
+Id: `[a-z][a-z0-9-]*`. Keep the body short. The catalog picks up any folder with `SKILL.md` except the vendored `pstack/` tree (development only) and `emil/` (listed for UI work).
 
 ## Check
 

@@ -36,12 +36,3 @@ export interface Harness {
   id: string;
   run(opts: RunOpts): AsyncIterable<HarnessEvent>;
 }
-
-export interface SeatLaunch {
-  seat: SeatId;
-  model?: string;
-  prompt: string;
-  cwd?: string;
-  write?: boolean;
-  outPath: string;
-}
