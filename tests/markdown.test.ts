@@ -29,6 +29,16 @@ test("partial markdown while streaming does not emit a broken strong tag", () =>
   expect(done).toContain("<strong>world</strong>");
 });
 
+test("intraword underscores stay literal and screaming-snake ids wrap in code", () => {
+  const html = renderMarkdown("Na msg #12 (FACT_MEMBER_DISCOUNT_BEFORE_TAX) ficou decidido.");
+  expect(html).toContain("FACT_MEMBER_DISCOUNT_BEFORE_TAX");
+  expect(html).toContain("<code>FACT_MEMBER_DISCOUNT_BEFORE_TAX</code>");
+  expect(html).not.toContain("<em>");
+  expect(html).not.toContain("FACTMEMBERDISCOUNTBEFORETAX");
+  const italic = renderMarkdown("isso é _ênfase_ de verdade");
+  expect(italic).toContain("<em>ênfase</em>");
+});
+
 test("an open fence streams as a code block instead of leaking backticks", () => {
   const html = renderMarkdown("```js\nconst x = 1", true);
   expect(html).toContain("<pre");

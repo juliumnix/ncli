@@ -36,7 +36,7 @@ export class MockHarness implements Harness {
     const drain = async function* (this: MockHarness): AsyncGenerator<HarnessEvent> {
       while (this.steers.length) {
         const s = this.steers.shift()!;
-        const piece = `\n\najuste: ${s}`;
+        const piece = `\n\n${steerLine(s)}`;
         extras += piece;
         yield { type: "text", text: piece, seat: "claude" };
         await delay(8);
@@ -112,6 +112,11 @@ function defaultScript(prompt: string, session?: string): MockScript {
   return {
     text: `Ok. ${user.slice(0, 180) || "Pode mandar o próximo."}`,
   };
+}
+
+function steerLine(text: string): string {
+  const body = text.replace(/^(ajuste|ajusta)\s*:\s*/i, "").trim();
+  return `ajuste: ${body}`;
 }
 
 function lastUserBlock(prompt: string): string {

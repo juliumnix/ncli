@@ -125,7 +125,7 @@ async function forkModal(session: CdpSession): Promise<PerfSample[]> {
     const json = await res.json();
     const id = json.fork && json.fork.id;
     if (!id) return { open: 0, close: 0, ok: false };
-    const pill = document.querySelector("[data-fork='" + id + "']") || document.querySelector("[data-fork]");
+    const pill = document.querySelector("[data-spark='" + id + "']") || document.querySelector("[data-spark],[data-fork]");
     if (pill) pill.click();
     else {
       const r = await fetch("/api/forks/" + encodeURIComponent(id));

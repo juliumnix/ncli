@@ -49,7 +49,23 @@ test("steer on mock lands in the same turn; queue waits for the next", async () 
   await first;
   const talk = hub.memory.log.filter((m) => m.kind === "talk").at(-1)?.text ?? "";
   expect(talk).toContain("corrige o rumo");
+  expect(talk).toContain("ajuste: corrige o rumo");
+  expect(talk).not.toContain("ajuste: ajuste:");
   expect(hub.queue.list("main")).toEqual([]);
+  hub.close();
+});
+
+test("steer strips an existing ajuste/ajusta prefix so it is not doubled", async () => {
+  const harness = new MockHarness();
+  const { hub } = await makeHub({ harness });
+  const first = hub.send("explica o desconto");
+  await waitUntil(() => hub.snapshot().turning);
+  await hub.send("ajusta: só member", { mode: "steer" });
+  await first;
+  const talk = hub.memory.log.filter((m) => m.kind === "talk").at(-1)?.text ?? "";
+  expect(talk).toContain("ajuste: só member");
+  expect(talk).not.toContain("ajuste: ajusta:");
+  expect(talk).not.toContain("ajuste: ajuste:");
   hub.close();
 });
 
