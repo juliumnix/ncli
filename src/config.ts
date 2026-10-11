@@ -40,6 +40,9 @@ export interface NcliConfig {
   backupHarness: HarnessKind;
   fallbackChain: HarnessKind[];
   userName: string;
+  importClaude: string;
+  importCodex: string;
+  importCursor: string;
 }
 
 function num(name: string, fallback: number): number {
@@ -103,6 +106,9 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     backupHarness: (process.env.NCLI_BACKUP ?? "codex") as HarnessKind,
     fallbackChain: parseFallbackChain(process.env.NCLI_FALLBACK, (process.env.NCLI_BACKUP ?? "codex") as HarnessKind),
     userName: parseUserName(userNameOverride ?? process.env.NCLI_USER_NAME),
+    importClaude: process.env.NCLI_IMPORT_CLAUDE ?? "",
+    importCodex: process.env.NCLI_IMPORT_CODEX ?? "",
+    importCursor: process.env.NCLI_IMPORT_CURSOR ?? "",
     ...rest,
   };
 }

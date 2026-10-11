@@ -43,6 +43,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "queue", items: hub.queue.list() })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "usage", usage: hub.usage.snapshot() })}\n\n`));
+            if (hub.lastImport) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "import", preview: hub.lastImport })}\n\n`));
           },
           cancel() {
             clients.delete(controller);
@@ -71,6 +72,25 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       if (url.pathname === "/api/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { session?: string };
         return Response.json({ ok: hub.stopTurn(body.session ?? "main") });
+      }
+      if (url.pathname === "/api/import" && req.method === "GET") {
+        const source = url.searchParams.get("source") ?? "";
+        if (source !== "claude" && source !== "codex" && source !== "cursor") {
+          return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
+        }
+        const since = url.searchParams.get("since") ?? undefined;
+        return Response.json({ ok: true, preview: hub.previewImport(source, since) });
+      }
+      if (url.pathname === "/api/import" && req.method === "POST") {
+        const body = (await req.json()) as { source?: string; since?: string; apply?: boolean };
+        const source = body.source ?? "";
+        if (source !== "claude" && source !== "codex" && source !== "cursor") {
+          return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
+        }
+        if (body.apply) {
+          return Response.json({ ok: true, apply: hub.applyImport(source, body.since) });
+        }
+        return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
       }
       if (url.pathname === "/api/usage" && req.method === "POST") {
         const body = (await req.json()) as { seat?: string; policy?: "resume" | "snooze" };

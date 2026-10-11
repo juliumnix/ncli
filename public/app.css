@@ -297,6 +297,10 @@ code { font: 12px ui-monospace, Menlo, monospace; }
   border: 0; background: none; color: #8a8a8a; cursor: pointer;
   font: inherit; padding: 0 2px;
 }
+.qitem button[data-import-apply] {
+  border: 0; background: none; color: var(--accent); cursor: pointer;
+  font: inherit; padding: 0 2px;
+}
 .qitem .qx:hover { color: #ececec; }
 .qbtn {
   border: 0; background: none; color: #8a8a8a; cursor: pointer;

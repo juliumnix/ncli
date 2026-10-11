@@ -61,6 +61,9 @@ Optional env:
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
+| `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
+| `NCLI_IMPORT_CODEX` | unset | override root for Codex rollout JSONL. Default is `$CODEX_HOME/sessions` or `~/.codex/sessions` |
+| `NCLI_IMPORT_CURSOR` | unset | override root for Cursor `agent-transcripts` JSONL. Default is `~/.cursor/projects` |
 
 ## Harness boundary (ACP-shaped, in-process)
 
@@ -126,6 +129,8 @@ bun run ncli remove view foo
 ```
 
 Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR.
+
+Import is opt-in. `/ncli import claude|codex|cursor` reads the official local JSONL (Claude `projects/<cwd>/*.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*.jsonl`, Cursor `agent-transcripts/<id>/<id>.jsonl`), shows a preview, and does not write until `/ncli import … --apply` or the chip. Fingerprints live in `data/import-seen.json`. NCLI never writes `~/.claude`, `~/.codex`, or `~/.cursor`.
 
 ## Memory tree
 
