@@ -120,6 +120,7 @@ bun run ncli skills
 bun run ncli new view foo     # writes views/foo/ (manifest + view.ts + exclusive skill)
 bun run ncli view pack foo    # shareable folder <name>-<version>
 bun run ncli view add ./foo-1.0.0
+bun run ncli view add https://github.com/you/ncli-view-foo.git
 bun run ncli remove view foo
 ```
 

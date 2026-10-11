@@ -151,6 +151,7 @@ export class Hub {
       mcpUrl: this.mcpUrl,
       addDir: pack ? pack.skillDirs : undefined,
       agentsMd: pack ? forkSkillPrompt(pack) : undefined,
+      extraMcp: pack?.manifest.mcp ? join(pack.dir, pack.manifest.mcp) : undefined,
     });
   }
 
