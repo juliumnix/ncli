@@ -103,6 +103,12 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         void hub.sparks.message(decodeURIComponent(sparkMsg[1]), body.text ?? "");
         return Response.json({ ok: true });
       }
+      const sparkArchive = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/archive$/);
+      if (sparkArchive && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as { force?: boolean };
+        const result = await hub.sparks.archive(decodeURIComponent(sparkArchive[1]), body.force === true);
+        return Response.json({ ok: result?.ok ?? false, archive: result });
+      }
       const sparkAck = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ack$/);
       if (sparkAck && req.method === "POST") {
         const body = (await req.json()) as { summary?: string };
