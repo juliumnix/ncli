@@ -109,13 +109,13 @@ function inline(src: string, streaming: boolean): string {
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
   if (!streaming || evenMarkers(src, "*")) s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  if (!streaming || evenMarkers(src, "_")) s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
+  if (!streaming || evenMarkers(src, "_")) s = s.replace(/(^|[^A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])/g, "$1<em>$2</em>");
   s = restoreCodes(s);
   return s.replace(/\n/g, "<br>");
 }
 
 function holdCodes(src: string, streaming: boolean): string {
-  let s = src;
+  let s = src.replace(/(^|[^`A-Za-z0-9_])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![`A-Za-z0-9_])/g, "$1`$2`");
   if (streaming) {
     const ticks = (s.match(/`/g) ?? []).length;
     if (ticks % 2 === 1) s += "`";

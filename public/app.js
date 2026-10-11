@@ -642,7 +642,7 @@ function jumpToLatest() {
 }
 
 function measureComposer() {
-  const el = $("form");
+  const el = $("dock") || $("form");
   if (!el) return;
   const box = el.getBoundingClientRect();
   const bottom = Number.parseFloat(getComputedStyle(el).bottom) || 28;
@@ -816,13 +816,26 @@ function renderQueue() {
   const bar = $("qbar");
   if (!bar) return;
   const main = (state.queue || []).filter((i) => i.session === "main");
-  bar.hidden = main.length === 0;
+  const nextIds = new Set(main.map((i) => i.id));
+  const leaving = [...bar.querySelectorAll(".qitem")].filter((el) => !nextIds.has(el.dataset.qid));
+  bar.hidden = main.length === 0 && leaving.length === 0;
   bar.innerHTML = main
     .map((i) => {
       const tag = i.mode === "steer" ? "steer" : "fila";
-      return `<div class="qitem"><span>${tag}</span><b>${escapeHtml(i.text)}</b><button type="button" class="qx" data-qid="${escapeHtml(i.id)}" aria-label="tirar">×</button></div>`;
+      return `<div class="qitem" data-qid="${escapeHtml(i.id)}"><span>${tag}</span><b>${escapeHtml(i.text)}</b><button type="button" class="qx" data-qid="${escapeHtml(i.id)}" aria-label="tirar">×</button></div>`;
     })
     .join("");
+  for (const el of leaving) {
+    el.classList.add("out");
+    bar.appendChild(el);
+    bar.hidden = false;
+    waitMotion(el).then(() => {
+      el.remove();
+      if (!bar.querySelector(".qitem")) bar.hidden = true;
+      measureComposer();
+    });
+  }
+  measureComposer();
 }
 
 function dayLabel(iso) {
