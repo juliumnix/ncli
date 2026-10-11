@@ -29,6 +29,7 @@ export interface SparkRuntime {
 export interface SparkManagerHooks {
   onEvent: (ev: { type: string; session: string; payload?: unknown }) => void;
   onMerge: (spark: Spark, summary: string, result: SparkResult) => void;
+  onIdle?: (sparkId: string) => void;
   compressor: Compressor;
   harness: Harness;
   git?: GitRunner;
@@ -284,6 +285,8 @@ export class SparkManager {
       rt.spark.summary = (err as Error).message;
       persistSpark(this.cfg.dataDir, rt.spark);
       this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
+    } finally {
+      this.hooks.onIdle?.(rt.spark.id);
     }
   }
 

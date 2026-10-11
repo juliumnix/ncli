@@ -41,6 +41,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "compact", compact: hub.compact })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify(hub.snapshot().context)}\n\n`));
             if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "queue", items: hub.queue.list() })}\n\n`));
           },
           cancel() {
             clients.delete(controller);
@@ -58,9 +59,13 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         return Response.json(hub.snapshot());
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
-        const body = (await req.json()) as { text?: string };
-        void hub.send(body.text ?? "");
-        return Response.json({ ok: true });
+        const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };
+        void hub.send(body.text ?? "", { mode: body.mode, session: body.session });
+        return Response.json({ ok: true, queue: hub.queue.list() });
+      }
+      if (url.pathname.startsWith("/api/queue/") && req.method === "DELETE") {
+        const id = decodeURIComponent(url.pathname.slice("/api/queue/".length));
+        return Response.json({ ok: hub.dropQueued(id), queue: hub.queue.list() });
       }
       if (url.pathname === "/api/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { session?: string };

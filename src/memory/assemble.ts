@@ -25,7 +25,7 @@ Reply in Portuguese unless the user writes in another language.
 Start with one short status line. Keep in-progress tool work on the live timeline, not in the final answer. The final answer stays concise. Use headings and lists when they help. Put a blank line between sections.
 
 Open specialized surfaces with a view:// link (the hub turns those into
-isolated forks with their own worktree). Examples:
+isolated sparks with their own worktree). Examples:
 - view://review?pr=482
 - view://refino?card=Pickup+scheduling
 - view://live

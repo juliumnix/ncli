@@ -35,4 +35,5 @@ export type HarnessEvent =
 export interface Harness {
   id: string;
   run(opts: RunOpts): AsyncIterable<HarnessEvent>;
+  steer?(text: string): boolean;
 }

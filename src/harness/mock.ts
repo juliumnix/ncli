@@ -17,20 +17,40 @@ export class MockHarness implements Harness {
   readonly lastCwds: string[] = [];
   readonly lastPrompts: string[] = [];
   readonly lastSystems: string[] = [];
+  private steers: string[] = [];
   constructor(private readonly scriptFor: (prompt: string, session?: string) => MockScript = defaultScript) {}
+
+  steer(text: string): boolean {
+    const t = text.trim();
+    if (!t) return false;
+    this.steers.push(t);
+    return true;
+  }
 
   async *run(opts: RunOpts): AsyncIterable<HarnessEvent> {
     this.lastCwds.push(opts.cwd ?? "");
     this.lastPrompts.push(opts.prompt);
     this.lastSystems.push(opts.system ?? "");
     const script = this.scriptFor(opts.prompt, opts.session);
+    let extras = "";
+    const drain = async function* (this: MockHarness): AsyncGenerator<HarnessEvent> {
+      while (this.steers.length) {
+        const s = this.steers.shift()!;
+        const piece = `\n\najuste: ${s}`;
+        extras += piece;
+        yield { type: "text", text: piece, seat: "claude" };
+        await delay(8);
+      }
+    }.bind(this);
     yield { type: "model", model: "mock" };
     yield { type: "thinking", text: "lendo o contexto…", seat: "claude" };
     await delay(20);
+    yield* drain();
     for (const t of script.tools ?? []) {
       yield { type: "tool", name: t.name, input: t.input ?? {}, id: t.name, seat: "claude" };
       await delay(15);
       yield { type: "tool_result", id: t.name, content: "ok" };
+      yield* drain();
     }
     const seatDir = join(opts.cwd ?? "/tmp", ".ncli-seats");
     mkdirSync(seatDir, { recursive: true });
@@ -41,12 +61,16 @@ export class MockHarness implements Harness {
       yield { type: "seat", seat: s.seat, status: "delta", text: s.text };
       yield { type: "seat", seat: s.seat, status: "done", text: s.text };
       await delay(20);
+      yield* drain();
     }
-    for (const chunk of chunks(script.text, 24)) {
+    const text = script.text;
+    for (const chunk of chunks(text, 24)) {
       yield { type: "text", text: chunk, seat: "claude" };
       await delay(12);
+      yield* drain();
     }
-    yield { type: "done", text: script.text };
+    yield* drain();
+    yield { type: "done", text: `${text}${extras}` };
   }
 }
 
