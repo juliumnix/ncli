@@ -52,11 +52,7 @@ export class CdpSession {
   }
 
   async attachPage(url: string): Promise<void> {
-    const created = await this.send<{ targetId: string }>("Target.createTarget", {
-      url,
-      width: 1440,
-      height: 900,
-    });
+    const created = await this.send<{ targetId: string }>("Target.createTarget", { url });
     const attached = await this.send<{ sessionId: string }>("Target.attachToTarget", {
       targetId: created.targetId,
       flatten: true,
@@ -64,6 +60,12 @@ export class CdpSession {
     this.sessionId = attached.sessionId;
     await this.send("Page.enable");
     await this.send("Runtime.enable");
+    await this.send("Emulation.setDeviceMetricsOverride", {
+      width: 1440,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
   }
 
   async evaluate<T>(expression: string): Promise<T> {

@@ -61,20 +61,24 @@ async function sendFeedback(session: CdpSession, screenshotDir?: string): Promis
     input.focus();
     input.value = "oi, me responde rápido";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    const before = document.querySelectorAll("#log .u, #log .live").length;
+    const before = document.querySelectorAll("#log > .u").length;
     const t0 = performance.now();
     form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const syncPainted = document.querySelectorAll("#log > .u").length > before || Boolean(document.querySelector("#log > .live"));
+    if (syncPainted) return { ms: performance.now() - t0, ok: true };
     await new Promise((resolve) => {
       const done = () => {
-        const after = document.querySelectorAll("#log .u, #log .live, #log .u.pending");
-        if (after.length > before || document.querySelector("#log .live, #log .u:last-child")) resolve(true);
+        if (document.querySelectorAll("#log > .u").length > before || document.querySelector("#log > .live")) {
+          obs.disconnect();
+          resolve(true);
+        }
       };
       const obs = new MutationObserver(done);
-      obs.observe(document.getElementById("log"), { childList: true, subtree: true, characterData: true });
+      obs.observe(document.getElementById("log"), { childList: true, subtree: true });
       done();
       setTimeout(() => { obs.disconnect(); resolve(false); }, 4000);
     });
-    return { ms: performance.now() - t0, ok: Boolean(document.querySelector("#log .u, #log .live")) };
+    return { ms: performance.now() - t0, ok: document.querySelectorAll("#log > .u").length > before };
   })()`);
   if (screenshotDir && result.ok) {
     mkdirSync(screenshotDir, { recursive: true });

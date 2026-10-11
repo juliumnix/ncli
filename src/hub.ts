@@ -46,6 +46,8 @@ export class Hub {
   readonly compressor: Compressor;
   private turning = false;
   private abort: AbortController | null = null;
+  private spawnMain: ReturnType<Hub["injectSpawn"]> | null = null;
+  private spawnHarness = "";
 
   constructor(
     readonly cfg: NcliConfig,
@@ -113,6 +115,8 @@ export class Hub {
     this.forks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
     this.model = displaySeatModel(this.cfg, kind);
+    this.spawnMain = null;
+    this.spawnHarness = "";
     this.emit({ type: "main", main: this.mainAgent() });
   }
 
@@ -137,6 +141,13 @@ export class Hub {
     return prepareSpawn({ cfg: this.cfg, session, harness, worktree, ticket, token, mcpUrl: this.mcpUrl });
   }
 
+  private mainSpawn() {
+    if (this.spawnMain && this.spawnHarness === this.harness.id) return this.spawnMain;
+    this.spawnMain = this.injectSpawn("main", this.harness.id);
+    this.spawnHarness = this.harness.id;
+    return this.spawnMain;
+  }
+
   async start(): Promise<void> {
     await this.bus.listen();
     await this.views.loadAll();
@@ -145,7 +156,7 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
-    await this.memory.pump();
+    void this.memory.pump();
     this.emitDebug();
   }
 
@@ -264,18 +275,19 @@ export class Hub {
 
   private async turn(userText: string, retried = false): Promise<void> {
     void this.memory.pump();
-    const ctx = assemble(this.memory);
-    const inj = this.injectSpawn("main", this.harness.id);
-    writeFileSync(join(this.cfg.dataDir, "last-view.txt"), ctx.view, "utf8");
-    let talk = "";
-    const tools: string[] = [];
-    const inbox = this.bus.drainPrompt("main");
     this.live = new LiveTurn(
       "main",
       seatFromId(this.harness.id),
       this.model ?? displaySeatModel(this.cfg, this.harness.id as HarnessKind),
     );
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    const ctx = assemble(this.memory);
+    const inj = this.mainSpawn();
+    const viewSnap = ctx.view;
+    queueMicrotask(() => writeFileSync(join(this.cfg.dataDir, "last-view.txt"), viewSnap, "utf8"));
+    let talk = "";
+    const tools: string[] = [];
+    const inbox = this.bus.drainPrompt("main");
     try {
       for await (const ev of this.harness.run({
         prompt: `${inbox}${ctx.view}\n\n${userText}`,
@@ -401,8 +413,12 @@ export class Hub {
       this.emit({ type: "main", main: this.mainAgent() });
     }
     const applied = this.live?.apply(ev);
-    if (this.live) this.emit({ type: "turn", session: "main", turn: this.live.turn });
-    if (applied?.step) this.emit({ type: "step", session: "main", turnId: this.live!.id, step: applied.step });
+    const streamy = ev.type === "text" || ev.type === "thinking";
+    const firstChunk = Boolean(applied?.step && applied.delta && applied.step.text === applied.delta);
+    if (this.live && !streamy) this.emit({ type: "turn", session: "main", turn: this.live.turn });
+    if (applied?.step && (!streamy || firstChunk)) {
+      this.emit({ type: "step", session: "main", turnId: this.live!.id, step: applied.step });
+    }
     if (applied?.delta) {
       this.emit({
         type: "delta",

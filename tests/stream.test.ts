@@ -4,6 +4,19 @@ import { buildClaudeArgs } from "../src/acp/claude";
 import { loadConfig } from "../src/config";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
 
+test("the running turn is emitted before the first token", async () => {
+  const { hub } = await makeHub();
+  const types: string[] = [];
+  hub.subscribe((ev) => types.push(ev.type));
+  const started = performance.now();
+  const send = hub.send("oi");
+  await waitUntil(() => types.includes("turn"));
+  expect(performance.now() - started).toBeLessThan(80);
+  await waitUntil(() => types.includes("delta"));
+  expect(types.indexOf("turn")).toBeLessThan(types.indexOf("delta"));
+  await send;
+});
+
 test("POST /api/message returns before the turn finishes and SSE streams tokens", async () => {
   const { hub } = await makeHub();
   hub.cfg.port = 19200 + Math.floor(Math.random() * 1000);

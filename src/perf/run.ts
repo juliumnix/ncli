@@ -35,24 +35,34 @@ export async function runPerf(opts: TraceOpts = {}): Promise<PerfReport> {
   }
 
   if (useChrome) {
-    const empty = await bootTracedHub({ port: nextPort() });
     try {
-      for (let i = 0; i < runs; i++) {
-        const shot = i === 0 ? opts.screenshotDir : undefined;
-        const browser = await measureBrowser(empty.uiUrl, shot);
-        samples.push(...browser.filter((s) => s.metric !== "long_chat_scroll"));
+      const empty = await bootTracedHub({ port: nextPort() });
+      try {
+        for (let i = 0; i < runs; i++) {
+          const shot = i === 0 ? opts.screenshotDir : undefined;
+          const browser = await measureBrowser(empty.uiUrl, shot);
+          samples.push(...browser.filter((s) => s.metric !== "long_chat_scroll"));
+        }
+      } finally {
+        empty.stop();
       }
-    } finally {
-      empty.stop();
-    }
-    const long = await bootTracedHub({ port: nextPort(), seedMessages: 500 });
-    try {
-      for (let i = 0; i < runs; i++) {
-        const browser = await measureBrowser(long.uiUrl);
-        samples.push(...browser.filter((s) => s.metric === "long_chat_scroll"));
+      const long = await bootTracedHub({ port: nextPort(), seedMessages: 500 });
+      try {
+        for (let i = 0; i < runs; i++) {
+          const browser = await measureBrowser(long.uiUrl);
+          samples.push(...browser.filter((s) => s.metric === "long_chat_scroll"));
+        }
+      } finally {
+        long.stop();
       }
-    } finally {
-      long.stop();
+    } catch (err) {
+      samples.push({
+        metric: "first_paint",
+        ms: 0,
+        ok: false,
+        work: 0,
+        note: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

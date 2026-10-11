@@ -1107,7 +1107,9 @@ function applyEvent(ev) {
     case "message":
       if (ev.session === "main") {
         state.stream = "";
-        state.messages.push(ev.message);
+        const pendingAt = state.messages.findIndex((m) => m.i < 0 && m.kind === "user" && m.text === ev.message.text);
+        if (pendingAt >= 0) state.messages.splice(pendingAt, 1, ev.message);
+        else state.messages.push(ev.message);
         renderChat();
       } else if (state.openFork === ev.session && state.forkDetail) {
         state.forkDetail.messages = state.forkDetail.messages || [];
@@ -1120,6 +1122,14 @@ function applyEvent(ev) {
         state.stream = (state.stream || "") + ev.text;
         state.streamSeat = ev.seat || state.streamSeat;
         state.streamModel = ev.model || state.streamModel;
+        if (state.turn && ev.stepId) {
+          const steps = state.turn.steps || (state.turn.steps = []);
+          const step = steps.find((s) => s.id === ev.stepId);
+          if (step) {
+            const cur = step.text || "";
+            if (cur !== ev.text && !cur.endsWith(ev.text)) step.text = cur + ev.text;
+          }
+        }
         scheduleLivePaint();
       }
       break;
@@ -1386,6 +1396,26 @@ overlay.addEventListener("click", (e) => {
 async function sendUser(text) {
   const t = String(text || "").trim();
   if (!t) return;
+  const pending = {
+    kind: "user",
+    text: t,
+    date: new Date().toISOString(),
+    i: -Date.now(),
+  };
+  state.messages.push(pending);
+  if (!state.turn || state.turn.status !== "running") {
+    state.turn = {
+      id: "local-" + Date.now().toString(36),
+      session: "main",
+      seat: state.main.harness || "claude",
+      model: state.main.model,
+      status: "running",
+      startedAt: pending.date,
+      lastEventAt: pending.date,
+      steps: [],
+    };
+  }
+  renderChat();
   await fetch("/api/message", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1393,12 +1423,12 @@ async function sendUser(text) {
   });
 }
 
-$("form").addEventListener("submit", async (e) => {
+$("form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
-  await sendUser(text);
+  void sendUser(text);
 });
 
 window.addEventListener("message", (ev) => {
@@ -1457,18 +1487,26 @@ window.addEventListener("resize", () => {
 });
 
 async function boot() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (m) => {
+    try {
+      applyEvent(JSON.parse(m.data));
+    } catch {
+      return;
+    }
+  };
   const snap = await (await fetch("/api/state")).json();
-  state.messages = snap.messages || [];
-  state.forks = snap.forks || [];
+  if (!state.messages.length) state.messages = snap.messages || [];
+  if (!state.forks.length) state.forks = snap.forks || [];
   for (const f of state.forks) seenPills.add(f.id);
-  state.views = snap.views || [];
-  state.debug = snap.debug;
-  state.context = snap.context || null;
-  state.ctxPrev = (snap.context && snap.context.rows) || [];
+  if (!state.views.length) state.views = snap.views || [];
+  state.debug = state.debug || snap.debug;
+  state.context = state.context || snap.context || null;
+  if (!state.ctxPrev.length) state.ctxPrev = (snap.context && snap.context.rows) || [];
   state.main = snap.main || state.main;
-  state.lastTurn = snap.turn && snap.turn.status !== "running" ? snap.turn : null;
-  state.turn = snap.turn || null;
-  state.compact = snap.compact || null;
+  if (!state.lastTurn) state.lastTurn = snap.turn && snap.turn.status !== "running" ? snap.turn : null;
+  if (!state.turn) state.turn = snap.turn || null;
+  if (!state.compact) state.compact = snap.compact || null;
   renderChat();
   renderShortcuts();
   renderContext();
@@ -1479,14 +1517,8 @@ async function boot() {
   if (open) await openFork(open);
   const ch = q.get("chapter");
   if (ch) document.getElementById(ch)?.scrollIntoView({ block: "start" });
-  const es = new EventSource("/api/events");
-  es.onmessage = (m) => {
-    try {
-      applyEvent(JSON.parse(m.data));
-    } catch {
-      return;
-    }
-  };
 }
 
+renderChat();
+renderChrome();
 boot();
