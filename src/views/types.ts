@@ -1,4 +1,5 @@
-import type { Fork, NeedsUser } from "../types";
+import type { Spark, NeedsUser } from "../types";
+import type { SparkResult } from "./manifest";
 
 export interface ViewCreateResult {
   title: string;
@@ -6,8 +7,9 @@ export interface ViewCreateResult {
   repo?: string;
   needsWorktree: boolean;
   ui?: unknown;
-  needsUser?: Fork["needsUser"];
+  needsUser?: Spark["needsUser"];
   hold?: boolean;
+  flowStep?: string;
 }
 
 export interface ViewAction {
@@ -21,6 +23,8 @@ export interface ViewActionResult {
   needsUser?: NeedsUser | null;
   merge?: boolean;
   summary?: string;
+  result?: SparkResult;
+  flowStep?: string;
 }
 
 export interface ViewPlugin {
@@ -29,10 +33,11 @@ export interface ViewPlugin {
   description: string;
   tabs: string[];
   parseLink?(params: Record<string, string>): Record<string, string>;
-  createFork(params: Record<string, string>, ctx: ViewCreateCtx): Promise<ViewCreateResult>;
-  applyAction?(fork: Fork, action: ViewAction): ViewActionResult | void;
-  render?(fork: Fork): string;
-  onEvent?(fork: Fork, event: { type: string; text?: string }): Partial<Fork> | void;
+  createSpark(params: Record<string, string>, ctx: ViewCreateCtx): Promise<ViewCreateResult>;
+  applyAction?(spark: Spark, action: ViewAction): ViewActionResult | void;
+  render?(spark: Spark): string;
+  onEvent?(spark: Spark, event: { type: string; text?: string }): Partial<Spark> | void;
+  result?(spark: Spark): SparkResult;
 }
 
 export interface ViewCreateCtx {

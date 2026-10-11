@@ -24,9 +24,8 @@ export function defaultMcpRegistryPath(ncliRoot: string): string {
   return join(ncliRoot, "ncli/mcp.json");
 }
 
-export function loadMcpRegistry(ncliRoot: string): McpRegistry {
-  const path = defaultMcpRegistryPath(ncliRoot);
-  if (!existsSync(path)) return { servers: [], path };
+export function loadMcpFile(path: string): McpServerSpec[] {
+  if (!existsSync(path)) return [];
   const raw = JSON.parse(readFileSync(path, "utf8")) as {
     mcpServers?: Record<string, {
       type?: string;
@@ -50,7 +49,12 @@ export function loadMcpRegistry(ncliRoot: string): McpRegistry {
       headers: spec.headers ?? {},
     });
   }
-  return { servers, path };
+  return servers;
+}
+
+export function loadMcpRegistry(ncliRoot: string): McpRegistry {
+  const path = defaultMcpRegistryPath(ncliRoot);
+  return { servers: loadMcpFile(path), path };
 }
 
 export function resolveServers(

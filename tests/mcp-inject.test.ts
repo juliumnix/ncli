@@ -81,7 +81,7 @@ test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prom
   expect(args).toContain("-c");
 });
 
-test("cursor workspace mcp is only written inside a fork worktree, not the user home", () => {
+test("cursor workspace mcp is only written inside a spark worktree, not the user home", () => {
   const repo = tmpDir("repo");
   const dataDir = tmpDir("data");
   const wt = join(repo, ".ncli", "wt", "review-1");
@@ -96,7 +96,7 @@ test("the ncli MCP tool list is one surface: memory, bus, control", () => {
   const names = NCLI_TOOLS.map((t) => t.name);
   expect(names).toContain("zoom");
   expect(names).toContain("ask");
-  expect(names).toContain("open_fork");
+  expect(names).toContain("open_spark");
   expect(names).toContain("switch_harness");
   expect(names).toContain("budget");
   expect(names).toContain("ncli.render");

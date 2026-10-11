@@ -1,29 +1,28 @@
 ---
 name: edit-view
-description: Change an existing view in place. Use when the user wants different tabs, UI, merge rules, or params on review/refino/live or a custom view.
+description: Change an existing view package in place (manifest, flow, exclusive skills, UI).
 ---
 
 # Edit a view
 
 ## Files
 
-- `views/<id>.ts` — edit this file; registry reloads on save
-- `src/review/model.ts` — only if the view is `review` (diff/plan/chapters)
-- `public/app.css` — only if you need new classes (prefix them, e.g. `rv-`)
-- `public/app.js` — only if the modal needs new `data-*` clicks (`data-act`, `data-rv-*`)
+- `views/<id>/view.ts` — plugin; registry reloads on save
+- `views/<id>/manifest.json` — agents, flow, requires
+- `views/<id>/skills/` — exclusive skills
+- `src/review/model.ts` — only if the view is `review`
+- `public/app.css` / `public/app.js` — only for new `data-*` clicks
+
+Loose previews still live at `views/<id>.ts` (`live`).
 
 ## Do
 
-1. Read `views/<id>.ts` and `src/views/types.ts`.
-2. Change `createFork` / `render` / `applyAction`. Keep `id` stable.
+1. Read the package and `src/views/types.ts` / `src/views/manifest.ts`.
+2. Keep `manifest.name` = `plugin.id`. Keep flow spark-first and result-last.
 3. Save. Do not restart. Do not edit `src/views/registry.ts`.
-
-If the fork type itself must change (hold, needsUser, worktree), follow `ncli/skills/add-mode/SKILL.md`.
 
 ## Check
 
 ```bash
-bun test tests/views.test.ts tests/view-actions.test.ts tests/review-guide.test.ts
+bun test tests/views.test.ts tests/view-pack.test.ts tests/view-actions.test.ts tests/review-guide.test.ts
 ```
-
-Re-open the fork from the right rail. Existing `data/forks/<id>-N/meta.json` keeps the old `ui` until you open a new fork.

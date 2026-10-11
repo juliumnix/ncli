@@ -10,7 +10,7 @@ endless chat, through tools and subagents. Each message has a kind: user
 (the user's words; but one starting "[id] " is a subagent's report),
 talk (NCLI's replies), tool (NCLI's tool calls), echo (tool results), note
 (memories from before this chat), seat (a consulted coding CLI), merge
-(a finished fork returning to the main chat).
+(a finished spark returning to the main chat).
 
 Over the messages grows a binary tree of one-line summaries. First, each
 message is compressed alone into a line (a short message is its own

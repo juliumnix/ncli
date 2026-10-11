@@ -10,7 +10,7 @@ const HELLO = `const hello = {
   label: "hello",
   description: "hot reload smoke",
   tabs: ["Chat"],
-  async createFork() {
+  async createSpark() {
     return { title: "hello", prompt: "hi", needsWorktree: false };
   },
 };
@@ -38,7 +38,7 @@ test("writing views/hello.ts is picked up without constructing a new registry (h
   writeFileSync(join(dir, "hello.ts"), HELLO, "utf8");
   await reg.loadFile(join(dir, "hello.ts"));
   expect(reg.get("hello")?.label).toBe("hello");
-  const created = await reg.get("hello")!.createFork({}, { dataDir: dir, repo: dir });
+  const created = await reg.get("hello")!.createSpark({}, { dataDir: dir, repo: dir });
   expect(created.title).toBe("hello");
   await waitUntil(() => seen || Boolean(reg.get("hello")), 2000).catch(() => undefined);
   expect(reg.get("hello")?.id).toBe("hello");

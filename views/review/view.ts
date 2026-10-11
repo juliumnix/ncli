@@ -1,6 +1,7 @@
-import type { Fork } from "../src/types";
-import type { ViewAction, ViewActionResult, ViewPlugin } from "../src/views/types";
-import type { PrInfo } from "../src/gh/pr";
+import type { Spark } from "../../src/types";
+import type { ViewAction, ViewActionResult, ViewPlugin } from "../../src/views/types";
+import type { SparkResult } from "../../src/views/manifest";
+import type { PrInfo } from "../../src/gh/pr";
 import {
   buildReviewUi,
   extractPlan,
@@ -10,11 +11,11 @@ import {
   type ReviewChapter,
   type ReviewRisk,
   type ReviewUi,
-} from "../src/review/model";
-import { escapeHtml } from "../src/util";
+} from "../../src/review/model";
+import { escapeHtml } from "../../src/util";
 
-function uiOf(fork: Fork): ReviewUi {
-  return fork.ui as ReviewUi;
+function uiOf(spark: Spark): ReviewUi {
+  return spark.ui as ReviewUi;
 }
 
 function fileIcon(path: string): string {
@@ -251,8 +252,8 @@ function diffTab(ui: ReviewUi): string {
   return `<pre class="rv-raw" data-rv-panel="Diff">${escapeHtml(ui.pr.diff || "sem diff")}</pre>`;
 }
 
-function render(fork: Fork): string {
-  const ui = uiOf(fork);
+function render(spark: Spark): string {
+  const ui = uiOf(spark);
   const tabs = ["Overview", "Guide", "Diff"]
     .map((t) => `<button type="button" data-tab="${t}" class="${t === ui.tab ? "on" : ""}">${t}</button>`)
     .join("");
@@ -266,7 +267,7 @@ function render(fork: Fork): string {
       ${guide(ui)}
       ${diffTab(ui)}
     </div>
-    <form class="mi rv-mi" id="forkForm">
+    <form class="mi rv-mi" id="sparkForm">
       <input name="t" placeholder="Fala com o review…" autocomplete="off" />
     </form>`;
 }
@@ -292,7 +293,7 @@ const review: ViewPlugin = {
   parseLink(params) {
     return { pr: params.pr ?? params.number ?? "" };
   },
-  async createFork(params, ctx) {
+  async createSpark(params, ctx) {
     const pr = params.pr;
     if (!pr) throw new Error("view://review precisa de ?pr=");
     const info = (await ctx.fetchPr?.(pr)) as PrInfo | undefined;
@@ -311,6 +312,7 @@ const review: ViewPlugin = {
       repo: ctx.repo,
       ui,
       needsUser: { kind: "review", label: "pronta pra revisar", count: 1 },
+      flowStep: "spark",
       prompt: `Você está no modo review do NCLI, PR ${pr}.
 Dados já vieram de gh pr view --json + gh pr diff. Percorra os capítulos na ordem núcleo → API → glue → db → gerados → testes.
 Não misture produção e testes no mesmo capítulo.
@@ -322,30 +324,39 @@ Quando tiver um plano, emita UM bloco json (e nada mais nesse bloco) com:
 Se não puder, não invente paths. O hub já tem um fallback.`,
     };
   },
-  applyAction(fork, action: ViewAction): ViewActionResult | void {
-    const ui = uiOf(fork);
+  applyAction(spark, action: ViewAction): ViewActionResult | void {
+    const ui = uiOf(spark);
     switch (action.type) {
       case "review-chapter":
-        return { ui: toggleReviewed(ui, "chapter", action.id ?? ""), needsUser: fork.needsUser };
+        return { ui: toggleReviewed(ui, "chapter", action.id ?? ""), needsUser: spark.needsUser };
       case "review-file":
-        return { ui: toggleReviewed(ui, "file", action.id ?? ""), needsUser: fork.needsUser };
+        return { ui: toggleReviewed(ui, "file", action.id ?? ""), needsUser: spark.needsUser };
       case "say":
         return;
       default:
         return;
     }
   },
-  onEvent(fork, event) {
+  onEvent(spark, event) {
     if (!event.text) return;
     const plan = extractPlan(event.text);
     if (!plan) return;
-    const ui = uiOf(fork);
+    const ui = uiOf(spark);
     const next = buildReviewUi(asPr(ui), plan);
     next.fileState = ui.fileState;
     next.chapters.forEach((ch, i) => {
       ch.reviewed = ui.chapters[i]?.reviewed ?? false;
     });
-    return { ui: next };
+    return { ui: next, flowStep: "wait" };
+  },
+  result(spark): SparkResult {
+    const ui = uiOf(spark);
+    return {
+      summary: ui.overview || ui.pr.title,
+      artifacts: ui.chapters.map((ch) => ({ kind: "chapter", label: ch.title, text: ch.body })),
+      decisions: ui.chapters.filter((ch) => ch.reviewed).map((ch) => ({ id: ch.id, text: ch.title })),
+      links: [`view://review?pr=${ui.pr.number}`],
+    };
   },
   render,
 };

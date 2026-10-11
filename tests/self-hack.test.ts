@@ -57,7 +57,7 @@ test("scripted agent follows add-view, the view appears live, remove-view takes 
   const harness = new MockHarness((prompt, session) => {
     const user = prompt.split("\n\n").at(-1) ?? prompt;
     if (session && session !== "main") {
-      return { text: `fork ${session} ok` };
+      return { text: `spark ${session} ok` };
     }
     if (/cria uma view ping/i.test(user)) {
       return {
@@ -87,16 +87,16 @@ test("scripted agent follows add-view, the view appears live, remove-view takes 
     newView("ping", paths(viewsDir));
     await waitUntil(() => Boolean(hub.views.get("ping")));
     expect(hub.views.get("ping")?.id).toBe("ping");
-    const created = await hub.views.get("ping")!.createFork({}, { dataDir: viewsDir, repo: viewsDir });
+    const created = await hub.views.get("ping")!.createSpark({}, { dataDir: viewsDir, repo: viewsDir });
     expect(created.title).toBe("ping");
 
     await hub.send("view://ping");
-    await waitUntil(() => hub.forks.list().some((f) => f.view === "ping"));
+    await waitUntil(() => hub.sparks.list().some((f) => f.view === "ping"));
 
     await hub.send("remove a view ping");
     expect(hub.memory.log.some((m) => m.kind === "talk" && m.text.includes("ncli remove view ping"))).toBe(true);
     removeView("ping", paths(viewsDir));
-    await waitUntil(() => !hub.views.get("ping") && !existsSync(join(viewsDir, "ping.ts")));
+    await waitUntil(() => !hub.views.get("ping") && !existsSync(join(viewsDir, "ping")));
     expect(hub.views.list().map((v) => v.id)).not.toContain("ping");
   } finally {
     hub.close();
@@ -111,7 +111,7 @@ test("/ncli new view and /ncli remove view scaffold against a live hub", async (
     await hub.send("/ncli new view pong");
     expect(harness.lastPrompts).toEqual([]);
     await waitUntil(() => Boolean(hub.views.get("pong")));
-    expect(hub.memory.log.some((m) => m.kind === "note" && m.text.includes("pong.ts"))).toBe(true);
+    expect(hub.memory.log.some((m) => m.kind === "note" && /pong/.test(m.text))).toBe(true);
     await hub.send("/ncli remove view pong");
     await waitUntil(() => !hub.views.get("pong"));
   } finally {

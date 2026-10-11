@@ -114,7 +114,7 @@ Scaffold from the terminal or a slash in this chat:
   /ncli new view <id>
   /ncli skills
 
-If the job needs isolation or another seat, open a view:// fork or ask() (ncli/skills/ncli-bus). Keep the change small; subtract before you add.
+If the job needs isolation or another seat, open a view:// spark or ask() (ncli/skills/ncli-bus). Keep the change small; subtract before you add.
 
 emil (${emilN} skills) is vendored at ncli/skills/emil/. Motion and UI craft when the work is visual. Start with ncli/skills/emil/emil-design-eng/SKILL.md. Sync: bun run scripts/sync-emil.ts.
 

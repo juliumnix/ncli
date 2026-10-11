@@ -56,13 +56,13 @@ function defaultScript(prompt: string, session?: string): MockScript {
   if (session && session !== "main") {
     return {
       tools: [{ name: "Read", input: { path: session } }],
-      text: `Fork ${session} concluído. Resumo: trabalho isolado neste contexto.`,
+      text: `Spark ${session} concluído. Resumo: trabalho isolado neste contexto.`,
     };
   }
   if (links.length) {
     const chips = links.map((l) => `view://${l.id}${qs(l.params)}`).join(" e ");
     return {
-      tools: [{ name: "fork", input: { n: links.length } }],
+      tools: [{ name: "spark", input: { n: links.length } }],
       seats: [
         { seat: "codex", text: "applyTax() já recebe o subtotal com desconto. Bate." },
         { seat: "cursor", text: "Confirmo, e só aplica pra member desde o commit a3f9." },

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { pillClass, railForks } from "../src/live/pills";
-import type { Fork } from "../src/types";
+import { pillClass, railSparks } from "../src/live/pills";
+import type { Spark } from "../src/types";
 
-function fork(id: string, status: Fork["status"]): Fork {
+function spark(id: string, status: Spark["status"]): Spark {
   return {
     id,
     seq: 1,
@@ -14,9 +14,9 @@ function fork(id: string, status: Fork["status"]): Fork {
   };
 }
 
-test("a new fork joins the rail immediately, merged ones drop off", () => {
-  const list = [fork("a", "running"), fork("b", "needs_user"), fork("c", "done"), fork("d", "merged")];
-  expect(railForks(list).map((f) => f.id)).toEqual(["a", "b", "c"]);
+test("a new spark joins the rail immediately, merged ones drop off", () => {
+  const list = [spark("a", "running"), spark("b", "needs_user"), spark("c", "done"), spark("d", "merged")];
+  expect(railSparks(list).map((f) => f.id)).toEqual(["a", "b", "c"]);
 });
 
 test("a freshly created pill pops; needs_user and done pulse; idle running does not", () => {

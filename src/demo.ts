@@ -1,10 +1,10 @@
 import { demoUiFence } from "./live/ui-demo";
 import type { Memory } from "./memory/store";
-import type { Fork } from "./types";
+import type { Spark } from "./types";
 
 export interface DemoHost {
   memory: Memory;
-  openLinks: (text: string) => Promise<Fork[]>;
+  openLinks: (text: string) => Promise<Spark[]>;
   seedViewSeq: (view: string, last: number) => void;
 }
 
