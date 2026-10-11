@@ -72,8 +72,10 @@ export function emptyResult(summary: string): ForkResult {
 
 export function formatForkResult(id: { view: string; seq: number }, result: ForkResult): string {
   const bits = [`${id.view} #${id.seq} voltou · ${oneLine(result.summary)}`];
-  if (result.decisions.length) bits.push(`${result.decisions.length} decisão${result.decisions.length === 1 ? "" : "ões"}`);
-  if (result.artifacts.length) bits.push(`${result.artifacts.length} artefato${result.artifacts.length === 1 ? "" : "s"}`);
+  if (result.decisions.length === 1) bits.push("1 decisão");
+  else if (result.decisions.length) bits.push(`${result.decisions.length} decisões`);
+  if (result.artifacts.length === 1) bits.push("1 artefato");
+  else if (result.artifacts.length) bits.push(`${result.artifacts.length} artefatos`);
   if (result.links.length) bits.push(result.links.join(" "));
   return bits.join(" · ");
 }
