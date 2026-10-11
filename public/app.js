@@ -108,6 +108,7 @@ const state = {
   compact: null,
   userName: "Você",
   queue: [],
+  usage: { seats: [], chain: [] },
 };
 
 const SEAT = {
@@ -801,6 +802,19 @@ function renderChrome() {
       ? `compactando ${state.compact.lastNodes || 0} · ${k}k/${b}k`
       : `compact ${k}k/${b}k`;
   }
+  const limit = $("limitInd");
+  if (limit) {
+    const hit = (state.usage && state.usage.seats || []).find((s) => s.status === "limited");
+    if (!hit) limit.hidden = true;
+    else {
+      limit.hidden = false;
+      const when = hit.resetAt ? clockShort(hit.resetAt) : "";
+      const name = hit.seat === "mock" ? "mock" : agentLabel(hit.seat === "claude" || hit.seat === "codex" || hit.seat === "cursor" ? hit.seat : "claude");
+      const label = name.split(" · ")[0];
+      const action = hit.policy === "snooze" ? "retomar" : "adiar";
+      limit.innerHTML = `${escapeHtml(label)} limitado${when ? ` · ${escapeHtml(when)}` : ""} <button type="button" data-limit-seat="${escapeHtml(hit.seat)}" data-limit-policy="${hit.policy === "snooze" ? "resume" : "snooze"}">${action}</button>`;
+    }
+  }
   const stop = $("stopBtn");
   if (stop) stop.hidden = !(state.turn && state.turn.status === "running");
   const qbtn = $("queueBtn");
@@ -836,6 +850,12 @@ function renderQueue() {
     });
   }
   measureComposer();
+}
+
+function clockShort(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function dayLabel(iso) {
@@ -1394,6 +1414,10 @@ function applyEvent(ev) {
       state.queue = ev.items || [];
       renderQueue();
       break;
+    case "usage":
+      state.usage = ev.usage || { seats: [], chain: [] };
+      renderChrome();
+      break;
     case "turn":
       if (ev.session === "main") {
         state.turn = ev.turn;
@@ -1483,6 +1507,16 @@ document.addEventListener("click", (e) => {
   if (btn) {
     e.preventDefault();
     setSwitchOpen(!state.switchOpen);
+    return;
+  }
+  const limitBtn = e.target.closest("[data-limit-seat]");
+  if (limitBtn) {
+    e.preventDefault();
+    fetch("/api/usage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ seat: limitBtn.dataset.limitSeat, policy: limitBtn.dataset.limitPolicy }),
+    });
     return;
   }
   const opt = e.target.closest("[data-harness]");
@@ -1798,6 +1832,7 @@ async function boot() {
   if (!state.turn) state.turn = snap.turn || null;
   if (!state.compact) state.compact = snap.compact || null;
   if (!state.queue.length) state.queue = snap.queue || [];
+  if (snap.usage) state.usage = snap.usage;
   renderQueue();
   renderChat();
   renderShortcuts();

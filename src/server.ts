@@ -42,6 +42,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(enc.encode(`data: ${JSON.stringify(hub.snapshot().context)}\n\n`));
             if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "queue", items: hub.queue.list() })}\n\n`));
+            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "usage", usage: hub.usage.snapshot() })}\n\n`));
           },
           cancel() {
             clients.delete(controller);
@@ -70,6 +71,17 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       if (url.pathname === "/api/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { session?: string };
         return Response.json({ ok: hub.stopTurn(body.session ?? "main") });
+      }
+      if (url.pathname === "/api/usage" && req.method === "POST") {
+        const body = (await req.json()) as { seat?: string; policy?: "resume" | "snooze" };
+        const seat = body.seat;
+        if (seat !== "claude" && seat !== "codex" && seat !== "cursor" && seat !== "mock") {
+          return Response.json({ ok: false, error: `seat desconhecida: ${body.seat}` }, { status: 400 });
+        }
+        if (body.policy !== "resume" && body.policy !== "snooze") {
+          return Response.json({ ok: false, error: "policy resume|snooze" }, { status: 400 });
+        }
+        return Response.json({ ok: true, usage: hub.setUsagePolicy(seat, body.policy) });
       }
       if (url.pathname === "/api/harness" && req.method === "POST") {
         const body = (await req.json()) as { harness?: string };
