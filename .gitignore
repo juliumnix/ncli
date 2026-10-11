@@ -7,3 +7,4 @@ data
 agent-tools
 uploads
 artifacts/*.png
+artifacts/perf/
