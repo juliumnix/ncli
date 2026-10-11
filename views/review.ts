@@ -8,6 +8,7 @@ import {
   toggleReviewed,
   type DiffLine,
   type ReviewChapter,
+  type ReviewRisk,
   type ReviewUi,
 } from "../src/review/model";
 import { escapeHtml } from "../src/util";
@@ -48,20 +49,71 @@ function fileRow(file: { path: string; additions: number; deletions: number }, o
 }
 
 function overview(ui: ReviewUi): string {
-  const files = ui.pr.files.map((f) => fileRow(f)).join("");
+  const files = ui.pr.files.map((f) => fileRow(f, { click: true })).join("");
+  const ready = ui.planSource === "agent";
+  const summary = ready
+    ? `<p>${escapeHtml(ui.summary)}</p>`
+    : shimmer(3);
+  const risks = ready
+    ? ui.risks.map((r) => riskRow(r)).join("") || `<p class="rv-empty">Nenhum risco apontado.</p>`
+    : shimmer(3);
+  const order = ui.chapters.map((ch) => orderRow(ch)).join("");
   return `<div class="rv-overview" data-rv-panel="Overview">
-    <h1>${escapeHtml(ui.pr.title)}</h1>
-    <div class="rv-meta">
-      <span>${escapeHtml(ui.pr.author)}</span>
-      <span class="dot"></span>
-      <span>#${ui.pr.number}</span>
-      <span class="dot"></span>
-      <span class="rv-a">+${ui.pr.additions}</span>
-      <span class="rv-d">−${ui.pr.deletions}</span>
-    </div>
-    <div class="rv-files-h">Files ${ui.pr.files.length}</div>
-    <div class="rv-grid">${files}</div>
+    <header class="rv-ov-lead">
+      <h1>${escapeHtml(ui.pr.title)}</h1>
+      <div class="rv-meta">
+        <span>${escapeHtml(ui.pr.author)}</span>
+        <span class="dot"></span>
+        <span>#${ui.pr.number}</span>
+        <span class="dot"></span>
+        <span class="rv-a">+${ui.pr.additions}</span>
+        <span class="rv-d">−${ui.pr.deletions}</span>
+      </div>
+    </header>
+    <section class="rv-ov-summary">
+      <div class="rv-ov-k">Resumo</div>
+      ${summary}
+    </section>
+    <aside class="rv-ov-aside">
+      <div class="rv-ov-k">Riscos</div>
+      <div class="rv-risks">${risks}</div>
+      <div class="rv-ov-files">
+        <div class="rv-files-h">Files ${ui.pr.files.length}</div>
+        <div class="rv-grid">${files}</div>
+      </div>
+    </aside>
+    <section class="rv-ov-order">
+      <div class="rv-ov-k">Ordem de leitura</div>
+      <div class="rv-order">${order}</div>
+    </section>
   </div>`;
+}
+
+function shimmer(n: number): string {
+  const bars = Array.from({ length: n }, () => "<i></i>").join("");
+  return `<div class="rv-shimmer" aria-busy="true">${bars}</div>`;
+}
+
+function riskRow(risk: ReviewRisk): string {
+  const loc = risk.line ? `${splitPath(risk.path).name}:${risk.line}` : splitPath(risk.path).name;
+  const goto = risk.chapter ? ` data-rv-goto="${escapeHtml(risk.chapter)}"` : "";
+  const line = risk.line ? ` data-rv-line="${risk.line}"` : "";
+  return `<button type="button" class="rv-risk" data-rv-tab="Guide" data-rv-file="${escapeHtml(risk.path)}"${goto}${line}>
+    <span class="rv-sev rv-sev-${risk.severity}" aria-label="${risk.severity}"></span>
+    <span><b>${escapeHtml(risk.text)}</b><small>${escapeHtml(loc)}</small></span>
+  </button>`;
+}
+
+function orderRow(ch: ReviewChapter): string {
+  const add = ch.files.reduce((n, f) => n + (f.additions ?? 0), 0);
+  const del = ch.files.reduce((n, f) => n + (f.deletions ?? 0), 0);
+  const mark = ch.reviewed ? `<span class="done">revisado</span>` : `<span class="wait">a ler</span>`;
+  return `<button type="button" class="rv-ord" data-rv-tab="Guide" data-rv-goto="${escapeHtml(ch.id)}">
+    <span class="n">${String(ch.n).padStart(2, "0")}</span>
+    <b>${escapeHtml(ch.title)}</b>
+    <span class="rv-pm">${plusMinus(add, del)}</span>
+    ${mark}
+  </button>`;
 }
 
 function diagram(ui: ReviewUi): string {
@@ -131,7 +183,8 @@ function lineRow(line: DiffLine, hidden: boolean): string {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   const hide = hidden ? ` hidden data-fold-body` : "";
   const hunk = ` data-hunk="${line.hunk}"`;
-  return `<tr class="${cls}"${hide}${hunk}>
+  const newNo = line.newNo ? ` data-new="${line.newNo}"` : "";
+  return `<tr class="${cls}"${hide}${hunk}${newNo}>
     <td class="ln">${line.oldNo ?? ""}</td>
     <td class="ln">${line.newNo ?? ""}</td>
     <td><i>${sign}</i>${escapeHtml(line.text)}</td>
@@ -262,7 +315,7 @@ Não misture produção e testes no mesmo capítulo.
 
 Quando tiver um plano, emita UM bloco json (e nada mais nesse bloco) com:
 \`\`\`json
-{"overview":"...","approach":["...","...","...","..."],"diagram":{"title":"...","additions":0,"nodes":[{"id":"a","label":"fn()","chapter":1,"added":true}],"edges":[["a","b"]]},"chapters":[{"title":"...","body":"...","files":["path"]}]}
+{"overview":"...","summary":"...","risks":[{"severity":"high","text":"...","path":"src/file.ts","line":12}],"approach":["...","...","...","..."],"diagram":{"title":"...","additions":0,"nodes":[{"id":"a","label":"fn()","chapter":1,"added":true}],"edges":[["a","b"]]},"chapters":[{"title":"...","body":"...","files":["path"]}]}
 \`\`\`
 Se não puder, não invente paths. O hub já tem um fallback.`,
     };

@@ -27,8 +27,20 @@ export interface DiagramNode {
   added: boolean;
 }
 
+export type RiskSeverity = "high" | "med" | "low";
+
+export interface ReviewRisk {
+  severity: RiskSeverity;
+  text: string;
+  path: string;
+  line?: number;
+  chapter?: string;
+}
+
 export interface ReviewPlan {
   overview: string;
+  summary: string;
+  risks: ReviewRisk[];
   approach: string[];
   diagram: { title: string; additions: number; nodes: DiagramNode[]; edges: Array<[string, string]> };
   chapters: Array<{ title: string; body: string; files: string[] }>;
@@ -64,6 +76,8 @@ export interface ReviewUi {
     diff: string;
   };
   overview: string;
+  summary: string;
+  risks: ReviewRisk[];
   approach: string[];
   diagram: ReviewPlan["diagram"];
   chapters: ReviewChapter[];
@@ -263,12 +277,40 @@ export function validatePlan(raw: unknown, files: PrFile[]): ReviewPlan | null {
   const approach = Array.isArray(o.approach)
     ? o.approach.map((s) => String(s)).filter(Boolean).slice(0, 6)
     : [];
+  const overview = String(o.overview ?? "").trim();
+  const summary = String(o.summary ?? overview).trim();
   return {
-    overview: String(o.overview ?? ""),
+    overview,
+    summary,
+    risks: parseRisks(o.risks, files),
     approach: approach.length ? approach : defaultApproach(),
     diagram,
     chapters,
   };
+}
+
+function parseRisks(raw: unknown, files: PrFile[]): ReviewRisk[] {
+  if (!Array.isArray(raw)) return [];
+  const known = new Set(files.map((f) => f.path));
+  const out: ReviewRisk[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const path = String(r.path ?? "");
+    if (!known.has(path)) continue;
+    const text = String(r.text ?? "").trim();
+    if (!text) continue;
+    const severity: RiskSeverity = r.severity === "high" || r.severity === "low" ? r.severity : "med";
+    const line = Number(r.line);
+    out.push({
+      severity,
+      text,
+      path,
+      line: Number.isFinite(line) && line > 0 ? Math.floor(line) : undefined,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 function parseDiagram(raw: unknown): ReviewPlan["diagram"] {
@@ -482,6 +524,8 @@ export function fallbackPlan(pr: PrInfo): ReviewPlan {
     "Mudança no núcleo, depois API, testes por último.";
   return {
     overview,
+    summary: "",
+    risks: [],
     approach: defaultApproach(),
     diagram: emptyDiagram(),
     chapters,
@@ -598,6 +642,11 @@ export function buildReviewUi(pr: PrInfo, agentRaw?: unknown): ReviewUi {
   const additions = pr.additions ?? allFiles.reduce((n, f) => n + (f.additions ?? 0), 0);
   const deletions = pr.deletions ?? allFiles.reduce((n, f) => n + (f.deletions ?? 0), 0);
   const diagram = alignDiagram(plan.diagram, draft, pr.diff ?? "", additions);
+  const chapterOf = new Map<string, string>();
+  for (const ch of chapters) {
+    for (const f of ch.files) chapterOf.set(f.path, ch.id);
+  }
+  const risks = plan.risks.map((r) => ({ ...r, chapter: chapterOf.get(r.path) }));
   return {
     kind: "review",
     tab: "Guide",
@@ -612,6 +661,8 @@ export function buildReviewUi(pr: PrInfo, agentRaw?: unknown): ReviewUi {
       diff: pr.diff ?? "",
     },
     overview: plan.overview,
+    summary: plan.summary,
+    risks,
     approach: plan.approach,
     diagram,
     chapters,
