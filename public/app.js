@@ -777,6 +777,16 @@ function setSwitchOpen(open) {
   renderChrome();
 }
 
+function compactLabel(compact) {
+  if (!compact) return "";
+  const k = Math.round((compact.tokensToday || 0) / 100) / 10;
+  const b = Math.round((compact.budget || 0) / 1000);
+  if (!b && !k && !compact.running) return "";
+  return compact.running
+    ? `compactando ${compact.lastNodes || 0} · ${k}k/${b}k`
+    : `compact ${k}k/${b}k`;
+}
+
 function renderChrome() {
   const sw = $("agentSwitch");
   if (sw) {
@@ -795,25 +805,25 @@ function renderChrome() {
     <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
   }
   const c = $("compactInd");
-  if (c && state.compact) {
-    const k = Math.round((state.compact.tokensToday || 0) / 100) / 10;
-    const b = Math.round((state.compact.budget || 0) / 1000);
-    c.hidden = false;
-    c.textContent = state.compact.running
-      ? `compactando ${state.compact.lastNodes || 0} · ${k}k/${b}k`
-      : `compact ${k}k/${b}k`;
+  if (c) {
+    const text = compactLabel(state.compact);
+    c.hidden = !text;
+    c.textContent = text;
   }
   const limit = $("limitInd");
   if (limit) {
     const hit = (state.usage && state.usage.seats || []).find((s) => s.status === "limited");
-    if (!hit) limit.hidden = true;
-    else {
-      limit.hidden = false;
+    if (!hit) {
+      limit.hidden = true;
+      limit.textContent = "";
+    } else {
       const when = hit.resetAt ? clockShort(hit.resetAt) : "";
       const name = hit.seat === "mock" ? "mock" : agentLabel(hit.seat === "claude" || hit.seat === "codex" || hit.seat === "cursor" ? hit.seat : "claude");
       const label = name.split(" · ")[0];
       const action = hit.policy === "snooze" ? "retomar" : "adiar";
-      limit.innerHTML = `${escapeHtml(label)} limitado${when ? ` · ${escapeHtml(when)}` : ""} <button type="button" data-limit-seat="${escapeHtml(hit.seat)}" data-limit-policy="${hit.policy === "snooze" ? "resume" : "snooze"}">${action}</button>`;
+      const html = `${escapeHtml(label)} limitado${when ? ` · ${escapeHtml(when)}` : ""} <button type="button" data-limit-seat="${escapeHtml(hit.seat)}" data-limit-policy="${hit.policy === "snooze" ? "resume" : "snooze"}">${action}</button>`;
+      limit.hidden = !html.trim();
+      limit.innerHTML = html;
     }
   }
   const stop = $("stopBtn");
@@ -1662,6 +1672,32 @@ overlay.addEventListener("click", (e) => {
     drawModal();
     return;
   }
+  const actEarly = e.target.closest?.("[data-act]");
+  if (actEarly && state.openSpark) {
+    const act = actEarly.dataset.act;
+    if (act === "comment-add") {
+      const body = window.prompt("Comentário nesta linha");
+      if (body && body.trim()) postAct({ type: "comment-add", id: actEarly.dataset.id, value: body.trim() });
+      return;
+    }
+    if (act === "other") {
+      const id = actEarly.dataset.id;
+      const input = document.createElement("input");
+      input.className = "other";
+      input.placeholder = "outra…";
+      actEarly.replaceWith(input);
+      input.focus();
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter") return;
+        const value = input.value.trim();
+        if (!value) return;
+        postAct({ type: "answer", id, value });
+      });
+      return;
+    }
+    postAct({ type: act, id: actEarly.dataset.id, value: actEarly.dataset.value });
+    return;
+  }
   const jumpEl = e.target.closest?.("[data-rv-file], [data-rv-goto], [data-rv-tab]");
   if (jumpEl && jumpEl.closest(".rv-body")) {
     jumpReview(jumpEl);
@@ -1693,31 +1729,6 @@ overlay.addEventListener("click", (e) => {
     dest?.scrollIntoView({ block: "start", behavior: "smooth" });
     return;
   }
-  const btn = e.target.closest("[data-act]");
-  if (!btn || !state.openSpark) return;
-  const act = btn.dataset.act;
-  if (act === "comment-add") {
-    const body = window.prompt("Comentário nesta linha");
-    if (!body || !body.trim()) return;
-    postAct({ type: "comment-add", id: btn.dataset.id, value: body.trim() });
-    return;
-  }
-  if (act === "other") {
-    const id = btn.dataset.id;
-    const input = document.createElement("input");
-    input.className = "other";
-    input.placeholder = "outra…";
-    btn.replaceWith(input);
-    input.focus();
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key !== "Enter") return;
-      const value = input.value.trim();
-      if (!value) return;
-      postAct({ type: "answer", id, value });
-    });
-    return;
-  }
-  postAct({ type: act, id: btn.dataset.id, value: btn.dataset.value });
 });
 
 async function sendUser(text, mode) {

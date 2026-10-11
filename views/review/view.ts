@@ -11,7 +11,6 @@ import {
   type FindingStatus,
   type ReviewChapter,
   type ReviewFinding,
-  type ReviewRisk,
   type ReviewUi,
 } from "../../src/review/model";
 import {
@@ -66,9 +65,7 @@ function overview(ui: ReviewUi): string {
   const summary = ready
     ? `<p>${escapeHtml(ui.summary)}</p>`
     : shimmer(3);
-  const risks = ready
-    ? ui.risks.map((r) => riskRow(r)).join("") || `<p class="rv-empty">Nenhum risco apontado.</p>`
-    : shimmer(3);
+  const findings = ready ? findingsPanel(ui) : shimmer(3);
   const order = ui.chapters.map((ch) => orderRow(ch)).join("");
   return `<div class="rv-overview" data-rv-panel="Overview">
     <header class="rv-ov-lead">
@@ -94,9 +91,7 @@ function overview(ui: ReviewUi): string {
     </div>
     <aside class="rv-ov-aside">
       <div class="rv-ov-k">Findings</div>
-      <div class="rv-risks">${findingsPanel(ui)}</div>
-      <div class="rv-ov-k">Riscos</div>
-      <div class="rv-risks">${risks}</div>
+      <div class="rv-risks">${findings}</div>
       <div class="rv-ov-files">
         <div class="rv-files-h">Files ${ui.pr.files.length}</div>
         <div class="rv-grid">${files}</div>
@@ -123,9 +118,13 @@ function findingRow(f: ReviewFinding): string {
   const chips = statuses
     .map((s) => `<button type="button" class="rv-tri${f.status === s ? " on" : ""}" data-act="finding" data-id="${escapeHtml(f.id)}" data-value="${s}">${labelStatus(s)}</button>`)
     .join("");
+  const goto = f.chapter ? ` data-rv-goto="${escapeHtml(f.chapter)}"` : "";
+  const line = f.line ? ` data-rv-line="${f.line}"` : "";
   return `<div class="rv-find" data-finding="${escapeHtml(f.id)}">
-    <span class="rv-sev rv-sev-${f.severity}" aria-label="${f.severity}"></span>
-    <span><b>${escapeHtml(f.text)}</b><small>${escapeHtml(loc)}</small></span>
+    <button type="button" class="rv-find-go" data-rv-tab="Guide" data-rv-file="${escapeHtml(f.path)}"${goto}${line}>
+      <span class="rv-sev rv-sev-${f.severity}" aria-label="${f.severity}"></span>
+      <span><b>${escapeHtml(f.text)}</b><small>${escapeHtml(loc)}</small></span>
+    </button>
     <span class="rv-triage">${chips}</span>
   </div>`;
 }
@@ -143,16 +142,6 @@ function labelStatus(s: FindingStatus): string {
       return _n;
     }
   }
-}
-
-function riskRow(risk: ReviewRisk): string {
-  const loc = risk.line ? `${splitPath(risk.path).name}:${risk.line}` : splitPath(risk.path).name;
-  const goto = risk.chapter ? ` data-rv-goto="${escapeHtml(risk.chapter)}"` : "";
-  const line = risk.line ? ` data-rv-line="${risk.line}"` : "";
-  return `<button type="button" class="rv-risk" data-rv-tab="Guide" data-rv-file="${escapeHtml(risk.path)}"${goto}${line}>
-    <span class="rv-sev rv-sev-${risk.severity}" aria-label="${risk.severity}"></span>
-    <span><b>${escapeHtml(risk.text)}</b><small>${escapeHtml(loc)}</small></span>
-  </button>`;
 }
 
 function orderRow(ch: ReviewChapter): string {

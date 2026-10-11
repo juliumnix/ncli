@@ -370,7 +370,7 @@ export class Hub {
   private runImport(argv: string[]): string {
     const cmd = parseImportArgv(argv);
     if (cmd.apply) return formatApply(this.applyImport(cmd.source, cmd.since));
-    return formatPreview(this.previewImport(cmd.source, cmd.since));
+    return formatPreview(this.previewImport(cmd.source, cmd.since), cmd.verbose);
   }
 
   previewImport(source: ImportPreview["source"], since?: string): ImportPreview {
