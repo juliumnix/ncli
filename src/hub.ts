@@ -31,11 +31,13 @@ import { McpGate } from "./mcp/auth";
 import type { McpSession } from "./mcp/handle";
 import { prepareSpawn } from "./mcp/inject";
 import { sparkSkillPrompt } from "./views/manifest";
+import { TurnQueue, type QueueMode } from "./queue/turn-queue";
 
 export class Hub {
   readonly memory: Memory;
   readonly views: ViewRegistry;
   readonly sparks: SparkManager;
+  readonly queue: TurnQueue;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -72,6 +74,7 @@ export class Hub {
       pumpBatch: cfg.compactBatch,
     });
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName));
+    this.queue = new TurnQueue(cfg.dataDir);
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
     this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
@@ -106,6 +109,11 @@ export class Hub {
         const msg = this.memory.append(mergeMessage(spark, summary));
         this.emit({ type: "message", session: "main", message: msg });
         this.emitDebug();
+        for (const item of this.queue.list(spark.id)) this.queue.remove(item.id);
+        this.emitQueue();
+      },
+      onIdle: (id) => {
+        void this.drainSession(id);
       },
     });
     this.views.onChange = (list) => this.emit({ type: "views", views: list });
@@ -172,6 +180,8 @@ export class Hub {
     }
     void this.memory.pump();
     this.emitDebug();
+    this.emitQueue();
+    if (!this.turning) void this.drainSession("main");
   }
 
   subscribe(fn: (ev: HubEvent) => void): () => void {
@@ -191,6 +201,7 @@ export class Hub {
     turn: Turn | null;
     compact: CompactStatus;
     turning: boolean;
+    queue: ReturnType<TurnQueue["list"]>;
   } {
     return {
       messages: this.memory.log,
@@ -204,19 +215,26 @@ export class Hub {
       turn: this.live?.turn ?? null,
       compact: this.compact,
       turning: this.turning,
+      queue: this.queue.list(),
     };
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string, opts: { mode?: QueueMode; session?: string } = {}): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const session = opts.session ?? "main";
+    const mode = opts.mode ?? (this.isBusy(session) ? "steer" : "queue");
+    if (session !== "main") {
+      await this.sendSpark(session, trimmed, mode);
+      return;
+    }
+    if (this.turning) {
+      this.park(session, trimmed, mode);
+      return;
+    }
     const user = this.memory.append({ kind: "user", text: trimmed });
     this.emit({ type: "message", session: "main", message: user });
     if (await this.slash(trimmed)) return;
-    if (this.turning) {
-      await this.openLinks(trimmed);
-      return;
-    }
     this.turning = true;
     this.abort = new AbortController();
     this.beginLive();
@@ -228,7 +246,47 @@ export class Hub {
       this.abort = null;
       if (this.live?.turn.status === "running") this.live.finish("done");
       if (this.live) this.emit({ type: "turn", session: "main", turn: this.live.turn });
+      await this.drainSession("main");
     }
+  }
+
+  dropQueued(id: string): boolean {
+    const ok = this.queue.remove(id);
+    if (ok) this.emitQueue();
+    return ok;
+  }
+
+  private isBusy(session: string): boolean {
+    if (session === "main") return this.turning;
+    return this.sparks.get(session)?.spark.status === "running";
+  }
+
+  private park(session: string, text: string, mode: QueueMode): void {
+    const item = this.queue.enqueue({ session, text, mode });
+    if (mode === "steer" && this.harness.steer?.(text)) {
+      this.queue.remove(item.id);
+    }
+    this.emitQueue();
+  }
+
+  private async sendSpark(id: string, text: string, mode: QueueMode): Promise<void> {
+    if (this.isBusy(id)) {
+      this.park(id, text, mode);
+      return;
+    }
+    await this.sparks.message(id, text);
+  }
+
+  private async drainSession(session: string): Promise<void> {
+    if (this.isBusy(session)) return;
+    const next = this.queue.takeNext(session);
+    if (!next) return;
+    this.emitQueue();
+    await this.send(next.text, { session, mode: "queue" });
+  }
+
+  private emitQueue(): void {
+    this.emit({ type: "queue", items: this.queue.list() });
   }
 
   stopTurn(session = "main"): boolean {

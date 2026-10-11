@@ -45,6 +45,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Memory** — env in `src/config.ts`; do not compact on the user turn.
 - **Shortcut** — spark inbox on the right rail (`src/live/inbox.ts`): trabalhando / precisa de você / pronto; settled drops off. `próximo` + Notification API when the tab is hidden.
 - **Delegate** — `ask(agent, prompt)` on ncli-bus, or a `view://` spark. No extra daemons.
+- **Queue** — `data/queue.json`. Send during a turn steers (mock, same turn) or waits for the next boundary. `fila` persists across restart. The memory tree does not see an item until it is delivered as `user`.
 - **Bus** — one socket on the NCLI server. On-demand children. Posts land on the next turn (optional Claude hook is a single socket call).
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
 - **Main harness** — same view + tools + ncli-bus. Claude quota → `NCLI_BACKUP` (default Codex) and retry.
