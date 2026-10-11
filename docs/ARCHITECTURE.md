@@ -28,7 +28,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/live/turn.ts` | one `Turn` / `TurnStep` timeline from harness events |
 | `src/live/markdown.ts` | streaming-safe Markdown to HTML |
 | `src/live/shimmer.ts` | skeleton for an open live fence |
-| `src/live/pills.ts` | which forks sit on the right rail, and their CSS classes |
+| `src/live/pills.ts` | which sparks sit on the right rail, and their CSS classes |
 | `src/config.ts` | env; memory and compaction knobs |
 | `src/skills/` + `ncli/skills/` | runtime catalog injected on every spawn (NCLI skills + Emil for UI). `ncli/skills/pstack/` is vendored for coding agents developing NCLI; it is not in the spawn prompt or `--add-dir` |
 | `ncli/mcp.json` | the only MCP registry; injected per spawn, never into ~/.claude ~/.codex ~/.cursor |

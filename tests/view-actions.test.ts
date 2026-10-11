@@ -7,7 +7,7 @@ import { makeHub, tmpDir } from "./helpers";
 
 const ctx = { dataDir: tmpDir("act"), repo: tmpDir("act-repo") };
 
-function forkFrom(view: string, ui: unknown, extra: Partial<Spark> = {}): Spark {
+function sparkFrom(view: string, ui: unknown, extra: Partial<Spark> = {}): Spark {
   return {
     id: `${view}-1`,
     seq: 1,
@@ -40,7 +40,7 @@ test("refino mock has three role pareceres, two question chips, and score below 
   expect(ui.pareceres.map((p) => p.role)).toEqual(["Produto", "Engenharia", "Analista"]);
   expect(ui.pareceres.map((p) => p.seat)).toEqual(["claude", "codex", "cursor"]);
   expect(ui.questions).toHaveLength(2);
-  const html = refino.render!(forkFrom("refino", ui));
+  const html = refino.render!(sparkFrom("refino", ui));
   expect(html).toContain("PARECERES");
   expect(html).toContain("ESPERANDO VOCÊ");
   expect(html).toContain("2 perguntas pra você");

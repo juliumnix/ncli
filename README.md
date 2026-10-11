@@ -1,6 +1,6 @@
 # NCLI
 
-Personal local hub that drives coding-agent CLIs. One infinite chat. Forks run in parallel, each with its own memory, harness process, and git worktree. Claude answers in the main thread. Codex and Cursor show up as their own messages when the orchestrator actually consults them.
+Personal local hub that drives coding-agent CLIs. One infinite chat. A view is a shareable package; a spark is a running instance of that view, isolated, that reports back to the main chat. Sparks run in parallel, each with its own memory, harness process, and git worktree. Claude answers in the main thread. Codex and Cursor show up as their own messages when the orchestrator actually consults them.
 
 ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Claude runs as the unmodified official CLI (`claude -p`). There is no Agent SDK, no Zed `claude-code-acp`, no harukitosa bridge, and no `@anthropic-ai/claude-agent-sdk` dependency.
 
@@ -33,7 +33,7 @@ Optional env:
 | --- | --- | --- |
 | `NCLI_HARNESS` | `auto` | `claude`, `cursor`, `codex`, `mock`, or `auto` (`auto` uses `claude` if the binary exists) |
 | `NCLI_BACKUP` | `codex` | main harness to switch to when Claude reports quota/rate-limit |
-| `NCLI_DATA` | `./data` | log + tree + forks |
+| `NCLI_DATA` | `./data` | log + tree + sparks |
 | `NCLI_PORT` | `47231` | HTTP port |
 | `NCLI_REPO` | cwd | repo used for `git worktree add` |
 | `NCLI_VIEW` | `2500` | view budget in bytes (demo-low) |
@@ -202,7 +202,7 @@ bun test
 | `tests/author.test.ts` | every line has a seat; header snapshot switches | mock |
 | `tests/markdown.test.ts` | bold/code/table; no broken `**` while streaming | in-process |
 | `tests/shimmer.test.ts` | live-block skeleton labels and escaped errors | in-process |
-| `tests/pills.test.ts` | new forks pop; needs_user and done pulse | in-process |
+| `tests/pills.test.ts` | new sparks pop; needs_user and done pulse | in-process |
 | `tests/fallback.test.ts` | Claude 429 → backup harness, announce, retry | mock |
 | `tests/perf.test.ts` | send-to-feedback and TTFT on mock; compact stays off the turn | mock |
 
