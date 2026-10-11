@@ -607,7 +607,7 @@ body.ui-open .ui-pane {
   .live-wrap.in { animation: none; }
   .ui-pane { transition: none; }
   .spin { animation: none; }
-  .ch.pop, .ch.attn .fa, .m.enter, .u.enter, .rv-overview, .rv-ov-summary, .rv-ov-order, .rv-ov-aside { animation: none; }
+  .ch.pop, .ch.attn .fa, .m.enter, .u.enter, .rv-overview { animation: none; }
   .rv-shimmer i { animation: none; background-image: none; }
   .overlay, .overlay .modal, .drawer, .scrim, .switch-menu, .jump-latest, .ch, .ch.out, .work-disc .work-panel {
     transition: opacity 160ms var(--ease-out);
@@ -689,16 +689,14 @@ body.rv-open .shortcuts {
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
   grid-template-areas:
     "lead lead"
-    "summary aside"
-    "order aside";
+    "main aside";
   gap: 36px 72px;
   align-items: start;
   animation: ncli-enter 220ms var(--ease-out);
 }
 .rv-ov-lead { grid-area: lead; }
-.rv-ov-summary { grid-area: summary; animation: ncli-enter 220ms var(--ease-out); }
-.rv-ov-order { grid-area: order; animation: ncli-enter 220ms var(--ease-out) 40ms both; }
-.rv-ov-aside { grid-area: aside; animation: ncli-enter 220ms var(--ease-out) 70ms both; }
+.rv-ov-main { grid-area: main; display: flex; flex-direction: column; gap: 36px; min-width: 0; }
+.rv-ov-aside { grid-area: aside; min-width: 0; }
 .rv-overview h1 {
   font-size: 20px; font-weight: 560; letter-spacing: -.02em;
   margin: 0 0 10px; color: var(--fg); line-height: 1.35;
@@ -862,8 +860,7 @@ body.rv-open .shortcuts {
   .rv-overview {
     grid-template-areas:
       "lead"
-      "summary"
-      "order"
+      "main"
       "aside";
   }
   .overlay.rv .modal.rv { padding: 10px 20px 12px; }
