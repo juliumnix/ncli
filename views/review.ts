@@ -70,10 +70,16 @@ function overview(ui: ReviewUi): string {
         <span class="rv-d">−${ui.pr.deletions}</span>
       </div>
     </header>
-    <section class="rv-ov-summary">
-      <div class="rv-ov-k">Resumo</div>
-      ${summary}
-    </section>
+    <div class="rv-ov-main">
+      <section class="rv-ov-summary">
+        <div class="rv-ov-k">Resumo</div>
+        ${summary}
+      </section>
+      <section class="rv-ov-order">
+        <div class="rv-ov-k">Ordem de leitura</div>
+        <div class="rv-order">${order}</div>
+      </section>
+    </div>
     <aside class="rv-ov-aside">
       <div class="rv-ov-k">Riscos</div>
       <div class="rv-risks">${risks}</div>
@@ -82,10 +88,6 @@ function overview(ui: ReviewUi): string {
         <div class="rv-grid">${files}</div>
       </div>
     </aside>
-    <section class="rv-ov-order">
-      <div class="rv-ov-k">Ordem de leitura</div>
-      <div class="rv-order">${order}</div>
-    </section>
   </div>`;
 }
 
