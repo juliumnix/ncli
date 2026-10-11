@@ -21,6 +21,9 @@ test("chat CSS uses content-visibility and transform/opacity motion only on stre
   const js = readFileSync(join(import.meta.dir, "../public/app.js"), "utf8");
   expect(js).toContain("requestAnimationFrame");
   expect(js).toContain("paintLive");
+  expect(js).toContain("scheduleFullPaint");
+  expect(js).toContain("if (cur !== ev.text) step.text = cur + ev.text");
+  expect(js).not.toContain("endsWith(ev.text)");
   expect(js).toContain("mdMemo");
   expect(js).toContain("Consultando o Codex");
   expect(js).not.toMatch(/cursor\|ask\|wait\|bus/);

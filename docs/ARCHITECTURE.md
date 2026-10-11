@@ -33,6 +33,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/mcp/` | Streamable HTTP `ncli` on `/mcp` (memory + bus + control). Token per spawn. No shim process |
 | `src/bus/` | ncli-bus: unix socket + in-memory tickets. `ask`/`wait`/`post`/`inbox`/`read` |
 | `public/` | chat UI, shortcuts rail, review modal |
+| `src/perf/` | `bun run perf` traces. p50/p95 for start, paint, send, TTFT, SSE, fork, drawer, scroll, compact |
 
 ## Extension points (one line each)
 

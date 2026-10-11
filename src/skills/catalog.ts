@@ -59,13 +59,48 @@ export function readSkill(id: string, root = defaultSkillsDir()): SkillMeta | un
   );
 }
 
+let promptMemo: { key: string; text: string } | null = null;
+
+function vendorSkillCount(vendor: string, root: string): number {
+  const base = join(root, vendor);
+  if (!existsSync(base)) return 0;
+  let n = 0;
+  for (const name of readdirSync(base)) {
+    if (existsSync(join(base, name, "SKILL.md"))) n += 1;
+  }
+  return n;
+}
+
+function promptCacheKey(root: string): string {
+  if (!existsSync(root)) return root;
+  const parts = [root];
+  for (const name of readdirSync(root).sort()) {
+    if (name === "pstack" || name === "emil") {
+      parts.push(`${name}:${vendorSkillCount(name, root)}`);
+      continue;
+    }
+    const file = join(root, name, "SKILL.md");
+    try {
+      parts.push(`${name}:${statSync(file).mtimeMs}`);
+    } catch {
+      parts.push(name);
+    }
+  }
+  return parts.join("|");
+}
+
 export function skillPrompt(root = defaultSkillsDir()): string {
+  const key = promptCacheKey(root);
+  if (promptMemo?.key === key) return promptMemo.text;
   const skills = listSkills(root);
-  if (!skills.length) return "";
+  if (!skills.length) {
+    promptMemo = { key, text: "" };
+    return "";
+  }
   const index = skills.map((s) => `- ${s.id} — ${s.description}  (${s.dir}/SKILL.md)`).join("\n");
-  const pstackN = listPstackSkills(root).length;
-  const emilN = listEmilSkills(root).length;
-  return `NCLI is self-hackable. You are inside this live repo. Views in views/ hot-reload. Skills and MCP servers have one source of truth: ncli/skills/ and ncli/mcp.json. When the user asks to change NCLI itself, read the matching ncli/skills/<id>/SKILL.md and follow it. Do not invent a parallel registry. Do not write ~/.claude, ~/.codex or ~/.cursor.
+  const pstackN = vendorSkillCount("pstack", root);
+  const emilN = vendorSkillCount("emil", root);
+  const text = `NCLI is self-hackable. You are inside this live repo. Views in views/ hot-reload. Skills and MCP servers have one source of truth: ncli/skills/ and ncli/mcp.json. When the user asks to change NCLI itself, read the matching ncli/skills/<id>/SKILL.md and follow it. Do not invent a parallel registry. Do not write ~/.claude, ~/.codex or ~/.cursor.
 
 Scaffold from the terminal or a slash in this chat:
   bun run ncli new view <id>
@@ -81,6 +116,8 @@ emil (${emilN} skills) is vendored at ncli/skills/emil/. Motion and UI craft for
 
 Skills:
 ${index}`;
+  promptMemo = { key, text };
+  return text;
 }
 
 function parseSkill(fallbackId: string, dir: string, raw: string): SkillMeta {

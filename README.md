@@ -205,8 +205,25 @@ bun test
 | `tests/shimmer.test.ts` | live-block skeleton labels and escaped errors | in-process |
 | `tests/pills.test.ts` | new forks pop; needs_user and done pulse | in-process |
 | `tests/fallback.test.ts` | Claude 429 → backup harness, announce, retry | mock |
+| `tests/perf.test.ts` | send-to-feedback and TTFT on mock; compact stays off the turn | mock |
 
 Hot reload while the app is up: `bun run ncli new view hello`, then `view://hello`. `/ncli remove view hello` takes it away.
+
+## How to measure perceived speed
+
+```bash
+bun run perf
+```
+
+The command starts a mock hub, records p50/p95 for cold start, first paint, send-to-first-feedback, time to first token, SSE token gaps, fork modal, memory drawer, 500-message scroll, and compaction on the main turn. It writes `artifacts/perf/report.json`. Chrome at 1440×900 is used when `google-chrome` or `chromium` is on PATH. Set `NCLI_PERF_CHROME=0` for the SSE-only path that CI can run. Set `NCLI_PERF_RUNS` to change the sample count (default 7).
+
+To time a real seat, start NCLI with that harness and keep the official binaries:
+
+```bash
+NCLI_HARNESS=claude bun start
+```
+
+`bun run perf` still uses mock on CI. It does not spawn `claude`, `codex`, or `cursor-agent`.
 
 ## Development
 
