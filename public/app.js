@@ -1134,6 +1134,33 @@ function hideOverlay() {
   });
 }
 
+function jumpReview(el) {
+  const tab = el.dataset.rvTab || "Guide";
+  const goto = el.dataset.rvGoto;
+  const path = el.dataset.rvFile;
+  const line = el.dataset.rvLine;
+  if (tab !== state.forkTab) {
+    state.forkTab = tab;
+    bindGuidedReview(modal);
+  }
+  requestAnimationFrame(() => {
+    if (goto) document.getElementById(goto)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (path) {
+      const card = document.getElementById(`file-${cssId(path)}`);
+      card?.scrollIntoView({ block: "start", behavior: "smooth" });
+      modal.querySelectorAll("[data-rv-file]").forEach((n) => {
+        n.classList.toggle("on", n.dataset.rvFile === path);
+      });
+      if (line) {
+        modal.querySelectorAll("tr.on").forEach((n) => n.classList.remove("on"));
+        const tr = modal.querySelector(`table.rv-diff[data-file="${path}"] tr[data-new="${line}"]`);
+        tr?.classList.add("on");
+        tr?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
+  });
+}
+
 function bindGuidedReview(root) {
   const tab = state.forkTab || "Guide";
   root.querySelectorAll("[data-rv-panel]").forEach((p) => {
@@ -1458,18 +1485,9 @@ overlay.addEventListener("click", (e) => {
     drawModal();
     return;
   }
-  const fileBtn = e.target.closest?.("[data-rv-file]");
-  if (fileBtn) {
-    const path = fileBtn.dataset.rvFile;
-    document.getElementById(`file-${cssId(path)}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
-    modal.querySelectorAll("[data-rv-file]").forEach((el) => {
-      el.classList.toggle("on", el.dataset.rvFile === path);
-    });
-    return;
-  }
-  const jump = e.target.closest?.("[data-rv-goto]");
-  if (jump) {
-    document.getElementById(jump.dataset.rvGoto)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const jumpEl = e.target.closest?.("[data-rv-file], [data-rv-goto], [data-rv-tab]");
+  if (jumpEl && jumpEl.closest(".rv-body")) {
+    jumpReview(jumpEl);
     return;
   }
   const fold = e.target.closest?.("tr.fold");
