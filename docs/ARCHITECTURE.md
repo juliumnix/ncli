@@ -49,6 +49,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Bus** — one socket on the NCLI server. On-demand children. Posts land on the next turn (optional Claude hook is a single socket call).
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
 - **Main harness** — same view + tools + ncli-bus. Quota walks `NCLI_FALLBACK` (default `NCLI_BACKUP` then claude/codex/cursor), stores `data/usage.json`, and emits an SSE chip. One `setTimeout` resumes the queue at the reset time parsed from the error. Snooze skips that auto-resume.
+- **Worktree** — detached HEAD by default. `.worktreeinclude` copies extra files (gitignored env, etc). Close archives the worktree and branch unless the tree is dirty or has local commits; then it stays and `POST /api/sparks/:id/archive` with `{ force: true }` is required. Policy: `.ncli/worktree.json`.
 
 Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `remove`. Skills: `bun run ncli skills`.
 

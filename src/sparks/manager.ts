@@ -10,7 +10,7 @@ import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
 import { toolActivityLine } from "../memory/turn-log";
-import { addWorktree, removeWorktree, type GitRunner, type WorktreeHandle } from "./worktree";
+import { addWorktree, archiveWorktree, realGit, type ArchiveResult, type GitRunner, type WorktreeHandle } from "./worktree";
 import { nowIso } from "../util";
 import type { Bus } from "../bus/bus";
 import { LiveTurn } from "../live/turn";
@@ -213,12 +213,29 @@ export class SparkManager {
       await this.merge(rt, rt.spark.summary ?? "fechado");
     }
     if (rt.worktree) {
-      try {
-        await removeWorktree(rt.worktree, this.hooks.git);
-      } catch {
-        rt.worktree = undefined;
-      }
+      await this.archive(id, false);
     }
+  }
+
+  async archive(id: string, force = false): Promise<ArchiveResult | undefined> {
+    const rt = this.runtimes.get(id);
+    if (!rt?.worktree) return undefined;
+    const result = await archiveWorktree(rt.worktree, this.hooks.git ?? realGit, { force });
+    if (result.ok) {
+      rt.worktree = undefined;
+      rt.spark.worktree = "arquivo";
+      persistSpark(this.cfg.dataDir, rt.spark);
+      this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
+      return result;
+    }
+    const why = result.blocked === "dirty" ? result.status.files.join(", ") || "arquivos sujos" : "commits locais";
+    rt.memory.append({
+      kind: "note",
+      text: `worktree ${result.blocked}: ${why}. Fecha de novo com force para arquivar.`,
+    });
+    persistSpark(this.cfg.dataDir, rt.spark);
+    this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
+    return result;
   }
 
   private async runTurn(rt: SparkRuntime, userText: string, isBoot: boolean): Promise<void> {
