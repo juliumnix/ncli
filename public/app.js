@@ -109,6 +109,7 @@ const state = {
   userName: "Você",
   queue: [],
   usage: { seats: [], chain: [] },
+  import: null,
 };
 
 const SEAT = {
@@ -826,6 +827,26 @@ function renderChrome() {
   }
 }
 
+function renderImport() {
+  const bar = $("ibar");
+  if (!bar) return;
+  const preview = state.import;
+  if (!preview || (preview.newCount === 0 && preview.seenCount === 0 && preview.sessions === 0)) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    measureComposer();
+    return;
+  }
+  const neu = preview.newCount === 1 ? "1 nova" : `${preview.newCount} novas`;
+  const seen = preview.seenCount === 1 ? "1 já vista" : `${preview.seenCount} já vistas`;
+  const action = preview.newCount
+    ? `<button type="button" data-import-apply="${escapeHtml(preview.source)}">aplicar</button>`
+    : "";
+  bar.hidden = false;
+  bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${neu} · ${seen}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
+  measureComposer();
+}
+
 function renderQueue() {
   const bar = $("qbar");
   if (!bar) return;
@@ -1418,6 +1439,10 @@ function applyEvent(ev) {
       state.usage = ev.usage || { seats: [], chain: [] };
       renderChrome();
       break;
+    case "import":
+      state.import = ev.preview || null;
+      renderImport();
+      break;
     case "turn":
       if (ev.session === "main") {
         state.turn = ev.turn;
@@ -1693,9 +1718,10 @@ async function sendUser(text, mode) {
   const t = String(text || "").trim();
   if (!t) return;
   const running = state.turn && state.turn.status === "running";
+  const slash = t.startsWith("/ncli");
   const body = { text: t };
   if (running) body.mode = mode || "steer";
-  if (!running) {
+  if (!running && !slash) {
     const pending = {
       kind: "user",
       text: t,
@@ -1740,6 +1766,21 @@ $("queueBtn")?.addEventListener("click", () => {
   if (!text) return;
   input.value = "";
   void sendUser(text, "queue");
+});
+
+$("ibar")?.addEventListener("click", async (e) => {
+  if (e.target.closest("[data-import-dismiss]")) {
+    state.import = null;
+    renderImport();
+    return;
+  }
+  const apply = e.target.closest("[data-import-apply]");
+  if (!apply) return;
+  await fetch("/api/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: apply.dataset.importApply, apply: true }),
+  });
 });
 
 $("qbar")?.addEventListener("click", async (e) => {
@@ -1833,6 +1874,8 @@ async function boot() {
   if (!state.compact) state.compact = snap.compact || null;
   if (!state.queue.length) state.queue = snap.queue || [];
   if (snap.usage) state.usage = snap.usage;
+  if (snap.import) state.import = snap.import;
+  renderImport();
   renderQueue();
   renderChat();
   renderShortcuts();

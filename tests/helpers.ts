@@ -20,9 +20,13 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   nodeBytes?: number;
   backupHarness?: HarnessKind;
   fallbackChain?: HarnessKind[];
+  importClaude?: string;
+  importCodex?: string;
+  importCursor?: string;
 } = {}): Promise<{ hub: Hub; repo: string; dataDir: string; harness: H }> {
   const dataDir = tmpDir("ncli-data");
   const repo = await initTempRepo();
+  const importEmpty = tmpDir("ncli-import-empty");
   const harness = (opts.harness ?? new MockHarness()) as H;
   const cfg = loadConfig({
     dataDir,
@@ -36,6 +40,9 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     port: 47231,
     backupHarness: opts.backupHarness ?? "mock",
     fallbackChain: opts.fallbackChain ?? parseFallbackChain(undefined, opts.backupHarness ?? "mock"),
+    importClaude: opts.importClaude ?? importEmpty,
+    importCodex: opts.importCodex ?? importEmpty,
+    importCursor: opts.importCursor ?? importEmpty,
   });
   const hub = new Hub(
     cfg,
