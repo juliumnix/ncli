@@ -33,6 +33,15 @@ import type { McpSession } from "./mcp/handle";
 import { prepareSpawn } from "./mcp/inject";
 import { sparkSkillPrompt } from "./views/manifest";
 import { TurnQueue, type QueueMode } from "./queue/turn-queue";
+import {
+  alreadyInLog,
+  defaultImportRoots,
+  formatApply,
+  formatPreview,
+  Importer,
+  parseImportArgv,
+  type ImportPreview,
+} from "./import";
 
 export class Hub {
   readonly memory: Memory;
@@ -40,6 +49,8 @@ export class Hub {
   readonly sparks: SparkManager;
   readonly queue: TurnQueue;
   readonly usage: UsageBoard;
+  readonly importer: Importer;
+  lastImport: ImportPreview | null = null;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -81,6 +92,12 @@ export class Hub {
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
     this.usage = new UsageBoard(cfg.dataDir, uniqueKinds([this.harness.id as HarnessKind, ...cfg.fallbackChain]));
     this.usage.onReset = (seat) => this.onUsageReset(seat);
+    const defaults = defaultImportRoots();
+    this.importer = new Importer(cfg.dataDir, {
+      claude: cfg.importClaude || defaults.claude,
+      codex: cfg.importCodex || defaults.codex,
+      cursor: cfg.importCursor || defaults.cursor,
+    });
     this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
@@ -208,6 +225,7 @@ export class Hub {
     turning: boolean;
     queue: ReturnType<TurnQueue["list"]>;
     usage: ReturnType<UsageBoard["snapshot"]>;
+    import: ImportPreview | null;
   } {
     return {
       messages: this.memory.log,
@@ -223,6 +241,7 @@ export class Hub {
       turning: this.turning,
       queue: this.queue.list(),
       usage: this.usage.snapshot(),
+      import: this.lastImport,
     };
   }
 
@@ -325,22 +344,64 @@ export class Hub {
   private async slash(text: string): Promise<boolean> {
     const m = text.match(/^\/ncli\s+(.+)$/);
     if (!m) return false;
+    const argv = m[1].trim().split(/\s+/);
     let note: string;
     try {
-      note = runNcli(m[1].trim().split(/\s+/), {
-        viewsDir: this.viewsDir,
-        acpDir: join(this.cfg.repo, "src/acp"),
-        skillsDir: defaultSkillsDir(),
-      });
+      if (argv[0] === "import") {
+        note = this.runImport(argv.slice(1));
+      } else {
+        note = runNcli(argv, {
+          viewsDir: this.viewsDir,
+          acpDir: join(this.cfg.repo, "src/acp"),
+          skillsDir: defaultSkillsDir(),
+        });
+        await this.views.loadAll();
+        this.emit({ type: "views", views: this.views.list() });
+      }
     } catch (err) {
       note = err instanceof Error ? err.message : String(err);
     }
-    await this.views.loadAll();
-    this.emit({ type: "views", views: this.views.list() });
     const msg = this.memory.append({ kind: "note", text: note });
     this.emit({ type: "message", session: "main", message: msg });
     this.emitDebug();
     return true;
+  }
+
+  private runImport(argv: string[]): string {
+    const cmd = parseImportArgv(argv);
+    if (cmd.apply) return formatApply(this.applyImport(cmd.source, cmd.since));
+    return formatPreview(this.previewImport(cmd.source, cmd.since));
+  }
+
+  previewImport(source: ImportPreview["source"], since?: string): ImportPreview {
+    const preview = this.importer.preview(source, since);
+    this.lastImport = preview;
+    this.emit({ type: "import", preview });
+    return preview;
+  }
+
+  applyImport(source: ImportPreview["source"], since?: string): ReturnType<Importer["apply"]> {
+    const result = this.importer.apply(
+      source,
+      since,
+      (line) => {
+        const msg = this.memory.append({
+          kind: line.kind,
+          text: line.text,
+          seat: line.seat,
+          date: line.at,
+          hops: `import:${line.source}`,
+        });
+        this.emit({ type: "message", session: "main", message: msg });
+        return msg;
+      },
+      (line) => alreadyInLog(this.memory.log, line),
+    );
+    this.lastImport = this.importer.preview(source, since);
+    this.emit({ type: "import", preview: this.lastImport });
+    void this.memory.pump();
+    this.emitDebug();
+    return result;
   }
 
   seedViewSeq(view: string, last: number): void {

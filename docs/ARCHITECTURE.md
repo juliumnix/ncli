@@ -9,7 +9,8 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/index.ts` | `bootNcli()` then print the startup summary |
 | `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize |
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` open, pick harness/compressor |
-| `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
+| `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
+| `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
 | `src/memory/store.ts` | log + OptChat tree; `pump()` is background |
 | `src/memory/sdk-compact.ts` | compaction ONLY, via `@cursor/sdk`. Auth is `NCLI_CURSOR_API_KEY` from `~/.config/ncli/secrets.env` or the process env. Never used by the Cursor seat |
 | `src/memory/cursor-compact.ts` | batch / cache / 60k cap. Calls the SDK runner. CLI `--print` is a marked fallback |
@@ -50,6 +51,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
 - **Main harness** — same view + tools + ncli-bus. Quota walks `NCLI_FALLBACK` (default `NCLI_BACKUP` then claude/codex/cursor), stores `data/usage.json`, and emits an SSE chip. One `setTimeout` resumes the queue at the reset time parsed from the error. Snooze skips that auto-resume.
 - **Worktree** — detached HEAD by default. `.worktreeinclude` copies extra files (gitignored env, etc). Close archives the worktree and branch unless the tree is dirty or has local commits; then it stays and `POST /api/sparks/:id/archive` with `{ force: true }` is required. Policy: `.ncli/worktree.json`.
+- **Import** — `/ncli import claude|codex|cursor` is preview by default. `--apply` or `POST /api/import` appends `user`/`talk` into the main log and `pump()`. Dedupe is `data/import-seen.json`. Roots: official session dirs, or `NCLI_IMPORT_*`. Read-only on those trees.
 
 Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `remove`. Skills: `bun run ncli skills`.
 
