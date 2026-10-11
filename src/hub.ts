@@ -229,6 +229,8 @@ export class Hub {
       return;
     }
     if (this.turning) {
+      const opened = await this.openLinks(trimmed);
+      if (opened.length) return;
       this.park(session, trimmed, mode);
       return;
     }

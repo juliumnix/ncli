@@ -245,13 +245,13 @@ function agentPlan() {
 
 test("fallback Overview shimmers brief and keeps reading order from gh classify", async () => {
   const { hub } = await makeHub();
-  const rt = await hub.forks.open("review", { pr: "482" });
-  const ui = rt.fork.ui as ReturnType<typeof buildReviewUi>;
+  const rt = await hub.sparks.open("review", { pr: "482" });
+  const ui = rt.spark.ui as ReturnType<typeof buildReviewUi>;
   expect(ui.planSource).toBe("fallback");
   expect(ui.summary).toBe("");
   expect(ui.risks).toEqual([]);
   expect(ui.chapters.map((c) => c.kind)).toEqual(["core", "api", "test"]);
-  const html = review.render!(rt.fork);
+  const html = review.render!(rt.spark);
   expect(html).toContain("rv-overview");
   expect(html).toContain("rv-shimmer");
   expect(html).toContain("aria-busy");
@@ -284,13 +284,13 @@ test("agent plan fills summary and known risks; unknown paths drop", async () =>
   expect(planned.risks.some((r) => r.path.includes("backdoor"))).toBe(false);
 
   const { hub } = await makeHub();
-  const rt = await hub.forks.open("review", { pr: "482" });
-  const patched = review.onEvent?.(rt.fork, {
+  const rt = await hub.sparks.open("review", { pr: "482" });
+  const patched = review.onEvent?.(rt.spark, {
     type: "done",
     text: `ok\n\`\`\`json\n${JSON.stringify(agentPlan())}\n\`\`\`\n`,
   });
-  if (patched?.ui) rt.fork.ui = patched.ui;
-  const html = review.render!(rt.fork);
+  if (patched?.ui) rt.spark.ui = patched.ui;
+  const html = review.render!(rt.spark);
   expect(html).not.toContain("rv-shimmer");
   expect(html).toContain("O PR aplica o desconto antes do imposto");
   expect(html).toContain("rv-sev-high");
