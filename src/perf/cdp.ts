@@ -131,9 +131,7 @@ export async function launchChrome(port: number): Promise<ChromeDriver> {
       proc.kill();
       try {
         rmSync(profile, { recursive: true, force: true });
-      } catch {
-        void 0;
-      }
+      } catch {}
     },
   };
 }

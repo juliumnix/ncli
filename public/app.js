@@ -1134,7 +1134,7 @@ function applyEvent(ev) {
           const step = steps.find((s) => s.id === ev.stepId);
           if (step) {
             const cur = step.text || "";
-            if (cur !== ev.text && !cur.endsWith(ev.text)) step.text = cur + ev.text;
+            if (cur !== ev.text) step.text = cur + ev.text;
           }
         }
         scheduleLivePaint();

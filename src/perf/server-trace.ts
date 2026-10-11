@@ -57,9 +57,7 @@ export async function bootTracedHub(opts: {
       booted.stop();
       try {
         rmSync(dataDir, { recursive: true, force: true });
-      } catch {
-        void 0;
-      }
+      } catch {}
     },
   };
 }
@@ -95,9 +93,7 @@ export async function measureColdStart(port: number): Promise<PerfSample> {
     await child.exited;
     try {
       rmSync(dataDir, { recursive: true, force: true });
-    } catch {
-      void 0;
-    }
+    } catch {}
   }
 }
 
@@ -176,9 +172,7 @@ export async function measureCompactImpact(port: number): Promise<PerfSample> {
     traced.hub.memory.pump = orig;
     try {
       await orig();
-    } catch {
-      void 0;
-    }
+    } catch {}
     return {
       metric: "compact_turn",
       ms,
