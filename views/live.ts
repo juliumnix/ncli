@@ -44,18 +44,18 @@ const live: ViewPlugin = {
   parseLink() {
     return {};
   },
-  async createFork() {
+  async createSpark() {
     return {
       title: "prévias ao vivo",
       needsWorktree: false,
       hold: true,
       needsUser: { kind: "review", label: "5 prévias", count: 5 },
       ui: { blocks: DEMOS },
-      prompt: "Modo live. As cinco prévias já estão no painel. Não feche o fork.",
+      prompt: "Modo live. As cinco prévias já estão no painel. Não feche o spark.",
     };
   },
-  render(fork) {
-    const blocks = ((fork.ui as { blocks?: LiveBlock[] } | undefined)?.blocks) ?? DEMOS;
+  render(spark) {
+    const blocks = ((spark.ui as { blocks?: LiveBlock[] } | undefined)?.blocks) ?? DEMOS;
     const frames = blocks
       .map(
         (b, i) =>
@@ -64,11 +64,11 @@ const live: ViewPlugin = {
       .join("");
     return `
       <div class="mh">
-        <b>live #${fork.seq}</b> cinco prévias
+        <b>live #${spark.seq}</b> cinco prévias
         <button class="x" id="closeModal" type="button">✕</button>
       </div>
       <div class="mbody">${frames}</div>
-      <form class="mi" id="forkForm">
+      <form class="mi" id="sparkForm">
         <input name="t" placeholder="Fala com o live…" autocomplete="off" />
       </form>`;
   },

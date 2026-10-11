@@ -22,15 +22,15 @@ export async function realGit(args: string[], cwd: string): Promise<{ stdout: st
 
 export async function addWorktree(
   repo: string,
-  forkId: string,
+  sparkId: string,
   git: GitRunner = realGit,
   baseDir?: string,
 ): Promise<WorktreeHandle> {
   const absRepo = resolve(repo);
   const root = baseDir ?? join(absRepo, ".ncli", "wt");
   mkdirSync(root, { recursive: true });
-  const path = join(root, forkId);
-  const branch = `ncli/${forkId}`;
+  const path = join(root, sparkId);
+  const branch = `ncli/${sparkId}`;
   if (existsSync(path)) {
     return { path, branch, repo: absRepo };
   }

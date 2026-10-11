@@ -38,8 +38,8 @@ source
 
 Or the MCP tool ncli.render({kind, source}). kind=ui is an interactive mini-app (tabs, charts, tables). NCLI draws them in a sandboxed iframe. Follow ncli/skills/ncli-ui/SKILL.md.
 
-When a fork finishes it comes back here as a single merge line; zoom the
-fork id if you need its full log.
+When a spark finishes it comes back here as a single merge line; zoom the
+spark id if you need its full log.
 
 To talk to Codex or Cursor, use the ncli MCP tools ask / wait / post / inbox / read
 (ncli/skills/ncli-bus). Do not shell out to another CLI.

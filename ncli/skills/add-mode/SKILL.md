@@ -1,17 +1,17 @@
 ---
 name: add-mode
-description: Add a fork type with hold / needs_user / merge. Use when a view must wait on the user or run in a worktree.
+description: Add a view package with hold / needs_user / merge. Use when a spark must wait on the user or run in a worktree.
 ---
 
-# Add a mode (fork type)
+# Add a mode (view lifecycle)
 
-A mode is a fork package that owns a lifecycle. Same folder as a view; extra fields on `createFork`.
+A mode is a view package that owns a lifecycle. Same folder as a view; extra fields on `createSpark`.
 
 ## Files
 
 - `views/<id>/` — package from `ncli new mode <id>` (`add-mode/template.ts` + add-view manifest)
 - `src/views/types.ts` — `ViewCreateResult` (`hold`, `needsUser`, `needsWorktree`)
-- `src/forks/manager.ts` — already merges when `applyAction` returns `{ merge: true }`
+- `src/sparks/manager.ts` — already merges when `applyAction` returns `{ merge: true }`
 - `src/types.ts` — `NeedsUserKind` is `"question" | "review"`
 
 ## Do
@@ -32,7 +32,7 @@ Glyph for the rail: `public/app.js` `renderShortcuts` (`glyph`). See `ncli/skill
 ## Check
 
 ```bash
-bun test tests/view-actions.test.ts tests/fork-merge.test.ts tests/self-hack.test.ts
+bun test tests/view-actions.test.ts tests/spark-merge.test.ts tests/self-hack.test.ts
 ```
 
 Open `view://<id>`, confirm the avatar, act, see `<id> #1 voltou` in the main chat.

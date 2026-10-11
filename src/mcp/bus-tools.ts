@@ -6,13 +6,13 @@ export const BUS_TOOLS = [
   {
     name: "ask",
     description:
-      "Spawn a one-shot coding agent (claude, codex, or cursor) in the fork worktree. Returns a ticket immediately. Then wait(ticket).",
+      "Spawn a one-shot coding agent (claude, codex, or cursor) in the spark worktree. Returns a ticket immediately. Then wait(ticket).",
     inputSchema: {
       type: "object",
       properties: {
         agent: { type: "string", description: "claude | codex | cursor" },
         prompt: { type: "string" },
-        fork: { type: "string" },
+        spark: { type: "string" },
         mode: { type: "string" },
         timeout: { type: "number" },
       },
@@ -33,7 +33,7 @@ export const BUS_TOOLS = [
   },
   {
     name: "post",
-    description: "Short message to another seat, a fork id, or main (the user chat). Delivered on their next turn.",
+    description: "Short message to another seat, a spark id, or main (the user chat). Delivered on their next turn.",
     inputSchema: {
       type: "object",
       properties: {
@@ -50,7 +50,7 @@ export const BUS_TOOLS = [
   },
   {
     name: "read",
-    description: "Search the ncli-bus ledger (asks, replies, posts). Keep messages short; zoom a fork for detail.",
+    description: "Search the ncli-bus ledger (asks, replies, posts). Keep messages short; zoom a spark for detail.",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string" } },
@@ -73,7 +73,7 @@ export async function callBusTool(
         to: String(args.agent ?? ""),
         kind: "ask",
         body: String(args.prompt ?? ""),
-        fork: args.fork ? String(args.fork) : undefined,
+        spark: args.spark ? String(args.spark) : args.fork ? String(args.fork) : undefined,
         timeout: timeoutMs(num(args.timeout), 120_000),
         parent,
       });

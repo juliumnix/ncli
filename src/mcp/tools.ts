@@ -37,7 +37,7 @@ export const NCLI_TOOLS: McpToolDef[] = [
       properties: {
         agent: { type: "string" },
         prompt: { type: "string" },
-        fork: { type: "string" },
+        spark: { type: "string" },
         mode: { type: "string" },
         timeout: { type: "number" },
       },
@@ -54,7 +54,7 @@ export const NCLI_TOOLS: McpToolDef[] = [
   },
   {
     name: "post",
-    description: "Short message to a seat, fork id, or main.",
+    description: "Short message to a seat, spark id, or main.",
     inputSchema: { type: "object", properties: { to: { type: "string" }, msg: { type: "string" } }, required: ["to", "msg"] },
   },
   { name: "inbox", description: "Drain pending posts for this session.", inputSchema: { type: "object", properties: {} } },
@@ -64,8 +64,8 @@ export const NCLI_TOOLS: McpToolDef[] = [
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
   },
   {
-    name: "open_fork",
-    description: "Open a view:// fork. params is a query string (pr=482) or object.",
+    name: "open_spark",
+    description: "Open a view:// spark. params is a query string (pr=482) or object.",
     inputSchema: {
       type: "object",
       properties: { view: { type: "string" }, params: {} },
@@ -73,12 +73,12 @@ export const NCLI_TOOLS: McpToolDef[] = [
     },
   },
   {
-    name: "close_fork",
-    description: "Finish and merge a fork back into the main chat.",
+    name: "close_spark",
+    description: "Finish and merge a spark back into the main chat.",
     inputSchema: { type: "object", properties: { id: { type: "string" }, summary: { type: "string" } }, required: ["id"] },
   },
   { name: "list_views", description: "List view:// plugins.", inputSchema: { type: "object", properties: {} } },
-  { name: "list_forks", description: "List open forks.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_sparks", description: "List open sparks.", inputSchema: { type: "object", properties: {} } },
   {
     name: "switch_harness",
     description: "Switch the main harness (claude, codex, cursor, mock). Same memory, tools, and skills continue.",

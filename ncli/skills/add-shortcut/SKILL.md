@@ -1,17 +1,17 @@
 ---
 name: add-shortcut
-description: Put a fork on the right-rail avatar when it needs the user. Use when a mode should wait, badge, or get a new glyph.
+description: Put a spark on the right-rail avatar when it needs the user. Use when a mode should wait, badge, or get a new glyph.
 ---
 
 # Add a shortcut / needs-user state
 
-The rail is not a launcher. Only `status === "needs_user"` forks appear.
+The rail is not a launcher. Only `status === "needs_user"` sparks appear.
 
 ## Files
 
 - `src/types.ts` — `NeedsUser` / `NeedsUserKind` (`"question" | "review"`)
-- `views/<id>.ts` — `createFork` returns `needsUser`; `applyAction` clears with `needsUser: null`
-- `src/forks/manager.ts` — `waitingOnUser()`
+- `views/<id>.ts` — `createSpark` returns `needsUser`; `applyAction` clears with `needsUser: null`
+- `src/sparks/manager.ts` — `waitingOnUser()`
 - `public/app.js` — `renderShortcuts` (`glyph` map, badge, label)
 
 ## Do
@@ -27,4 +27,4 @@ The rail is not a launcher. Only `status === "needs_user"` forks appear.
 bun test tests/view-actions.test.ts tests/live.test.ts
 ```
 
-Avatar shows with badge. After the act, it leaves the rail. Running forks stay off it.
+Avatar shows with badge. After the act, it leaves the rail. Running sparks stay off it.

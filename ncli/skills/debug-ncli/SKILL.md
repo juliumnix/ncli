@@ -1,17 +1,17 @@
 ---
 name: debug-ncli
-description: Find why a turn, fork, or view failed. Use when the user says NCLI is stuck, empty, or wrong.
+description: Find why a turn, spark, or view failed. Use when the user says NCLI is stuck, empty, or wrong.
 ---
 
 # Debug NCLI
 
-There is no separate ledger. The source of truth is the append-only chat log plus fork meta.
+There is no separate ledger. The source of truth is the append-only chat log plus spark meta.
 
 ## Files / paths
 
 - `data/last-view.txt` — last assembled cover sent to the harness
 - `data/main/log.jsonl` + `data/main/tree.jsonl` — main memory
-- `data/forks/<id>/meta.json` + `log.jsonl` — fork state and log
+- `data/sparks/<id>/meta.json` + `log.jsonl` — spark state and log
 - `data/compact-log.jsonl` — compaction tokens
 - `data/ncli-bus.sock` — unix socket of the in-process bus (no extra daemon)
 - drawer ☰ — live cover, byte budget, `view://` list
@@ -19,7 +19,7 @@ There is no separate ledger. The source of truth is the append-only chat log plu
 
 ## Do
 
-1. Read `/api/state` or the drawer. Check `forks[].status` and `needsUser`.
+1. Read `/api/state` or the drawer. Check `sparks[].status` and `needsUser`.
 2. `rg` the skill for the surface (`add-view`, `add-harness`, …).
 3. Run the listed check command, not the whole world first.
 

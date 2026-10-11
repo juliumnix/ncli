@@ -1,6 +1,6 @@
-import type { Fork, SeatId } from "../../src/types";
+import type { Spark, SeatId } from "../../src/types";
 import type { ViewActionResult, ViewPlugin } from "../../src/views/types";
-import type { ForkResult } from "../../src/views/manifest";
+import type { SparkResult } from "../../src/views/manifest";
 import { escapeHtml, formatInline } from "../../src/util";
 
 export const REFINE_DONE_SCORE = 0.9;
@@ -77,8 +77,8 @@ function mockUi(card: string): RefinoUi {
   };
 }
 
-function uiOf(fork: Fork): RefinoUi {
-  return fork.ui as RefinoUi;
+function uiOf(spark: Spark): RefinoUi {
+  return spark.ui as RefinoUi;
 }
 
 function unanswered(ui: RefinoUi): RefinoQuestion[] {
@@ -105,8 +105,8 @@ function applyAnswer(ui: RefinoUi, id: string | undefined, value: string): Refin
   return next;
 }
 
-function render(fork: Fork): string {
-  const ui = uiOf(fork);
+function render(spark: Spark): string {
+  const ui = uiOf(spark);
   const n = unanswered(ui).length;
   const waitChip = n ? `<span class="chip y">${n} pergunta${n === 1 ? "" : "s"} pra você</span>` : "";
   const pareceres = ui.pareceres
@@ -131,9 +131,9 @@ function render(fork: Fork): string {
     .join("");
   return `
     <div class="mh">
-      <b>refino #${fork.seq}</b> Card · ${escapeHtml(ui.card)}
+      <b>refino #${spark.seq}</b> Card · ${escapeHtml(ui.card)}
       ${waitChip}<span class="chip">score ${ui.score.toFixed(2)}</span>
-      ${fork.worktree ? `<code>${escapeHtml(fork.worktree)}</code>` : ""}
+      ${spark.worktree ? `<code>${escapeHtml(spark.worktree)}</code>` : ""}
       <button class="x" id="closeModal" type="button">✕</button>
     </div>
     <div class="mbody">
@@ -142,16 +142,16 @@ function render(fork: Fork): string {
       <div class="sec">ESPERANDO VOCÊ</div>
       ${questions}
     </div>
-    <form class="mi" id="forkForm">
+    <form class="mi" id="sparkForm">
       <input name="t" placeholder="Responde ou pergunta algo pro refino… (volta pro chat quando fechar 0.90)" autocomplete="off" />
     </form>`;
 }
 
-function applyRefino(fork: Fork, type: string, id: string | undefined, value: string): ViewActionResult | void {
+function applyRefino(spark: Spark, type: string, id: string | undefined, value: string): ViewActionResult | void {
   switch (type) {
     case "answer":
     case "say": {
-      const next = applyAnswer(uiOf(fork), id, value);
+      const next = applyAnswer(uiOf(spark), id, value);
       if (next.score >= REFINE_DONE_SCORE) {
         return {
           ui: next,
@@ -176,7 +176,7 @@ const refino: ViewPlugin = {
   parseLink(params) {
     return { card: params.card ?? params.topic ?? "Pickup scheduling" };
   },
-  async createFork(params) {
+  async createSpark(params) {
     const card = params.card ?? params.topic ?? "Pickup scheduling";
     const ui = mockUi(card);
     return {
@@ -186,14 +186,14 @@ const refino: ViewPlugin = {
       ui,
       needsUser: waiting(ui) ?? undefined,
       flowStep: "wait",
-      prompt: `Modo refino. Card: ${card}. Worktree isolado. Três pareceres (Produto, Engenharia, Analista) já estão no painel. Não feche o fork até o score chegar a 0.90.`,
+      prompt: `Modo refino. Card: ${card}. Worktree isolado. Três pareceres (Produto, Engenharia, Analista) já estão no painel. Não feche o spark até o score chegar a 0.90.`,
     };
   },
-  applyAction(fork, action) {
-    return applyRefino(fork, action.type, action.id, action.value ?? "");
+  applyAction(spark, action) {
+    return applyRefino(spark, action.type, action.id, action.value ?? "");
   },
-  result(fork): ForkResult {
-    const ui = uiOf(fork);
+  result(spark): SparkResult {
+    const ui = uiOf(spark);
     return {
       summary: `score ${ui.score.toFixed(2)} · ${ui.card}`,
       artifacts: ui.pareceres.map((p) => ({ kind: "parecer", label: p.role, text: p.text })),

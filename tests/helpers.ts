@@ -5,7 +5,7 @@ import { loadConfig } from "../src/config";
 import { Hub } from "../src/hub";
 import { MockHarness } from "../src/harness/mock";
 import type { Harness } from "../src/harness/types";
-import { initTempRepo } from "../src/forks/worktree";
+import { initTempRepo } from "../src/sparks/worktree";
 
 export function tmpDir(prefix = "ncli"): string {
   return mkdtempSync(join(tmpdir(), `${prefix}-`));

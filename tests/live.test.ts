@@ -44,11 +44,11 @@ test("url previews only allow http(s)", () => {
 
 test("view://live holds five sandboxed previews and stays on the waiting rail", async () => {
   const { hub } = await makeHub();
-  const rt = await hub.forks.open("live", {});
-  expect(rt.fork.hold).toBe(true);
-  expect(rt.fork.needsUser?.label).toBe("5 prévias");
-  expect(hub.forks.waitingOnUser().some((f) => f.id === rt.fork.id)).toBe(true);
-  const html = live.render!(rt.fork);
+  const rt = await hub.sparks.open("live", {});
+  expect(rt.spark.hold).toBe(true);
+  expect(rt.spark.needsUser?.label).toBe("5 prévias");
+  expect(hub.sparks.waitingOnUser().some((f) => f.id === rt.spark.id)).toBe(true);
+  const html = live.render!(rt.spark);
   expect(html).toContain("live-frame");
   expect(html).toContain("MERMAID");
   expect(html).toContain("HTML");
@@ -65,7 +65,7 @@ test("demo conversation includes live fences in chat", async () => {
   const talk = hub.memory.log.find((m) => m.kind === "talk" && m.text.includes("```ncli mermaid"));
   expect(talk).toBeDefined();
   expect(liveBlocks(talk!.text).map((b) => b.kind)).toEqual(["mermaid", "html"]);
-  expect(hub.forks.list().some((f) => f.view === "live")).toBe(true);
+  expect(hub.sparks.list().some((f) => f.view === "live")).toBe(true);
   hub.close();
 });
 
