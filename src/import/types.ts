@@ -32,6 +32,7 @@ export interface ImportArgv {
   source: ImportSource;
   since?: string;
   apply: boolean;
+  verbose: boolean;
 }
 
 export interface ImportRoots {

@@ -86,14 +86,15 @@ export function alreadyInLog(log: readonly Message[], line: ImportLine): boolean
   return log.some((m) => m.kind === line.kind && m.text === line.text && m.date === line.at);
 }
 
-export function formatPreview(preview: ImportPreview): string {
+export function formatPreview(preview: ImportPreview, verbose = false): string {
   const since = preview.since ? ` · desde ${preview.since.slice(0, 10)}` : "";
   const extra = preview.skipped ? ` · ${preview.skipped} fora do recorte` : "";
-  return [
+  const lines = [
     `import ${preview.source}${since} · ${count(preview.sessions, "sessão", "sessões")} · ${count(preview.newCount, "nova", "novas")} · ${count(preview.seenCount, "já vista", "já vistas")}${extra}`,
-    preview.root,
-    `aplicar: /ncli import ${preview.source} --apply`,
-  ].join("\n");
+  ];
+  if (verbose) lines.push(preview.root);
+  lines.push(`aplicar: /ncli import ${preview.source} --apply`);
+  return lines.join("\n");
 }
 
 export function formatApply(result: ImportApply): string {

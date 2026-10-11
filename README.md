@@ -128,7 +128,7 @@ bun run ncli view add https://github.com/you/ncli-view-foo.git
 bun run ncli remove view foo
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR.
+Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR. The review view batches line comments to the spark seat, triages findings, re-reviews from the last head, and archives the worktree when `gh pr view` says MERGED (checked on open, act, or close).
 
 Import is opt-in. `/ncli import claude|codex|cursor` reads the official local JSONL (Claude `projects/<cwd>/*.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*.jsonl`, Cursor `agent-transcripts/<id>/<id>.jsonl`), shows a preview, and does not write until `/ncli import … --apply` or the chip. Fingerprints live in `data/import-seen.json`. NCLI never writes `~/.claude`, `~/.codex`, or `~/.cursor`.
 

@@ -29,12 +29,32 @@ export interface DiagramNode {
 
 export type RiskSeverity = "high" | "med" | "low";
 
+export type FindingStatus = "open" | "resolved" | "irrelevant";
+
 export interface ReviewRisk {
+  id?: string;
   severity: RiskSeverity;
   text: string;
   path: string;
   line?: number;
   chapter?: string;
+}
+
+export interface ReviewFinding {
+  id: string;
+  severity: RiskSeverity;
+  text: string;
+  path: string;
+  line?: number;
+  chapter?: string;
+  status: FindingStatus;
+}
+
+export interface PendingComment {
+  id: string;
+  path: string;
+  line: number;
+  body: string;
 }
 
 export interface ReviewPlan {
@@ -85,6 +105,11 @@ export interface ReviewUi {
   diffs: Record<string, FileDiff>;
   activeFile: string;
   planSource: "agent" | "fallback";
+  head?: string;
+  previousHead?: string;
+  prState?: "OPEN" | "MERGED" | "CLOSED";
+  findings: ReviewFinding[];
+  pending: PendingComment[];
 }
 
 export function classify(path: string): ChapterKind {
@@ -302,7 +327,9 @@ function parseRisks(raw: unknown, files: PrFile[]): ReviewRisk[] {
     if (!text) continue;
     const severity: RiskSeverity = r.severity === "high" || r.severity === "low" ? r.severity : "med";
     const line = Number(r.line);
+    const id = typeof r.id === "string" && r.id.trim() ? r.id.trim() : undefined;
     out.push({
+      id,
       severity,
       text,
       path,
@@ -670,6 +697,18 @@ export function buildReviewUi(pr: PrInfo, agentRaw?: unknown): ReviewUi {
     diffs,
     activeFile: chapters[0]?.files[0]?.path ?? files[0]?.path ?? "",
     planSource: agent ? "agent" : "fallback",
+    head: pr.headOid,
+    prState: pr.state,
+    findings: risks.map((r, i) => ({
+      id: r.id || `f-${i + 1}`,
+      severity: r.severity,
+      text: r.text,
+      path: r.path,
+      line: r.line,
+      chapter: r.chapter,
+      status: "open" as const,
+    })),
+    pending: [],
   };
 }
 

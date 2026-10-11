@@ -7,6 +7,8 @@ export interface PrFile {
   deletions: number;
 }
 
+export type PrState = "OPEN" | "MERGED" | "CLOSED";
+
 export interface PrInfo {
   number: number;
   title: string;
@@ -14,6 +16,8 @@ export interface PrInfo {
   url?: string;
   baseRefName?: string;
   headRefName?: string;
+  headOid?: string;
+  state?: PrState;
   additions?: number;
   deletions?: number;
   author?: string | { login?: string; name?: string };
@@ -30,7 +34,7 @@ export class RealGh implements GhClient {
   async view(pr: string): Promise<PrInfo> {
     const json = await gh([
       "pr", "view", pr, "--json",
-      "number,title,body,url,baseRefName,headRefName,additions,deletions,files,author",
+      "number,title,body,url,baseRefName,headRefName,headRefOid,state,additions,deletions,files,author",
     ], this.cwd);
     const meta = JSON.parse(json) as {
       number: number;
@@ -39,6 +43,8 @@ export class RealGh implements GhClient {
       url?: string;
       baseRefName?: string;
       headRefName?: string;
+      headRefOid?: string;
+      state?: PrState;
       additions?: number;
       deletions?: number;
       author?: string | { login?: string; name?: string };
@@ -52,6 +58,8 @@ export class RealGh implements GhClient {
       url: meta.url,
       baseRefName: meta.baseRefName,
       headRefName: meta.headRefName,
+      headOid: meta.headRefOid,
+      state: meta.state,
       additions: meta.additions,
       deletions: meta.deletions,
       author: meta.author,
