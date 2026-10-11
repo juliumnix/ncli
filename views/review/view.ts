@@ -8,10 +8,20 @@ import {
   splitPath,
   toggleReviewed,
   type DiffLine,
+  type FindingStatus,
   type ReviewChapter,
-  type ReviewRisk,
+  type ReviewFinding,
   type ReviewUi,
 } from "../../src/review/model";
+import {
+  addComment,
+  applyRereview,
+  commentId,
+  findingsFence,
+  mergeFindings,
+  sendComments,
+  setFindingStatus,
+} from "../../src/review/loop";
 import { escapeHtml } from "../../src/util";
 
 function uiOf(spark: Spark): ReviewUi {
@@ -55,9 +65,7 @@ function overview(ui: ReviewUi): string {
   const summary = ready
     ? `<p>${escapeHtml(ui.summary)}</p>`
     : shimmer(3);
-  const risks = ready
-    ? ui.risks.map((r) => riskRow(r)).join("") || `<p class="rv-empty">Nenhum risco apontado.</p>`
-    : shimmer(3);
+  const findings = ready ? findingsPanel(ui) : shimmer(3);
   const order = ui.chapters.map((ch) => orderRow(ch)).join("");
   return `<div class="rv-overview" data-rv-panel="Overview">
     <header class="rv-ov-lead">
@@ -82,8 +90,8 @@ function overview(ui: ReviewUi): string {
       </section>
     </div>
     <aside class="rv-ov-aside">
-      <div class="rv-ov-k">Riscos</div>
-      <div class="rv-risks">${risks}</div>
+      <div class="rv-ov-k">Findings</div>
+      <div class="rv-risks">${findings}</div>
       <div class="rv-ov-files">
         <div class="rv-files-h">Files ${ui.pr.files.length}</div>
         <div class="rv-grid">${files}</div>
@@ -97,14 +105,43 @@ function shimmer(n: number): string {
   return `<div class="rv-shimmer" aria-busy="true">${bars}</div>`;
 }
 
-function riskRow(risk: ReviewRisk): string {
-  const loc = risk.line ? `${splitPath(risk.path).name}:${risk.line}` : splitPath(risk.path).name;
-  const goto = risk.chapter ? ` data-rv-goto="${escapeHtml(risk.chapter)}"` : "";
-  const line = risk.line ? ` data-rv-line="${risk.line}"` : "";
-  return `<button type="button" class="rv-risk" data-rv-tab="Guide" data-rv-file="${escapeHtml(risk.path)}"${goto}${line}>
-    <span class="rv-sev rv-sev-${risk.severity}" aria-label="${risk.severity}"></span>
-    <span><b>${escapeHtml(risk.text)}</b><small>${escapeHtml(loc)}</small></span>
-  </button>`;
+function findingsPanel(ui: ReviewUi): string {
+  if (!ui.findings.length) return `<p class="rv-empty">Nenhum finding ainda.</p>`;
+  const rows = ui.findings.map((f) => findingRow(f)).join("");
+  const head = ui.head ? `<p class="rv-head">head ${escapeHtml(ui.head.slice(0, 7))}${ui.previousHead && ui.previousHead !== ui.head ? ` · era ${escapeHtml(ui.previousHead.slice(0, 7))}` : ""}</p>` : "";
+  return `${head}<div class="rv-findings">${rows}</div>`;
+}
+
+function findingRow(f: ReviewFinding): string {
+  const loc = f.line ? `${splitPath(f.path).name}:${f.line}` : splitPath(f.path).name;
+  const statuses: FindingStatus[] = ["open", "resolved", "irrelevant"];
+  const chips = statuses
+    .map((s) => `<button type="button" class="rv-tri${f.status === s ? " on" : ""}" data-act="finding" data-id="${escapeHtml(f.id)}" data-value="${s}">${labelStatus(s)}</button>`)
+    .join("");
+  const goto = f.chapter ? ` data-rv-goto="${escapeHtml(f.chapter)}"` : "";
+  const line = f.line ? ` data-rv-line="${f.line}"` : "";
+  return `<div class="rv-find" data-finding="${escapeHtml(f.id)}">
+    <button type="button" class="rv-find-go" data-rv-tab="Guide" data-rv-file="${escapeHtml(f.path)}"${goto}${line}>
+      <span class="rv-sev rv-sev-${f.severity}" aria-label="${f.severity}"></span>
+      <span><b>${escapeHtml(f.text)}</b><small>${escapeHtml(loc)}</small></span>
+    </button>
+    <span class="rv-triage">${chips}</span>
+  </div>`;
+}
+
+function labelStatus(s: FindingStatus): string {
+  switch (s) {
+    case "open":
+      return "aberto";
+    case "resolved":
+      return "resolvido";
+    case "irrelevant":
+      return "irrelevante";
+    default: {
+      const _n: never = s;
+      return _n;
+    }
+  }
 }
 
 function orderRow(ch: ReviewChapter): string {
@@ -163,14 +200,14 @@ function diffLines(lines: DiffLine[], fileId: string): string {
           `<tr class="fold" data-rv-fold="${escapeHtml(fileId)}-${i}"><td colspan="3">${n} unmodified line${n === 1 ? "" : "s"}</td></tr>`,
         );
         if (line.folded?.length) {
-          for (const inner of line.folded) rows.push(lineRow(inner, true));
+          for (const inner of line.folded) rows.push(lineRow(inner, true, fileId));
         }
         break;
       }
       case "add":
       case "del":
       case "ctx":
-        rows.push(lineRow(line, false));
+        rows.push(lineRow(line, false, fileId));
         break;
       default: {
         const _n: never = line.kind;
@@ -181,16 +218,20 @@ function diffLines(lines: DiffLine[], fileId: string): string {
   return `<table class="rv-diff" data-file="${escapeHtml(fileId)}">${rows.join("")}</table>`;
 }
 
-function lineRow(line: DiffLine, hidden: boolean): string {
+function lineRow(line: DiffLine, hidden: boolean, fileId: string): string {
   const cls = line.kind === "add" ? "a" : line.kind === "del" ? "r" : "c";
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   const hide = hidden ? ` hidden data-fold-body` : "";
   const hunk = ` data-hunk="${line.hunk}"`;
   const newNo = line.newNo ? ` data-new="${line.newNo}"` : "";
+  const lineNo = line.newNo ?? line.oldNo;
+  const comment = lineNo
+    ? `<button type="button" class="rv-cmt" data-act="comment-add" data-id="${escapeHtml(`${fileId}:${lineNo}`)}" aria-label="comentar">+</button>`
+    : "";
   return `<tr class="${cls}"${hide}${hunk}${newNo}>
     <td class="ln">${line.oldNo ?? ""}</td>
     <td class="ln">${line.newNo ?? ""}</td>
-    <td><i>${sign}</i>${escapeHtml(line.text)}</td>
+    <td><i>${sign}</i>${escapeHtml(line.text)}${comment}</td>
   </tr>`;
 }
 
@@ -269,7 +310,19 @@ function render(spark: Spark): string {
     </div>
     <form class="mi rv-mi" id="sparkForm">
       <input name="t" placeholder="Fala com o review…" autocomplete="off" />
-    </form>`;
+    </form>
+    ${pendingBar(ui)}`;
+}
+
+function pendingBar(ui: ReviewUi): string {
+  const n = ui.pending.length;
+  const send = n
+    ? `<button type="button" class="rv-send" data-act="comment-send">${n === 1 ? "enviar 1 comentário" : `enviar ${n} comentários`}</button>`
+    : "";
+  return `<div class="rv-loop">
+    <button type="button" data-act="rereview">re-review</button>
+    ${send}
+  </div>`;
 }
 
 function asPr(ui: ReviewUi): PrInfo {
@@ -282,6 +335,8 @@ function asPr(ui: ReviewUi): PrInfo {
     deletions: ui.pr.deletions,
     files: ui.pr.files,
     diff: ui.pr.diff,
+    headOid: ui.head,
+    state: ui.prState,
   };
 }
 
@@ -291,7 +346,8 @@ const review: ViewPlugin = {
   description: "Guided review: Overview / Guide / Diff, capítulos núcleo-primeiro, dados via gh.",
   tabs: ["Overview", "Guide", "Diff"],
   parseLink(params) {
-    return { pr: params.pr ?? params.number ?? "" };
+    const pr = params.pr ?? params.number ?? "";
+    return params.wt === "1" ? { pr, wt: "1" } : { pr };
   },
   async createSpark(params, ctx) {
     const pr = params.pr;
@@ -308,7 +364,7 @@ const review: ViewPlugin = {
         });
     return {
       title: `PR ${ui.pr.number} · ${ui.pr.title}`,
-      needsWorktree: false,
+      needsWorktree: params.wt === "1",
       repo: ctx.repo,
       ui,
       needsUser: { kind: "review", label: "pronta pra revisar", count: 1 },
@@ -324,13 +380,35 @@ Quando tiver um plano, emita UM bloco json (e nada mais nesse bloco) com:
 Se não puder, não invente paths. O hub já tem um fallback.`,
     };
   },
-  applyAction(spark, action: ViewAction): ViewActionResult | void {
+  async applyAction(spark, action: ViewAction, ctx): Promise<ViewActionResult | void> {
     const ui = uiOf(spark);
     switch (action.type) {
       case "review-chapter":
         return { ui: toggleReviewed(ui, "chapter", action.id ?? ""), needsUser: spark.needsUser };
       case "review-file":
         return { ui: toggleReviewed(ui, "file", action.id ?? ""), needsUser: spark.needsUser };
+      case "comment-add": {
+        const loc = commentId(action.id);
+        if (!loc) return;
+        return { ui: addComment(ui, loc.path, loc.line, action.value ?? ""), needsUser: spark.needsUser };
+      }
+      case "comment-send": {
+        if (!ui.pending.length) return;
+        const sent = sendComments(ui);
+        return { ui: sent.ui, ask: sent.ask, note: findingsFence(sent.ui.findings), needsUser: spark.needsUser };
+      }
+      case "finding": {
+        const status = action.value;
+        if (status !== "open" && status !== "resolved" && status !== "irrelevant") return;
+        return { ui: setFindingStatus(ui, action.id ?? "", status), needsUser: spark.needsUser };
+      }
+      case "rereview": {
+        const pr = spark.params.pr;
+        if (!pr || !ctx?.fetchPr) return;
+        const info = (await ctx.fetchPr(pr)) as PrInfo;
+        const next = applyRereview(ui, info);
+        return { ui: next, note: findingsFence(next.findings), needsUser: spark.needsUser };
+      }
       case "say":
         return;
       default:
@@ -347,7 +425,11 @@ Se não puder, não invente paths. O hub já tem um fallback.`,
     next.chapters.forEach((ch, i) => {
       ch.reviewed = ui.chapters[i]?.reviewed ?? false;
     });
-    return { ui: next, flowStep: "wait" };
+    next.findings = mergeFindings(ui.findings, next.findings);
+    next.pending = ui.pending;
+    next.head = ui.head ?? next.head;
+    next.prState = ui.prState ?? next.prState;
+    return { ui: next, flowStep: "wait", note: next.findings.length ? findingsFence(next.findings) : undefined };
   },
   result(spark): SparkResult {
     const ui = uiOf(spark);

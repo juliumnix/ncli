@@ -25,6 +25,8 @@ export interface ViewActionResult {
   summary?: string;
   result?: SparkResult;
   flowStep?: string;
+  ask?: string;
+  note?: string;
 }
 
 export interface ViewPlugin {
@@ -34,9 +36,13 @@ export interface ViewPlugin {
   tabs: string[];
   parseLink?(params: Record<string, string>): Record<string, string>;
   createSpark(params: Record<string, string>, ctx: ViewCreateCtx): Promise<ViewCreateResult>;
-  applyAction?(spark: Spark, action: ViewAction): ViewActionResult | void;
+  applyAction?(
+    spark: Spark,
+    action: ViewAction,
+    ctx?: ViewCreateCtx,
+  ): ViewActionResult | void | Promise<ViewActionResult | void>;
   render?(spark: Spark): string;
-  onEvent?(spark: Spark, event: { type: string; text?: string }): Partial<Spark> | void;
+  onEvent?(spark: Spark, event: { type: string; text?: string }): (Partial<Spark> & { note?: string }) | void;
   result?(spark: Spark): SparkResult;
 }
 

@@ -1,0 +1,16 @@
+{
+  "number": 9,
+  "title": "Already merged",
+  "author": { "login": "ada" },
+  "body": "This PR is merged.",
+  "url": "https://github.com/acme/shop/pull/9",
+  "baseRefName": "main",
+  "headRefName": "feat/done",
+  "headOid": "bbb2222mergedhead0000000000000000000002",
+  "state": "MERGED",
+  "additions": 1,
+  "deletions": 0,
+  "files": [
+    { "path": "src/billing/discount.ts", "additions": 1, "deletions": 0 }
+  ]
+}

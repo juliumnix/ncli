@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { alreadyInLog, defaultImportRoots, Importer, parseImportArgv, parseSessionFile } from "../src/import";
+import { alreadyInLog, defaultImportRoots, formatPreview, Importer, parseImportArgv, parseSessionFile } from "../src/import";
 import { listSessionFiles } from "../src/import/parse";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -33,10 +33,25 @@ test("default roots follow official session dirs and env overrides", () => {
 });
 
 test("parseImportArgv is preview unless --apply", () => {
-  expect(parseImportArgv(["claude"])).toEqual({ source: "claude", apply: false, since: undefined });
+  expect(parseImportArgv(["claude"])).toEqual({ source: "claude", apply: false, since: undefined, verbose: false });
   expect(parseImportArgv(["codex", "--apply"]).apply).toBe(true);
   expect(parseImportArgv(["cursor", "--since", "2026-10-01"]).since).toBe("2026-10-01T00:00:00.000Z");
   expect(() => parseImportArgv(["gemini"])).toThrow(/uso: \/ncli import/);
+  expect(parseImportArgv(["claude", "--verbose"]).verbose).toBe(true);
+});
+
+test("preview note omits the root unless verbose", () => {
+  const preview = {
+    source: "claude" as const,
+    root: "/tmp/secret-home/projects",
+    sessions: 1,
+    lines: [],
+    newCount: 4,
+    seenCount: 0,
+    skipped: 0,
+  };
+  expect(formatPreview(preview)).not.toContain("/tmp/secret-home");
+  expect(formatPreview(preview, true)).toContain("/tmp/secret-home/projects");
 });
 
 test("claude JSONL keeps user and talk and drops sidechain system summary", () => {
@@ -131,6 +146,7 @@ test("hub slash previews and apply writes the log then pumps", async () => {
   const note = hub.memory.log.find((m) => m.kind === "note" && m.text.startsWith("import claude"));
   expect(note?.text).toContain("4 novas");
   expect(note?.text).toContain("--apply");
+  expect(note?.text).not.toContain(CLAUDE);
   expect(hub.lastImport?.newCount).toBe(4);
   expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
   await hub.send("/ncli import claude --apply");

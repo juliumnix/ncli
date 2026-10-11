@@ -294,6 +294,8 @@ test("agent plan fills summary and known risks; unknown paths drop", async () =>
   expect(html).not.toContain("rv-shimmer");
   expect(html).toContain("O PR aplica o desconto antes do imposto");
   expect(html).toContain("rv-sev-high");
+  expect(html).not.toContain(">Riscos<");
+  expect(html).toContain(">Findings<");
   expect(html).toContain("calcTotal.ts:4");
   expect(html).toContain("data-rv-file=\"src/billing/calcTotal.ts\"");
   expect(html).toContain("data-rv-line=\"4\"");
