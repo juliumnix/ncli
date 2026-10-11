@@ -1668,8 +1668,6 @@ window.addEventListener("message", (ev) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && uiExpanded) collapseUi();
   if (e.altKey && (e.key === "n" || e.key === "N") && !e.repeat) {
-    const tag = (e.target && e.target.tagName) || "";
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
     e.preventDefault();
     openNextNeedsYou();
   }
