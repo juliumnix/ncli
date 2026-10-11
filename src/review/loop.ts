@@ -1,5 +1,5 @@
 import type { PrInfo } from "../gh/pr";
-import { buildReviewUi, type FindingStatus, type ReviewFinding, type ReviewUi } from "./model";
+import { buildReviewUi, type FindingStatus, type ReviewFinding, type ReviewRisk, type ReviewUi } from "./model";
 
 export function findingsFromRisks(risks: ReviewRisk[]): ReviewFinding[] {
   return risks.map((r, i) => ({
