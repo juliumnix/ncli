@@ -197,11 +197,15 @@ export class Hub {
     const user = this.memory.append({ kind: "user", text: trimmed });
     this.emit({ type: "message", session: "main", message: user });
     if (await this.slash(trimmed)) return;
-    await this.openLinks(trimmed);
-    if (this.turning) return;
+    if (this.turning) {
+      await this.openLinks(trimmed);
+      return;
+    }
     this.turning = true;
     this.abort = new AbortController();
+    this.beginLive();
     try {
+      await this.openLinks(trimmed);
       await this.turn(trimmed);
     } finally {
       this.turning = false;
@@ -273,14 +277,18 @@ export class Hub {
     return this.forks.act(id, action);
   }
 
-  private async turn(userText: string, retried = false): Promise<void> {
-    void this.memory.pump();
+  private beginLive(): void {
     this.live = new LiveTurn(
       "main",
       seatFromId(this.harness.id),
       this.model ?? displaySeatModel(this.cfg, this.harness.id as HarnessKind),
     );
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
+  }
+
+  private async turn(userText: string, retried = false): Promise<void> {
+    void this.memory.pump();
+    if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
     const ctx = assemble(this.memory);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;

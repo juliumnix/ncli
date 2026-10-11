@@ -4,6 +4,15 @@ import { buildClaudeArgs } from "../src/acp/claude";
 import { loadConfig } from "../src/config";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
 
+test("a second send while turning still opens view:// links", async () => {
+  const { hub } = await makeHub();
+  const first = hub.send("oi");
+  await waitUntil(() => hub.snapshot().turning);
+  await hub.send("view://live");
+  await waitUntil(() => hub.forks.list().some((f) => f.view === "live"));
+  await first;
+});
+
 test("the running turn is emitted before the first token", async () => {
   const { hub } = await makeHub();
   const types: string[] = [];

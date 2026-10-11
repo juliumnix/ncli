@@ -503,12 +503,21 @@ function renderChat() {
 }
 
 let liveRaf = 0;
+let fullRaf = 0;
 
 function scheduleLivePaint() {
   if (liveRaf) return;
   liveRaf = requestAnimationFrame(() => {
     liveRaf = 0;
     paintLive();
+  });
+}
+
+function scheduleFullPaint() {
+  if (fullRaf) return;
+  fullRaf = requestAnimationFrame(() => {
+    fullRaf = 0;
+    renderChat();
   });
 }
 
@@ -528,10 +537,8 @@ function paintLive() {
     const next = wrap.firstElementChild;
     if (next) node.replaceWith(next);
   }
-  measureComposer();
   if (stick.follow) chat.scrollTop = chat.scrollHeight;
   paintScrollHints();
-  renderChrome();
 }
 
 function paintTick() {
@@ -1110,7 +1117,7 @@ function applyEvent(ev) {
         const pendingAt = state.messages.findIndex((m) => m.i < 0 && m.kind === "user" && m.text === ev.message.text);
         if (pendingAt >= 0) state.messages.splice(pendingAt, 1, ev.message);
         else state.messages.push(ev.message);
-        renderChat();
+        scheduleFullPaint();
       } else if (state.openFork === ev.session && state.forkDetail) {
         state.forkDetail.messages = state.forkDetail.messages || [];
         state.forkDetail.messages.push(ev.message);
@@ -1141,7 +1148,7 @@ function applyEvent(ev) {
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
             state.lastTurn = ev.turn;
           }
-          renderChat();
+          scheduleFullPaint();
         } else {
           scheduleLivePaint();
         }
@@ -1171,7 +1178,8 @@ function applyEvent(ev) {
       if (i >= 0) state.forks[i] = ev.fork;
       else state.forks.push(ev.fork);
       renderShortcuts();
-      renderChat();
+      if (state.turn && state.turn.status === "running") scheduleFullPaint();
+      else renderChat();
       if (state.openFork === ev.fork.id) {
         if (ev.fork.status === "merged") {
           hideOverlay();
