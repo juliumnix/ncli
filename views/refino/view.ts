@@ -1,6 +1,7 @@
-import type { Fork, SeatId } from "../src/types";
-import type { ViewActionResult, ViewPlugin } from "../src/views/types";
-import { escapeHtml, formatInline } from "../src/util";
+import type { Fork, SeatId } from "../../src/types";
+import type { ViewActionResult, ViewPlugin } from "../../src/views/types";
+import type { ForkResult } from "../../src/views/manifest";
+import { escapeHtml, formatInline } from "../../src/util";
 
 export const REFINE_DONE_SCORE = 0.9;
 
@@ -156,6 +157,7 @@ function applyRefino(fork: Fork, type: string, id: string | undefined, value: st
           ui: next,
           needsUser: null,
           merge: true,
+          flowStep: "result",
           summary: `score ${next.score.toFixed(2)} · ${next.questions.map((q) => q.answer ?? "?").join("; ")}`,
         };
       }
@@ -183,11 +185,21 @@ const refino: ViewPlugin = {
       hold: true,
       ui,
       needsUser: waiting(ui) ?? undefined,
+      flowStep: "wait",
       prompt: `Modo refino. Card: ${card}. Worktree isolado. Três pareceres (Produto, Engenharia, Analista) já estão no painel. Não feche o fork até o score chegar a 0.90.`,
     };
   },
   applyAction(fork, action) {
     return applyRefino(fork, action.type, action.id, action.value ?? "");
+  },
+  result(fork): ForkResult {
+    const ui = uiOf(fork);
+    return {
+      summary: `score ${ui.score.toFixed(2)} · ${ui.card}`,
+      artifacts: ui.pareceres.map((p) => ({ kind: "parecer", label: p.role, text: p.text })),
+      decisions: ui.questions.filter((q) => q.answer).map((q) => ({ id: q.id, text: `${q.text} → ${q.answer}` })),
+      links: [`view://refino?card=${encodeURIComponent(ui.card)}`],
+    };
   },
   render,
 };

@@ -1,0 +1,16 @@
+{
+  "name": "{{id}}",
+  "version": "1.0.0",
+  "description": "{{id}} fork package. Isolated skills and a spark → result flow.",
+  "requires": {
+    "harnesses": ["claude", "mock"]
+  },
+  "agents": [
+    { "id": "lead", "role": "lead", "harness": "claude" }
+  ],
+  "skills": ["skills"],
+  "flow": [
+    { "id": "spark", "title": "Brief", "agent": "lead", "kind": "spark", "next": "result" },
+    { "id": "result", "title": "Return", "agent": "lead", "kind": "result" }
+  ]
+}

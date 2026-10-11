@@ -16,9 +16,11 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/secrets.ts` | load `~/.config/ncli/secrets.env`. Process env wins. Never log the key |
 | `src/memory/cli-config.ts` | snapshot+restore `~/.cursor/cli-config.json`. Warn, never silent-repair |
 | `src/memory/assemble.ts` | system prompt (master + skills index + view doc) |
-| `src/forks/manager.ts` | one runtime per fork: memory, harness, optional worktree, merge line |
-| `src/views/registry.ts` | load `views/*.ts` by default export; watch = hot reload |
-| `src/views/types.ts` | `ViewPlugin` / `createFork` / `applyAction` / `render` |
+| `src/forks/manager.ts` | one runtime per fork: memory, harness, optional worktree, structured `ForkResult` merge |
+| `src/views/registry.ts` | load `views/*.ts` (loose) and `views/<id>/` packages; watch = hot reload |
+| `src/views/types.ts` | `ViewPlugin` / `createFork` / `applyAction` / `render` / `result` |
+| `src/views/manifest.ts` | `ViewManifest` schema, exclusive skills, `FlowStep`, `ForkResult` |
+| `src/views/pack.ts` | `ncli view add` / `ncli view pack` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
 | `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json` with `--model` only when `NCLI_CODEX_MODEL` is set). The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
@@ -37,7 +39,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 
 ## Extension points (one line each)
 
-- **View / mode** — one file in `views/`. Registry picks it up. Open with `view://id`.
+- **View / mode** — a package in `views/<id>/` (`manifest.json` + `view.ts` + exclusive `skills/`). Loose `views/<id>.ts` is only for previews (`live`). Open with `view://id`. Share with `ncli view pack` / `ncli view add`.
 - **Harness** — `AcpAdapter` in `src/acp/<id>.ts`, then a case in `pickHarness` + `HarnessKind`.
 - **Render kind** — add to `LiveKind`, `frameHtml`, and the matching regex in `public/app.js`.
 - **Memory** — env in `src/config.ts`; do not compact on the user turn.
@@ -47,4 +49,12 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
 - **Main harness** — same view + tools + ncli-bus. Claude quota → `NCLI_BACKUP` (default Codex) and retry.
 
-Shipped views: `review`, `refino`, `live`. Scaffold: `bun run ncli new view foo` / `remove`. Skills: `bun run ncli skills`.
+Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `remove`. Skills: `bun run ncli skills`.
+
+## Fork packages
+
+The main chat is the orchestrator. A `view://` line is a start spark. Each package declares its own agents, a deterministic flow (`spark` → … → `result`), exclusive skills, and a visualization. The hub gives the fork its own memory directory, optional worktree, skill `--add-dir`, and AGENTS.md. Main-session skills (`ncli-bus`, `add-view`, pstack) stay off that spawn.
+
+When the flow reaches `result`, `ViewPlugin.result` builds `{ summary, artifacts, decisions, links }`. That object is stored on the fork and appended to the main log as one merge line. The main agent can start several forks and keep using memory, compaction, bus, and live cards.
+
+A package is shareable. `manifest.json` is schema-validated. Paths must be package-relative. `ncli view pack <id>` writes `<name>-<version>/` plus `PACK.json`. `ncli view add <path>` copies into `views/<name>/` and validates again. Authoring: `ncli/skills/add-view/SKILL.md`.

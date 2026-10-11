@@ -5,6 +5,7 @@ import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
 import type { ViewRegistry } from "../views/registry";
+import { emptyResult, formatForkResult, forkSkillPrompt, type ForkResult } from "../views/manifest";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
@@ -27,7 +28,7 @@ export interface ForkRuntime {
 
 export interface ForkManagerHooks {
   onEvent: (ev: { type: string; session: string; payload?: unknown }) => void;
-  onMerge: (fork: Fork, summary: string) => void;
+  onMerge: (fork: Fork, summary: string, result: ForkResult) => void;
   compressor: Compressor;
   harness: Harness;
   git?: GitRunner;
@@ -120,6 +121,7 @@ export class ForkManager {
       ui: created.ui,
       repo: created.repo,
       hold: created.hold,
+      flowStep: created.flowStep ?? this.views.packageOf(viewId)?.manifest.flow[0]?.id,
     };
     let worktree: WorktreeHandle | undefined;
     if (created.needsWorktree) {
@@ -175,6 +177,8 @@ export class ForkManager {
     rt.memory.append({ kind: "user", text: posted });
     const result = plugin?.applyAction?.(rt.fork, action);
     if (result?.ui !== undefined) rt.fork.ui = result.ui;
+    if (result?.flowStep) rt.fork.flowStep = result.flowStep;
+    if (result?.result) rt.fork.result = result.result;
     if (result?.needsUser === null) {
       rt.fork.needsUser = undefined;
       if (!result.merge) rt.fork.status = "running";
@@ -214,7 +218,16 @@ export class ForkManager {
 
   private async runTurn(rt: ForkRuntime, userText: string, isBoot: boolean): Promise<void> {
     void rt.memory.pump();
-    const ctx = assemble(rt.memory, `You are running view '${rt.fork.view}' as fork ${rt.fork.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`);
+    const pack = this.views.packageOf(rt.fork.view);
+    const extra = pack
+      ? `Fork ${rt.fork.id} of ${pack.manifest.name}. Isolated worktree: ${rt.worktree?.path ?? "none"}. Flow step: ${rt.fork.flowStep ?? "spark"}.`
+      : `You are running view '${rt.fork.view}' as fork ${rt.fork.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`;
+    const ctx = assemble(
+      rt.memory,
+      extra,
+      pack ? forkSkillPrompt(pack) : undefined,
+      pack ? "" : undefined,
+    );
     if (!isBoot) rt.memory.append({ kind: "user", text: userText });
     else rt.memory.append({ kind: "note", text: `boot ${rt.fork.view} ${JSON.stringify(rt.fork.params)}` });
     let talk = "";
@@ -302,8 +315,9 @@ export class ForkManager {
           this.hooks.onEvent({ type: "message", session: rt.fork.id, payload: msg });
           const plugin = this.views.get(rt.fork.view);
           const patch = plugin?.onEvent?.(rt.fork, { type: "done", text: ev.text });
-          if (patch?.ui !== undefined) {
-            rt.fork.ui = patch.ui;
+          if (patch?.ui !== undefined) rt.fork.ui = patch.ui;
+          if (patch?.flowStep) rt.fork.flowStep = patch.flowStep;
+          if (patch?.ui !== undefined || patch?.flowStep) {
             persistFork(this.cfg.dataDir, rt.fork);
             this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
           }
@@ -321,12 +335,17 @@ export class ForkManager {
 
   private async merge(rt: ForkRuntime, summary: string): Promise<void> {
     if (rt.fork.status === "merged") return;
+    const plugin = this.views.get(rt.fork.view);
+    const result = rt.fork.result ?? plugin?.result?.(rt.fork) ?? emptyResult(summary);
+    result.summary = summary || result.summary;
     rt.fork.status = "merged";
     rt.fork.mergedAt = nowIso();
-    rt.fork.summary = summary;
+    rt.fork.summary = result.summary;
+    rt.fork.result = result;
+    rt.fork.flowStep = "result";
     persistFork(this.cfg.dataDir, rt.fork);
     this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
-    this.hooks.onMerge(rt.fork, summary);
+    this.hooks.onMerge(rt.fork, formatForkResult(rt.fork, result), result);
   }
 }
 
@@ -350,7 +369,7 @@ export function loadForkMeta(dataDir: string, id: string): Fork | null {
 export function mergeMessage(fork: Fork, summary: string): Omit<Message, "i" | "size"> {
   return {
     kind: "merge",
-    text: `${fork.view} #${fork.seq} voltou · ${oneLine(summary)}`,
+    text: fork.result ? formatForkResult(fork, fork.result) : `${fork.view} #${fork.seq} voltou · ${oneLine(summary)}`,
     date: nowIso(),
     forkId: fork.id,
     seat: "claude",

@@ -1,4 +1,5 @@
 import type { Fork, NeedsUser } from "../types";
+import type { ForkResult } from "./manifest";
 
 export interface ViewCreateResult {
   title: string;
@@ -8,6 +9,7 @@ export interface ViewCreateResult {
   ui?: unknown;
   needsUser?: Fork["needsUser"];
   hold?: boolean;
+  flowStep?: string;
 }
 
 export interface ViewAction {
@@ -21,6 +23,8 @@ export interface ViewActionResult {
   needsUser?: NeedsUser | null;
   merge?: boolean;
   summary?: string;
+  result?: ForkResult;
+  flowStep?: string;
 }
 
 export interface ViewPlugin {
@@ -33,6 +37,7 @@ export interface ViewPlugin {
   applyAction?(fork: Fork, action: ViewAction): ViewActionResult | void;
   render?(fork: Fork): string;
   onEvent?(fork: Fork, event: { type: string; text?: string }): Partial<Fork> | void;
+  result?(fork: Fork): ForkResult;
 }
 
 export interface ViewCreateCtx {

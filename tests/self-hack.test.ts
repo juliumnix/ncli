@@ -96,7 +96,7 @@ test("scripted agent follows add-view, the view appears live, remove-view takes 
     await hub.send("remove a view ping");
     expect(hub.memory.log.some((m) => m.kind === "talk" && m.text.includes("ncli remove view ping"))).toBe(true);
     removeView("ping", paths(viewsDir));
-    await waitUntil(() => !hub.views.get("ping") && !existsSync(join(viewsDir, "ping.ts")));
+    await waitUntil(() => !hub.views.get("ping") && !existsSync(join(viewsDir, "ping")));
     expect(hub.views.list().map((v) => v.id)).not.toContain("ping");
   } finally {
     hub.close();
@@ -111,7 +111,7 @@ test("/ncli new view and /ncli remove view scaffold against a live hub", async (
     await hub.send("/ncli new view pong");
     expect(harness.lastPrompts).toEqual([]);
     await waitUntil(() => Boolean(hub.views.get("pong")));
-    expect(hub.memory.log.some((m) => m.kind === "note" && m.text.includes("pong.ts"))).toBe(true);
+    expect(hub.memory.log.some((m) => m.kind === "note" && /pong/.test(m.text))).toBe(true);
     await hub.send("/ncli remove view pong");
     await waitUntil(() => !hub.views.get("pong"));
   } finally {

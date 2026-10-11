@@ -24,6 +24,8 @@ export function prepareSpawn(opts: {
   ticket?: string;
   token?: string;
   mcpUrl?: string;
+  addDir?: string[];
+  agentsMd?: string;
 }): SpawnInject {
   const token = opts.token ?? "";
   const mcpUrl = opts.mcpUrl ?? `http://127.0.0.1:${opts.cfg.port}/mcp`;
@@ -39,8 +41,8 @@ export function prepareSpawn(opts: {
   const mcpConfigPath = join(dir, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: asClaudeMap(servers) }, null, 2), "utf8");
   const skills = defaultSkillsDir(opts.cfg.ncliRoot);
-  const addDir = runtimeSkillDirs(skills);
-  const agentsMd = agentsBlock(skills);
+  const addDir = opts.addDir ?? runtimeSkillDirs(skills);
+  const agentsMd = opts.agentsMd ?? agentsBlock(skills);
   writeFileSync(join(dir, "AGENTS.md"), agentsMd, "utf8");
   const extraArgs = extraFor(opts.harness, servers, addDir);
   maybeWriteCursorWorkspace(opts.worktree, opts.cfg, servers, agentsMd);
@@ -56,10 +58,10 @@ export function prepareSpawn(opts: {
   };
 }
 
-export function extraFor(harness: string, servers: McpServerSpec[], addDirs: string[]): string[] {
+export function extraFor(harness: string, servers: McpServerSpec[], skillsDir: string | string[]): string[] {
   switch (harness) {
     case "claude":
-      return addDirs.flatMap((d) => ["--add-dir", d]);
+      return (Array.isArray(skillsDir) ? skillsDir : [skillsDir]).flatMap((d) => ["--add-dir", d]);
     case "codex":
       return codexMcpFlags(servers);
     case "cursor":
