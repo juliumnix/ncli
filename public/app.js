@@ -1718,9 +1718,10 @@ async function sendUser(text, mode) {
   const t = String(text || "").trim();
   if (!t) return;
   const running = state.turn && state.turn.status === "running";
+  const slash = t.startsWith("/ncli");
   const body = { text: t };
   if (running) body.mode = mode || "steer";
-  if (!running) {
+  if (!running && !slash) {
     const pending = {
       kind: "user",
       text: t,
