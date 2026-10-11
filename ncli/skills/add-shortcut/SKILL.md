@@ -5,7 +5,7 @@ description: Put a spark on the right-rail avatar when it needs the user. Use wh
 
 # Add a shortcut / needs-user state
 
-The rail is not a launcher. Only `status === "needs_user"` sparks appear.
+The rail is the spark inbox. Glance states: trabalhando / precisa de você / pronto. Settled (`merged` / `error`) drops off. `próximo` (Alt+N) jumps to the next `needs_user`. The browser Notification API fires when the tab is hidden. Only `needs_user` and `done` pulse.
 
 ## Files
 

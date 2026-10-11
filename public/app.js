@@ -815,33 +815,102 @@ function dayLabel(iso) {
 
 const seenPills = new Set();
 
+function inboxStateOf(status) {
+  if (status === "running") return "working";
+  if (status === "needs_user") return "needs_you";
+  if (status === "done") return "ready";
+  return "settled";
+}
+
+function inboxLabelOf(state) {
+  if (state === "working") return "trabalhando";
+  if (state === "needs_you") return "precisa de você";
+  if (state === "ready") return "pronto";
+  return "fechado";
+}
+
+function inboxRowsOf(sparks) {
+  return sparks
+    .map((s) => ({ spark: s, state: inboxStateOf(s.status), label: inboxLabelOf(inboxStateOf(s.status)) }))
+    .filter((r) => r.state !== "settled");
+}
+
+function nextNeedsYouOf(sparks, afterId) {
+  const waiting = sparks.filter((s) => inboxStateOf(s.status) === "needs_you");
+  if (!waiting.length) return undefined;
+  if (!afterId) return waiting[0];
+  const i = waiting.findIndex((s) => s.id === afterId);
+  if (i < 0) return waiting[0];
+  return waiting[(i + 1) % waiting.length];
+}
+
+function shouldNotifyOf(prev, next) {
+  if (!document.hidden) return null;
+  const permission = typeof Notification === "undefined" ? "denied" : Notification.permission;
+  if (permission !== "granted") return null;
+  const nextState = inboxStateOf(next.status);
+  if (nextState !== "needs_you" && nextState !== "ready") return null;
+  if (prev && inboxStateOf(prev.status) === nextState) return null;
+  return {
+    title: nextState === "needs_you" ? "spark precisa de você" : "spark pronto",
+    body: `${next.view} #${next.seq} · ${next.title}`,
+    tag: next.id,
+  };
+}
+
+function maybeNotifySpark(prev, next) {
+  if (typeof Notification === "undefined") return;
+  const nextState = inboxStateOf(next.status);
+  if (document.hidden && Notification.permission === "default" && (nextState === "needs_you" || nextState === "ready")) {
+    void Notification.requestPermission();
+    return;
+  }
+  const payload = shouldNotifyOf(prev, next);
+  if (!payload) return;
+  const note = new Notification(payload.title, { body: payload.body, tag: payload.tag });
+  note.onclick = () => {
+    window.focus();
+    openSpark(next.id);
+  };
+}
+
+function openNextNeedsYou() {
+  const next = nextNeedsYouOf(state.sparks, state.openSpark || undefined);
+  if (next) openSpark(next.id);
+}
+
 function renderShortcuts() {
-  const pills = state.sparks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
-  const nextIds = new Set(pills.map((f) => f.id));
+  const rows = inboxRowsOf(state.sparks);
+  const nextIds = new Set(rows.map((r) => r.spark.id));
   const leaving = [...shortcuts.querySelectorAll("[data-spark]")].filter((el) => !nextIds.has(el.dataset.spark));
   const glyph = { review: "⌥", refino: "✎", live: "▣" };
-  shortcuts.innerHTML = pills
-    .map((f) => {
-      const fresh = !seenPills.has(f.id);
-      const attn = f.status === "needs_user" || f.status === "done";
-      const klass = ["ch", fresh ? "pop" : "", attn ? "attn" : ""].filter(Boolean).join(" ");
-      const n = f.needsUser?.count || (f.status === "done" ? 1 : 0);
-      const sub = f.needsUser?.label || (f.status === "done" ? "pronto" : f.status === "running" ? "rodando" : f.title);
-      const short = f.view === "refino" && f.needsUser?.count ? `${n} pergunta${n === 1 ? "" : "s"}` : sub;
-      const badge = n ? `<span class="badge">${n}</span>` : "";
-      return `<button class="${klass}" data-spark="${f.id}">
-        <div class="lbl"><b>${escapeHtml(f.view)} #${f.seq}</b>${escapeHtml(short)}</div>
+  const next = nextNeedsYouOf(state.sparks);
+  const nextBtn = next
+    ? `<button type="button" class="inbox-next" data-inbox="next" title="Alt+N">próximo</button>`
+    : "";
+  shortcuts.innerHTML =
+    nextBtn +
+    rows
+      .map((r) => {
+        const f = r.spark;
+        const fresh = !seenPills.has(f.id);
+        const attn = r.state === "needs_you" || r.state === "ready";
+        const klass = ["ch", fresh ? "pop" : "", attn ? "attn" : ""].filter(Boolean).join(" ");
+        const n = f.needsUser?.count || (r.state === "ready" ? 1 : 0);
+        const badge = n ? `<span class="badge">${n}</span>` : "";
+        return `<button class="${klass}" data-spark="${f.id}">
+        <div class="lbl"><b>${escapeHtml(f.view)} #${f.seq}</b>${escapeHtml(r.label)}</div>
         <div class="fa">${glyph[f.view] || "●"}${badge}</div>
       </button>`;
-    })
-    .join("");
+      })
+      .join("");
   for (const el of leaving) {
     el.classList.add("out");
     el.classList.remove("pop");
     shortcuts.appendChild(el);
     waitMotion(el).then(() => el.remove());
   }
-  for (const f of pills) seenPills.add(f.id);
+  for (const r of rows) seenPills.add(r.spark.id);
 }
 
 function renderContext() {
@@ -1319,10 +1388,12 @@ function applyEvent(ev) {
       renderChrome();
       break;
     case "spark": {
-      const i = state.sparks.findIndex((f) => f.id === ev.spark.id);
       const spark = ev.spark || ev.fork;
+      const i = state.sparks.findIndex((f) => f.id === spark.id);
+      const prev = i >= 0 ? state.sparks[i] : undefined;
       if (i >= 0) state.sparks[i] = spark;
       else state.sparks.push(spark);
+      maybeNotifySpark(prev, spark);
       renderShortcuts();
       if (state.turn && state.turn.status === "running") scheduleFullPaint();
       else renderChat();
@@ -1332,7 +1403,7 @@ function applyEvent(ev) {
           break;
         }
         if (state.sparkDetail) {
-          state.sparkDetail.spark = ev.spark || ev.fork;
+          state.sparkDetail.spark = spark;
           if (!state.sparkDetail.html) drawModal();
         }
       }
@@ -1464,6 +1535,10 @@ chat.addEventListener("click", (e) => {
 });
 
 shortcuts.addEventListener("click", (e) => {
+  if (e.target.closest("[data-inbox='next']")) {
+    openNextNeedsYou();
+    return;
+  }
   const b = e.target.closest("[data-spark]");
   if (b) openSpark(b.dataset.spark);
 });
@@ -1592,6 +1667,12 @@ window.addEventListener("message", (ev) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && uiExpanded) collapseUi();
+  if (e.altKey && (e.key === "n" || e.key === "N") && !e.repeat) {
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    e.preventDefault();
+    openNextNeedsYou();
+  }
 });
 
 $("uiCollapse")?.addEventListener("click", () => collapseUi());

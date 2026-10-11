@@ -43,7 +43,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Harness** — `AcpAdapter` in `src/acp/<id>.ts`, then a case in `pickHarness` + `HarnessKind`.
 - **Render kind** — add to `LiveKind`, `frameHtml`, and the matching regex in `public/app.js`.
 - **Memory** — env in `src/config.ts`; do not compact on the user turn.
-- **Shortcut** — `needsUser` on the spark + glyph in `public/app.js`.
+- **Shortcut** — spark inbox on the right rail (`src/live/inbox.ts`): trabalhando / precisa de você / pronto; settled drops off. `próximo` + Notification API when the tab is hidden.
 - **Delegate** — `ask(agent, prompt)` on ncli-bus, or a `view://` spark. No extra daemons.
 - **Bus** — one socket on the NCLI server. On-demand children. Posts land on the next turn (optional Claude hook is a single socket call).
 - **MCP / skill** — add once in `ncli/mcp.json` / `ncli/skills/`. Spawn writes an HTTP `type: "http"` entry with a bearer token. The Bun server is already listening on `/mcp`.
