@@ -5,7 +5,7 @@ import { bootNcli } from "../boot";
 import { loadConfig } from "../config";
 import { Hub } from "../hub";
 import { MockHarness } from "../harness/mock";
-import { initTempRepo } from "../forks/worktree";
+import { initTempRepo } from "../sparks/worktree";
 import type { HubEvent } from "../types";
 import type { PerfSample } from "./types";
 

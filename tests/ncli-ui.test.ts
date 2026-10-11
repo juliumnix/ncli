@@ -90,7 +90,7 @@ test("client chat parser stays in lockstep with the ui kind", () => {
   expect(js).toContain("function liveDocCss");
   expect(js).toContain("signalLayout");
   expect(js).toContain('op: "layout"');
-  expect(css).toContain("body.ui-open .composer");
+  expect(css).toContain("body.ui-open .dock");
   expect(css).toContain("--ui-pane-w");
   expect(css).toContain("height: 100% !important");
 });

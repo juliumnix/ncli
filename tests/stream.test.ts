@@ -9,7 +9,7 @@ test("a second send while turning still opens view:// links", async () => {
   const first = hub.send("oi");
   await waitUntil(() => hub.snapshot().turning);
   await hub.send("view://live");
-  await waitUntil(() => hub.forks.list().some((f) => f.view === "live"));
+  await waitUntil(() => hub.sparks.list().some((f) => f.view === "live"));
   await first;
 });
 
