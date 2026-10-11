@@ -5,7 +5,7 @@ import { assemble } from "../src/memory/assemble";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { prepareSpawn } from "../src/mcp/inject";
 import { addView, packView } from "../src/views/pack";
-import { validateManifest } from "../src/views/manifest";
+import { formatForkResult, validateManifest } from "../src/views/manifest";
 import { ViewRegistry } from "../src/views/registry";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
 
@@ -67,6 +67,27 @@ function writeEcho(dir: string): string {
   );
   return pack;
 }
+
+test("formatForkResult uses Portuguese singular and plural", () => {
+  expect(
+    formatForkResult(
+      { view: "review", seq: 5 },
+      {
+        summary: "ok",
+        artifacts: [
+          { kind: "chapter", label: "a" },
+          { kind: "chapter", label: "b" },
+          { kind: "chapter", label: "c" },
+        ],
+        decisions: [
+          { id: "1", text: "x" },
+          { id: "2", text: "y" },
+        ],
+        links: ["view://review?pr=482"],
+      },
+    ),
+  ).toBe("review #5 voltou · ok · 2 decisões · 3 artefatos · view://review?pr=482");
+});
 
 test("manifest rejects personal paths and unknown harnesses", () => {
   expect(() =>
