@@ -14,7 +14,8 @@
     "ncli": "bun run src/cli.ts",
     "bus:hook": "bun run src/bus/hook.ts",
     "sync-pstack": "bun run scripts/sync-pstack.ts",
-    "sync-emil": "bun run scripts/sync-emil.ts"
+    "sync-emil": "bun run scripts/sync-emil.ts",
+    "perf": "bun run scripts/perf.ts"
   },
   "type": "module",
   "dependencies": {
