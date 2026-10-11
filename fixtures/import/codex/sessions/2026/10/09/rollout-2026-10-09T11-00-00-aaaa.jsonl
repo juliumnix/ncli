@@ -1,0 +1,9 @@
+{"timestamp":"2026-10-09T11:00:00.000Z","type":"session_meta","payload":{"id":"rollout-aaaa","cwd":"/workspace"}}
+{"timestamp":"2026-10-09T11:00:01.000Z","type":"turn_context","payload":{"cwd":"/workspace"}}
+{"timestamp":"2026-10-09T11:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"ping no Codex: o ask chegou?"}}
+{"timestamp":"2026-10-09T11:00:05.000Z","type":"response_item","payload":{"type":"reasoning","content":[{"type":"output_text","text":"pensar não entra"}]}}
+{"timestamp":"2026-10-09T11:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}
+{"timestamp":"2026-10-09T11:00:08.000Z","type":"event_msg","payload":{"type":"agent_message","message":"pong. O ask chegou e o modelo veio do config.toml."}}
+{"timestamp":"2026-10-09T11:00:20.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"confirma o modelo"}]}}
+{"timestamp":"2026-10-09T11:00:22.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"gpt-6.1-sol, sem --model na linha."}]}}
+{"timestamp":"2026-10-09T11:00:30.000Z","type":"compacted","payload":{"n":1}}
