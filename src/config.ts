@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseFallbackChain } from "./harness/usage";
 
 export type HarnessKind = "claude" | "cursor" | "codex" | "mock" | "auto";
 export type CompactBackend = "cursor" | "claude" | "mock" | "auto";
@@ -37,6 +38,7 @@ export interface NcliConfig {
   busBudget: number;
   ncliRoot: string;
   backupHarness: HarnessKind;
+  fallbackChain: HarnessKind[];
   userName: string;
 }
 
@@ -99,6 +101,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     busBudget: num("NCLI_BUS_BUDGET", 8),
     ncliRoot: process.env.NCLI_ROOT ?? process.cwd(),
     backupHarness: (process.env.NCLI_BACKUP ?? "codex") as HarnessKind,
+    fallbackChain: parseFallbackChain(process.env.NCLI_FALLBACK, (process.env.NCLI_BACKUP ?? "codex") as HarnessKind),
     userName: parseUserName(userNameOverride ?? process.env.NCLI_USER_NAME),
     ...rest,
   };

@@ -64,11 +64,20 @@ code { font: 12px ui-monospace, Menlo, monospace; }
 }
 .switch-opt.on { background: #1c1c1f; }
 .switch-opt:active { transform: scale(0.97); }
-.compact-ind {
+.compact-ind, .limit-ind {
   font-size: 11px; color: var(--muted);
   background: var(--card); border: 1px solid var(--line);
   border-radius: 999px; padding: 5px 10px; white-space: nowrap;
 }
+.limit-ind {
+  display: inline-flex; align-items: center; gap: 8px;
+  animation: ncli-enter 180ms var(--ease-out);
+}
+.limit-ind button {
+  border: 0; background: none; color: var(--fg); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 0;
+}
+.limit-ind button:hover { color: var(--accent); }
 .stop {
   margin-left: auto; border: 1px solid #5a2a2a; background: #2a1616; color: #f0b4b4;
   border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;

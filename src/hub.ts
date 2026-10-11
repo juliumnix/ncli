@@ -14,6 +14,7 @@ import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
 import { displaySeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
+import { isSeatKind, UsageBoard, type LimitPolicy } from "./harness/usage";
 import { renderToolToFence } from "./live/parse";
 import { LiveTurn } from "./live/turn";
 import { joinText } from "./live/join-text";
@@ -38,6 +39,7 @@ export class Hub {
   readonly views: ViewRegistry;
   readonly sparks: SparkManager;
   readonly queue: TurnQueue;
+  readonly usage: UsageBoard;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -77,6 +79,8 @@ export class Hub {
     this.queue = new TurnQueue(cfg.dataDir);
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
+    this.usage = new UsageBoard(cfg.dataDir, uniqueKinds([this.harness.id as HarnessKind, ...cfg.fallbackChain]));
+    this.usage.onReset = (seat) => this.onUsageReset(seat);
     this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
@@ -181,6 +185,7 @@ export class Hub {
     void this.memory.pump();
     this.emitDebug();
     this.emitQueue();
+    this.emitUsage();
     if (!this.turning) void this.drainSession("main");
   }
 
@@ -202,6 +207,7 @@ export class Hub {
     compact: CompactStatus;
     turning: boolean;
     queue: ReturnType<TurnQueue["list"]>;
+    usage: ReturnType<UsageBoard["snapshot"]>;
   } {
     return {
       messages: this.memory.log,
@@ -216,6 +222,7 @@ export class Hub {
       compact: this.compact,
       turning: this.turning,
       queue: this.queue.list(),
+      usage: this.usage.snapshot(),
     };
   }
 
@@ -226,6 +233,10 @@ export class Hub {
     const mode = opts.mode ?? (this.isBusy(session) ? "steer" : "queue");
     if (session !== "main") {
       await this.sendSpark(session, trimmed, mode);
+      return;
+    }
+    if (!this.turning && !this.ensureOpenSeat()) {
+      this.park(session, trimmed, "queue");
       return;
     }
     if (this.turning) {
@@ -429,19 +440,73 @@ export class Hub {
 
   private fallbackFrom(err: string): boolean {
     if (!isQuotaError(err)) return false;
-    if (this.harness.id !== "claude") return false;
-    const backup = this.cfg.backupHarness;
-    if (backup === "claude" || backup === "auto") return false;
-    this.switchMain(backup);
-    const seat = seatFromId(backup);
+    const current = this.harness.id as HarnessKind;
+    this.usage.markLimited(current, err);
+    this.emitUsage();
+    const next = this.nextOpenSeat(current);
+    if (!next) {
+      const when = this.usage.limitOf(current).resetAt;
+      const msg = this.memory.append({
+        kind: "note",
+        text: `${seatLabel(current)} bateu no limite. Sem seat livre${when ? ` · volta ${clockLabel(when)}` : ""}. A fila espera o reset.`,
+        seat: seatFromId(current),
+      });
+      this.emit({ type: "message", session: "main", message: msg });
+      return false;
+    }
+    this.switchMain(next);
     const msg = this.memory.append({
       kind: "note",
-      text: `Claude bateu no limite (quota/rate-limit). Passei o harness principal para ${backup} e reintento o turno. Mesma memória, mesmas tools, mesmas skills.`,
-      seat,
+      text: `${seatLabel(current)} bateu no limite (quota/rate-limit). Passei o harness principal para ${next} e reintento o turno. Mesma memória, mesmas tools, mesmas skills.`,
+      seat: seatFromId(next),
     });
     this.emit({ type: "message", session: "main", message: msg });
     this.emit({ type: "main", main: this.mainAgent() });
     return true;
+  }
+
+  setUsagePolicy(seat: HarnessKind, policy: LimitPolicy): ReturnType<UsageBoard["snapshot"]> {
+    this.usage.setPolicy(seat, policy);
+    this.emitUsage();
+    return this.usage.snapshot();
+  }
+
+  onUsageReset(seat: HarnessKind): void {
+    this.emitUsage();
+    if (this.usage.limitOf(seat).policy === "snooze") return;
+    const note = this.memory.append({
+      kind: "note",
+      text: `${seatLabel(seat)} voltou. Retomo a fila.`,
+      seat: seatFromId(seat),
+    });
+    this.emit({ type: "message", session: "main", message: note });
+    if (this.usage.limitOf(this.harness.id as HarnessKind).status === "limited") {
+      this.switchMain(seat);
+    }
+    if (!this.turning) void this.drainSession("main");
+  }
+
+  private ensureOpenSeat(): boolean {
+    const current = this.harness.id as HarnessKind;
+    if (this.usage.limitOf(current).status === "ok") return true;
+    const next = this.nextOpenSeat(current);
+    if (!next) return false;
+    this.switchMain(next);
+    return true;
+  }
+
+  private nextOpenSeat(from: HarnessKind): HarnessKind | undefined {
+    const found = this.usage.nextOpen(from);
+    if (found) return found;
+    const backup = this.cfg.backupHarness;
+    if (isSeatKind(backup) && backup !== from && backup !== "auto" && this.usage.limitOf(backup).status === "ok") {
+      return backup;
+    }
+    return undefined;
+  }
+
+  private emitUsage(): void {
+    this.emit({ type: "usage", usage: this.usage.snapshot() });
   }
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
@@ -576,6 +641,7 @@ export class Hub {
 
   close(): void {
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
+    this.usage.close();
     this.views.close();
     this.bus.close();
   }
@@ -630,6 +696,25 @@ function paramsOf(raw: unknown): Record<string, string> {
     return out;
   }
   return {};
+}
+
+function uniqueKinds(list: HarnessKind[]): HarnessKind[] {
+  return [...new Set(list.filter(isSeatKind))];
+}
+
+function seatLabel(kind: HarnessKind): string {
+  if (kind === "claude") return "Claude";
+  if (kind === "codex") return "Codex";
+  if (kind === "cursor") return "Cursor";
+  if (kind === "mock") return "mock";
+  const _n: never = kind;
+  return _n;
+}
+
+function clockLabel(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function persistMainHarness(dataDir: string, kind: HarnessKind): void {

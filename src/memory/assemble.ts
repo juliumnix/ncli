@@ -45,7 +45,7 @@ To talk to Codex or Cursor, use the ncli MCP tools ask / wait / post / inbox / r
 (ncli/skills/ncli-bus). Do not shell out to another CLI.
 Agents exist only while working. Messages stay short.
 
-The same ncli MCP, the same memory view and the same ncli runtime skills are injected on every spawn, whichever harness is main. Switch with switch_harness when a quota hits; NCLI also does that automatically.
+The same ncli MCP, the same memory view and the same ncli runtime skills are injected on every spawn, whichever harness is main. A quota walks the fallback chain and parks the queue until reset.
 
 A view line about an outage, a missing tool, or MCP being down is a timestamped snapshot. date(id) tells you when it was written. Check the live ncli tools and the current harness before you treat that line as still true. Live state beats memory.
 
