@@ -38,8 +38,8 @@ source
 
 Or the MCP tool ncli.render({kind, source}). kind=ui is an interactive mini-app (tabs, charts, tables). NCLI draws them in a sandboxed iframe. Follow ncli/skills/ncli-ui/SKILL.md.
 
-When a fork finishes it comes back here as a single merge line; zoom the
-fork id if you need its full log.
+When a spark finishes it comes back here as a single merge line; zoom the
+spark id if you need its full log.
 
 To talk to Codex or Cursor, use the ncli MCP tools ask / wait / post / inbox / read
 (ncli/skills/ncli-bus). Do not shell out to another CLI.
@@ -71,10 +71,9 @@ whenever a summary only mentions something you need, such as what your
 last reply said, a decision, a past attempt or where a file is, before
 you act, guess or ask. date(id) gives the date and time of message id.`;
 
-export function assemble(mem: Memory, extraSystem = ""): AssembledContext {
+export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
   const d = mem.debug();
-  const skills = skillPrompt();
-  const system = [MASTER, skills, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
+  const system = [master, skillsText, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
   return {
     system,
     view: mem.renderView(),

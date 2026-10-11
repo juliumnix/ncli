@@ -154,7 +154,7 @@ test("max depth 1 blocks a nested ask; cycle is rejected at depth 2", async () =
   deep.close();
 });
 
-test("per-fork budget and max concurrent children", async () => {
+test("per-spark budget and max concurrent children", async () => {
   let release!: () => void;
   const gate = new Promise<void>((r) => {
     release = r;

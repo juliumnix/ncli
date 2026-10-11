@@ -15,6 +15,7 @@ export interface WireMsg {
   body: string;
   ticket?: string;
   parent?: string;
+  spark?: string;
   fork?: string;
   timeout?: number;
   op?: BusOp;
@@ -28,7 +29,7 @@ export interface BusLine {
   body: string;
   ticket?: string;
   parent?: string;
-  fork?: string;
+  spark?: string;
   at: string;
 }
 
@@ -37,7 +38,7 @@ export interface Ticket {
   from: string;
   to: SeatId;
   prompt: string;
-  fork?: string;
+  spark?: string;
   parent?: string;
   depth: number;
   status: "pending" | "running" | "done" | "error";
@@ -49,10 +50,16 @@ export interface Ticket {
 }
 
 export interface BusAskOpts {
+  spark?: string;
   fork?: string;
   mode?: string;
   timeout?: number;
   parent?: string;
+}
+
+export function sparkIdOf(x: { spark?: string; fork?: string } | undefined): string | undefined {
+  if (!x) return undefined;
+  return x.spark || x.fork || undefined;
 }
 
 export interface BusRunnerReq {

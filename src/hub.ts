@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { CompactStatus, ContextSnapshot, Fork, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
+import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
@@ -18,11 +18,11 @@ import { renderToolToFence } from "./live/parse";
 import { LiveTurn } from "./live/turn";
 import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
-import { ForkManager, mergeMessage } from "./forks/manager";
+import { SparkManager, mergeMessage } from "./sparks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
 import { parseViewLink } from "./util";
 import { seedDemo } from "./demo";
-import type { GitRunner } from "./forks/worktree";
+import type { GitRunner } from "./sparks/worktree";
 import { runNcli } from "./skills/scaffold";
 import { defaultSkillsDir } from "./skills/catalog";
 import { Bus } from "./bus/bus";
@@ -30,11 +30,12 @@ import { formatBusLine, isSeat, type BusLine } from "./bus/types";
 import { McpGate } from "./mcp/auth";
 import type { McpSession } from "./mcp/handle";
 import { prepareSpawn } from "./mcp/inject";
+import { sparkSkillPrompt } from "./views/manifest";
 
 export class Hub {
   readonly memory: Memory;
   readonly views: ViewRegistry;
-  readonly forks: ForkManager;
+  readonly sparks: SparkManager;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -76,19 +77,19 @@ export class Hub {
     this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
-      cwdFor: (fork) => (fork ? this.forks.get(fork)?.worktree?.path ?? cfg.repo : cfg.repo),
+      cwdFor: (spark) => (spark ? this.sparks.get(spark)?.worktree?.path ?? cfg.repo : cfg.repo),
       onLine: (line) => this.noteBus(line),
       onMcp: (name, args, from) => this.callMcp(name, args, from),
     });
     const gh = pickGh(cfg, fixturesDir);
-    this.forks = new ForkManager(cfg, this.views, gh, {
+    this.sparks = new SparkManager(cfg, this.views, gh, {
       compressor: this.compressor,
       harness: this.harness,
       git,
       bus: this.bus,
       inject: (session, worktree) => this.injectSpawn(session, this.harness.id, worktree),
       onEvent: (ev) => {
-        if (ev.type === "fork") this.emit({ type: "fork", fork: ev.payload as Fork });
+        if (ev.type === "spark") this.emit({ type: "spark", spark: ev.payload as Spark });
         if (ev.type === "message") this.emit({ type: "message", session: ev.session, message: ev.payload as Message });
         if (ev.type === "tool") this.emit({ type: "tool", session: ev.session, name: String((ev.payload as { name?: string }).name ?? "tool"), input: ev.payload });
         if (ev.type === "delta") {
@@ -101,8 +102,8 @@ export class Hub {
           this.emit({ type: "step", session: ev.session, turnId: p.turnId, step: p.step });
         }
       },
-      onMerge: (fork, summary) => {
-        const msg = this.memory.append(mergeMessage(fork, summary));
+      onMerge: (spark, summary) => {
+        const msg = this.memory.append(mergeMessage(spark, summary));
         this.emit({ type: "message", session: "main", message: msg });
         this.emitDebug();
       },
@@ -112,7 +113,7 @@ export class Hub {
 
   switchMain(kind: HarnessKind): void {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
-    this.forks.setHarness(this.harness);
+    this.sparks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
     this.model = displaySeatModel(this.cfg, kind);
     this.spawnMain = null;
@@ -138,7 +139,20 @@ export class Hub {
 
   injectSpawn(session: string, harness: string, worktree?: string, ticket?: string) {
     const token = this.mcp.mint(session, ticket);
-    return prepareSpawn({ cfg: this.cfg, session, harness, worktree, ticket, token, mcpUrl: this.mcpUrl });
+    const view = this.sparks.get(session)?.spark.view;
+    const pack = view ? this.views.packageOf(view) : undefined;
+    return prepareSpawn({
+      cfg: this.cfg,
+      session,
+      harness,
+      worktree,
+      ticket,
+      token,
+      mcpUrl: this.mcpUrl,
+      addDir: pack ? pack.skillDirs : undefined,
+      agentsMd: pack ? sparkSkillPrompt(pack) : undefined,
+      extraMcp: pack?.manifest.mcp ? join(pack.dir, pack.manifest.mcp) : undefined,
+    });
   }
 
   private mainSpawn() {
@@ -152,7 +166,7 @@ export class Hub {
     await this.bus.listen();
     await this.views.loadAll();
     this.views.watch();
-    this.forks.restore();
+    this.sparks.restore();
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
@@ -167,11 +181,12 @@ export class Hub {
 
   snapshot(): {
     messages: Message[];
-    forks: Fork[];
+    sparks: Spark[];
+    forks: Spark[];
     views: ViewInfo[];
     debug: ReturnType<Memory["debug"]>;
     context: ContextSnapshot;
-    waiting: Fork[];
+    waiting: Spark[];
     main: MainAgent;
     turn: Turn | null;
     compact: CompactStatus;
@@ -179,11 +194,12 @@ export class Hub {
   } {
     return {
       messages: this.memory.log,
-      forks: this.forks.list(),
+      sparks: this.sparks.list(),
+      forks: this.sparks.list(),
       views: this.views.list(),
       debug: this.memory.debug(),
       context: contextSnapshot(this.memory, this.compact, this.cfg.userName),
-      waiting: this.forks.waitingOnUser(),
+      waiting: this.sparks.waitingOnUser(),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,
       compact: this.compact,
@@ -217,7 +233,7 @@ export class Hub {
 
   stopTurn(session = "main"): boolean {
     if (session !== "main") {
-      const rt = this.forks.get(session);
+      const rt = this.sparks.get(session);
       if (!rt) return false;
       rt.abort.abort();
       return true;
@@ -257,24 +273,24 @@ export class Hub {
   }
 
   seedViewSeq(view: string, last: number): void {
-    this.forks.seedViewSeq(view, last);
+    this.sparks.seedViewSeq(view, last);
   }
 
-  async openLinks(text: string): Promise<Fork[]> {
-    const opened: Fork[] = [];
+  async openLinks(text: string): Promise<Spark[]> {
+    const opened: Spark[] = [];
     for (const link of parseViewLink(text)) {
-      const rt = await this.forks.open(link.id, link.params);
-      opened.push(rt.fork);
+      const rt = await this.sparks.open(link.id, link.params);
+      opened.push(rt.spark);
     }
     return opened;
   }
 
-  async ackFork(id: string, summary?: string): Promise<void> {
-    await this.forks.finish(id, summary);
+  async ackSpark(id: string, summary?: string): Promise<void> {
+    await this.sparks.finish(id, summary);
   }
 
-  async actFork(id: string, action: ViewAction): Promise<Fork> {
-    return this.forks.act(id, action);
+  async actSpark(id: string, action: ViewAction): Promise<Spark> {
+    return this.sparks.act(id, action);
   }
 
   private beginLive(): void {
@@ -369,7 +385,7 @@ export class Hub {
   }
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
-    const mem = this.forks.get(from)?.memory ?? this.memory;
+    const mem = this.sparks.get(from)?.memory ?? this.memory;
     switch (name) {
       case "zoom": {
         const r = mem.zoom(Number(args.id), Number(args.n));
@@ -384,20 +400,23 @@ export class Hub {
         const source = String(args.source ?? "");
         return renderToolToFence(kind, source);
       }
+      case "open_spark":
       case "open_fork": {
         const view = String(args.view ?? "");
         const params = paramsOf(args.params);
         const qs = new URLSearchParams(params).toString();
         const opened = await this.openLinks(`view://${view}${qs ? `?${qs}` : ""}`);
-        return opened.map((f) => `${f.id} ${f.status}`).join("\n") || "not opened";
+        return opened.map((s) => `${s.id} ${s.status}`).join("\n") || "not opened";
       }
+      case "close_spark":
       case "close_fork":
-        await this.ackFork(String(args.id ?? ""), args.summary ? String(args.summary) : undefined);
+        await this.ackSpark(String(args.id ?? ""), args.summary ? String(args.summary) : undefined);
         return "ok";
       case "list_views":
         return JSON.stringify(this.views.list().map((v) => ({ id: v.id, label: v.label })));
+      case "list_sparks":
       case "list_forks":
-        return JSON.stringify(this.forks.list().map((f) => ({ id: f.id, view: f.view, status: f.status })));
+        return JSON.stringify(this.sparks.list().map((s) => ({ id: s.id, view: s.view, status: s.status })));
       case "switch_harness": {
         const kind = String(args.harness ?? "") as HarnessKind;
         if (kind !== "claude" && kind !== "codex" && kind !== "cursor" && kind !== "mock") {
@@ -496,7 +515,7 @@ export class Hub {
   }
 
   close(): void {
-    for (const rt of this.forks.runtimes.values()) rt.abort.abort();
+    for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.views.close();
     this.bus.close();
   }

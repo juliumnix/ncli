@@ -73,7 +73,7 @@ export class Memory {
     seat?: SeatId;
     model?: string;
     to?: string;
-    forkId?: string;
+    sparkId?: string;
     tool?: Message["tool"];
     hops?: string;
     date?: string;
@@ -94,7 +94,7 @@ export class Memory {
       seat: partial.seat,
       model: partial.model,
       to: partial.to,
-      forkId: partial.forkId,
+      sparkId: partial.sparkId,
       tool: partial.tool,
       hops: partial.hops,
       stepId: partial.stepId,

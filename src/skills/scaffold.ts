@@ -1,5 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { addView, packView } from "../views/pack";
+import { availableHarnesses } from "../views/manifest";
+import { loadConfig } from "../config";
 import { defaultSkillsDir, listSkills, readSkill } from "./catalog";
 
 export const SHIPPED_VIEWS = ["live", "refino", "review"] as const;
@@ -26,12 +29,27 @@ export function fillTemplate(raw: string, id: string): string {
 
 export function newView(idRaw: string, paths: ScaffoldPaths, kind: "view" | "mode" = "view"): string {
   const id = parseId(idRaw);
-  const dest = join(paths.viewsDir, `${id}.ts`);
-  if (existsSync(dest) && !paths.force) throw new Error(`${dest} já existe`);
+  const dest = join(paths.viewsDir, id);
+  const loose = join(paths.viewsDir, `${id}.ts`);
+  if ((existsSync(dest) || existsSync(loose)) && !paths.force) throw new Error(`${dest} já existe`);
   const skillId = kind === "mode" ? "add-mode" : "add-view";
-  const file = templateFile(skillId, paths.skillsDir);
-  mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, fillTemplate(readFileSync(file, "utf8"), id), "utf8");
+  const skills = paths.skillsDir ?? defaultSkillsDir();
+  const viewTpl = kind === "mode" && existsSync(join(skills, "add-mode", "template.ts"))
+    ? join(skills, "add-mode", "template.ts")
+    : templateFile("add-view", paths.skillsDir);
+  mkdirSync(join(dest, "skills", `${id}-flow`), { recursive: true });
+  writeFileSync(join(dest, "view.ts"), fillTemplate(readFileSync(viewTpl, "utf8"), id), "utf8");
+  writeFileSync(
+    join(dest, "manifest.json"),
+    fillTemplate(readFileSync(join(skills, "add-view", "template.manifest.json"), "utf8"), id),
+    "utf8",
+  );
+  writeFileSync(
+    join(dest, "skills", `${id}-flow`, "SKILL.md"),
+    fillTemplate(readFileSync(join(skills, "add-view", "template.skill.md"), "utf8"), id),
+    "utf8",
+  );
+  writeFileSync(join(dest, "index.ts"), `export { default } from "./view.ts";\n`, "utf8");
   return dest;
 }
 
@@ -40,10 +58,17 @@ export function removeView(idRaw: string, paths: ScaffoldPaths): string {
   if ((SHIPPED_VIEWS as readonly string[]).includes(id) && !paths.force) {
     throw new Error(`view ${id} é shipped; passe --force se o usuário pediu pra apagar`);
   }
-  const dest = join(paths.viewsDir, `${id}.ts`);
-  if (!existsSync(dest)) throw new Error(`${dest} não existe`);
-  unlinkSync(dest);
-  return dest;
+  const pack = join(paths.viewsDir, id);
+  const loose = join(paths.viewsDir, `${id}.ts`);
+  if (existsSync(pack)) {
+    rmSync(pack, { recursive: true, force: true });
+    return pack;
+  }
+  if (existsSync(loose)) {
+    unlinkSync(loose);
+    return loose;
+  }
+  throw new Error(`${pack} não existe`);
 }
 
 export function newHarness(idRaw: string, paths: ScaffoldPaths): string {
@@ -92,6 +117,8 @@ export function runNcli(argv: string[], paths: ScaffoldPaths): string {
       return runNew(args[1], args[2], p);
     case "remove":
       return runRemove(args[1], args[2], p);
+    case "view":
+      return runView(args[1], args[2], args[3], p);
     default:
       throw new Error(`comando desconhecido: ${cmd}\n${usage()}`);
   }
@@ -127,6 +154,18 @@ function runRemove(kind: string | undefined, id: string | undefined, paths: Scaf
   }
 }
 
+function runView(op: string | undefined, a: string | undefined, b: string | undefined, paths: ScaffoldPaths): string {
+  if (op === "add") {
+    if (!a) throw new Error("uso: ncli view add <path|git-url>");
+    return `instalou ${addView(a, paths.viewsDir, availableHarnesses({ harness: loadConfig().harness }))}`;
+  }
+  if (op === "pack") {
+    if (!a) throw new Error("uso: ncli view pack <id> [out]");
+    return `empacotou ${packView(a, paths.viewsDir, b ?? join(paths.viewsDir, "..", "dist"))}`;
+  }
+  throw new Error("uso: ncli view add <path|git-url> | ncli view pack <id> [out]");
+}
+
 function readRequiredSkill(id: string, paths: ScaffoldPaths): string {
   const s = readSkill(id, paths.skillsDir ?? defaultSkillsDir());
   if (!s) throw new Error(`skill ${id} ausente`);
@@ -146,6 +185,8 @@ function usage(): string {
   bun run ncli new view <id>
   bun run ncli new mode <id>
   bun run ncli new harness <id>
+  bun run ncli view pack <id> [out]
+  bun run ncli view add <path|git-url>
   bun run ncli remove view <id>
   bun run ncli remove harness <id>
   /ncli …  (mesmo comando no chat principal)`;

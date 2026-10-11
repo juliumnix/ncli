@@ -1,0 +1,19 @@
+{
+  "name": "refino",
+  "version": "1.0.0",
+  "description": "Card refinement: three role opinions, one batch of questions, merge at score 0.90.",
+  "requires": {
+    "harnesses": ["claude", "codex", "cursor", "mock"]
+  },
+  "agents": [
+    { "id": "produto", "role": "Produto", "harness": "claude" },
+    { "id": "engenharia", "role": "Engenharia", "harness": "codex" },
+    { "id": "analista", "role": "Analista", "harness": "cursor" }
+  ],
+  "skills": ["skills"],
+  "flow": [
+    { "id": "spark", "title": "Brief", "agent": "produto", "kind": "spark", "next": "wait" },
+    { "id": "wait", "title": "Questions", "agent": "produto", "kind": "wait_user", "next": "result" },
+    { "id": "result", "title": "Return", "agent": "produto", "kind": "result" }
+  ]
+}

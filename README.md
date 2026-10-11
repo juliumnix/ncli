@@ -1,6 +1,6 @@
 # NCLI
 
-Personal local hub that drives coding-agent CLIs. One infinite chat. Forks run in parallel, each with its own memory, harness process, and git worktree. Claude answers in the main thread. Codex and Cursor show up as their own messages when the orchestrator actually consults them.
+Personal local hub that drives coding-agent CLIs. One infinite chat. A view is a shareable package; a spark is a running instance of that view, isolated, that reports back to the main chat. Sparks run in parallel, each with its own memory, harness process, and git worktree. Claude answers in the main thread. Codex and Cursor show up as their own messages when the orchestrator actually consults them.
 
 ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Claude runs as the unmodified official CLI (`claude -p`). There is no Agent SDK, no Zed `claude-code-acp`, no harukitosa bridge, and no `@anthropic-ai/claude-agent-sdk` dependency.
 
@@ -33,7 +33,7 @@ Optional env:
 | --- | --- | --- |
 | `NCLI_HARNESS` | `auto` | `claude`, `cursor`, `codex`, `mock`, or `auto` (`auto` uses `claude` if the binary exists) |
 | `NCLI_BACKUP` | `codex` | main harness to switch to when Claude reports quota/rate-limit |
-| `NCLI_DATA` | `./data` | log + tree + forks |
+| `NCLI_DATA` | `./data` | log + tree + sparks |
 | `NCLI_PORT` | `47231` | HTTP port |
 | `NCLI_REPO` | cwd | repo used for `git worktree add` |
 | `NCLI_VIEW` | `2500` | view budget in bytes (demo-low) |
@@ -42,7 +42,7 @@ Optional env:
 | `NCLI_DEMO` | unset | `1` seeds the v4 demo on an empty log |
 | `NCLI_BUS_DEPTH` | `1` | max nested `ask` (set `2` to allow one hop) |
 | `NCLI_BUS_CHILDREN` | `4` | max concurrent on-demand CLIs |
-| `NCLI_BUS_BUDGET` | `8` | `ask` calls per fork |
+| `NCLI_BUS_BUDGET` | `8` | `ask` calls per spark |
 | `NCLI_CLAUDE` | `claude` | unmodified Claude Code binary |
 | `NCLI_CLAUDE_MODEL` | unset | passed as `--model` |
 | `NCLI_CLAUDE_API_KEY` | unset | `1` lets the child keep `ANTHROPIC_API_KEY`; default is strip |
@@ -83,11 +83,11 @@ source
 ```
 ````
 
-Or MCP `ncli.render({kind, source})`. `ui` is an interactive mini-app (tabs, metric cards, tables, charts). NCLI wraps it in a sandboxed iframe, injects the dark theme tokens, sizes the frame to the content via `postMessage`, and keeps an expand control in the parent. HTML/react use the same `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP (`default-src 'none'`). Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as a shimmer card, then the finished app. The fence is stored in the chat log, so reload and forks restore it.
+Or MCP `ncli.render({kind, source})`. `ui` is an interactive mini-app (tabs, metric cards, tables, charts). NCLI wraps it in a sandboxed iframe, injects the dark theme tokens, sizes the frame to the content via `postMessage`, and keeps an expand control in the parent. HTML/react use the same `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP (`default-src 'none'`). Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as a shimmer card, then the finished app. The fence is stored in the chat log, so reload and sparks restore it.
 
 The in-repo skill is `ncli/skills/ncli-ui/SKILL.md`. Agents read it on spawn. Users just ask in plain language. Interactions stay inside the iframe. An optional `ncliUi.send(text)` posts a normal user message.
 
-`NCLI_DEMO=1 bun start` seeds a mermaid + html pair plus a tabbed `ui` card, and opens `view://live` (five previews). Open the modal from the right rail, or `?open=<fork-id>`.
+`NCLI_DEMO=1 bun start` seeds a mermaid + html pair plus a tabbed `ui` card, and opens `view://live` (five previews). Open the modal from the right rail, or `?open=<spark-id>`.
 
 ## Compaction (Cursor SDK only)
 
@@ -95,7 +95,7 @@ The memory tree still compresses in the background and never blocks the user tur
 
 The compact model id is `claude-haiku-5-5`. The SDK rejects effort suffixes such as `-low`. Boot calls `Cursor.models.list()` when a key is present and fails with the valid ids if `NCLI_COMPACT_MODEL` is missing from the catalog. Low effort and no thinking are `model.params` taken from that catalog (`effort=low`, `thinking=false` when those parameters exist).
 
-The agentic Cursor seat stays on the local CLI: `cursor-agent --model $NCLI_CURSOR_MODEL acp` (default `composer-2.5`) with your `cursor-agent login`. Forks and bus `ask` / `wait` use that same CLI adapter. They never import `@cursor/sdk`.
+The agentic Cursor seat stays on the local CLI: `cursor-agent --model $NCLI_CURSOR_MODEL acp` (default `composer-2.5`) with your `cursor-agent login`. Sparks and bus `ask` / `wait` use that same CLI adapter. They never import `@cursor/sdk`.
 
 **Key setup (compaction SDK only)**
 
@@ -113,15 +113,18 @@ If an older NCLI build already changed your Cursor CLI default to Haiku, startup
 
 ## Hack NCLI from inside NCLI
 
-The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md`. Runtime spawns get those NCLI skills plus Emil (`ncli/skills/emil/`) when the work is UI. pstack is vendored at `ncli/skills/pstack/` for **coding agents developing NCLI** (see `AGENTS.md`); it is not injected into the chat system prompt, spawn `AGENTS.md`, or Claude `--add-dir`. One MCP registry: `ncli/mcp.json`. NCLI translates the runtime skills and MCP into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a fork worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
+The agent in the main chat is supposed to change this repo. One tree: `ncli/skills/<id>/SKILL.md`. Runtime spawns get those NCLI skills plus Emil (`ncli/skills/emil/`) when the work is UI. pstack is vendored at `ncli/skills/pstack/` for **coding agents developing NCLI** (see `AGENTS.md`); it is not injected into the chat system prompt, spawn `AGENTS.md`, or Claude `--add-dir`. One MCP registry: `ncli/mcp.json`. NCLI translates the runtime skills and MCP into each harness on spawn (`--mcp-config`, `-c mcp_servers.*`, or a spark worktree `.cursor/mcp.json`). It never writes `~/.claude`, `~/.codex`, or `~/.cursor`. Module map: `docs/ARCHITECTURE.md`.
 
 ```bash
 bun run ncli skills
-bun run ncli new view foo     # writes views/foo.ts, hot-reloads
+bun run ncli new view foo     # writes views/foo/ (manifest + view.ts + exclusive skill)
+bun run ncli view pack foo    # shareable folder <name>-<version>
+bun run ncli view add ./foo-1.0.0
+bun run ncli view add https://github.com/you/ncli-view-foo.git
 bun run ncli remove view foo
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped views: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90), `live` (five sandboxed previews, including `ui`). Each view is one file in `views/` (`review` also uses `src/review/model.ts`). Example data is a fictional `acme/shop` PR.
+Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR.
 
 ## Memory tree
 
@@ -137,20 +140,20 @@ bun test tests/hop.test.ts
 
 The drawer (☰) shows the current view, byte budget, and level mix (`16× 8× …`).
 
-## Forks
+## Sparks
 
-Unlimited, in parallel. Mix reviews, refinos, and live. Each fork has:
+A spark is a running instance of a view, started by the main chat. Unlimited, in parallel. Mix reviews, refinos, and live. Each spark has:
 
 - its own memory directory
 - its own harness process
 - a `git worktree add` when the view touches a repo
 - cleanup on close
 
-A fork that is running, needs you, or just finished appears as a round avatar on the right, with an unread badge and a short label. New pills slide in. Forks that need input or just finished pulse. Clicking the avatar opens the fork modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/forks/:id/act` to that fork. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
+The right rail is the spark inbox. One glance: **trabalhando**, **precisa de você**, **pronto**. Settled (merged or closed) drops off. New pills slide in; ones that need you or just finished pulse. `próximo` (Alt+N) opens the next spark that needs you. If the tab is in the background, the browser Notification API fires (`spark precisa de você` / `spark pronto`) — no extra process. Clicking the avatar opens the spark modal (blurred chat behind it). Answering a refino option chip `POST`s `/api/sparks/:id/act` to that spark. Refino also merges back into the main chat when score ≥ 0.90. When the agent finishes and does not need you, NCLI merges one summary line into the main chat.
 
 ## Seats (Claude / Codex / Cursor)
 
-The header shows the main agent and model. You can switch Claude, Codex, or Cursor from there without restarting. Every line in chat (and in a fork) has that agent's logo and name, plus the model when known (`Claude · Opus 5.5`). Bus `ask` / `wait` lines show who asked whom.
+The header shows the main agent and model. You can switch Claude, Codex, or Cursor from there without restarting. Every line in chat (and in a spark) has that agent's logo and name, plus the model when known (`Claude · Opus 5.5`). Bus `ask` / `wait` lines show who asked whom.
 
 While a turn runs, the chat shows a status line with elapsed time, collapsible thinking, live tool rows, and token-by-token text. Nested Codex or Cursor asks stream in place. If nothing arrives for 5s the status says still working. Parar cancels the child.
 
@@ -184,8 +187,8 @@ bun test
 | `tests/context.test.ts` | cover tiles `[0,T)`; zoom | mock compressor |
 | `tests/views.test.ts` | registry + hot load of `hello.ts`; review chapter order | fixtures, no `gh` |
 | `tests/view-actions.test.ts` | refino chips → score ≥ 0.90 merge | mock CLI |
-| `tests/fork-merge.test.ts` | `view://review?pr=482` waits, then `review #N` | mock CLI, fixture PR |
-| `tests/concurrent-forks.test.ts` | three refinos at once, isolated worktrees and logs, all merge | real `git worktree`, mock CLI |
+| `tests/spark-merge.test.ts` | `view://review?pr=482` waits, then `review #N` | mock CLI, fixture PR |
+| `tests/concurrent-sparks.test.ts` | three refinos at once, isolated worktrees and logs, all merge | real `git worktree`, mock CLI |
 | `tests/hop.test.ts` | 300 messages, recover `#12` by hops | mock compressor |
 | `tests/self-hack.test.ts` | skills in system prompt; add-view appears live; remove-view drops it | mock agent, real watch |
 | `tests/runtime-skills.test.ts` | assembled system + spawn AGENTS omit pstack; add-dir is runtime + emil | in-process |
@@ -199,7 +202,7 @@ bun test
 | `tests/author.test.ts` | every line has a seat; header snapshot switches | mock |
 | `tests/markdown.test.ts` | bold/code/table; no broken `**` while streaming | in-process |
 | `tests/shimmer.test.ts` | live-block skeleton labels and escaped errors | in-process |
-| `tests/pills.test.ts` | new forks pop; needs_user and done pulse | in-process |
+| `tests/pills.test.ts` | new sparks pop; needs_user and done pulse | in-process |
 | `tests/fallback.test.ts` | Claude 429 → backup harness, announce, retry | mock |
 | `tests/perf.test.ts` | send-to-feedback and TTFT on mock; compact stays off the turn | mock |
 

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
 import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
-import { loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
+import { loadMcpFile, loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
 
 export interface SpawnInject {
   dir: string;
@@ -24,6 +24,9 @@ export function prepareSpawn(opts: {
   ticket?: string;
   token?: string;
   mcpUrl?: string;
+  addDir?: string[];
+  agentsMd?: string;
+  extraMcp?: string;
 }): SpawnInject {
   const token = opts.token ?? "";
   const mcpUrl = opts.mcpUrl ?? `http://127.0.0.1:${opts.cfg.port}/mcp`;
@@ -32,15 +35,18 @@ export function prepareSpawn(opts: {
     NCLI_MCP_TOKEN: token,
     NCLI_MCP_URL: mcpUrl,
   });
-  const servers = resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars);
+  const extra = opts.extraMcp
+    ? resolveServers({ servers: loadMcpFile(opts.extraMcp), path: opts.extraMcp }, vars)
+    : [];
+  const servers = [...resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars), ...extra];
   const dir = join(opts.cfg.dataDir, "spawn", opts.session.replace(/[^a-zA-Z0-9._-]/g, "_"));
   assertLocal(dir, opts.cfg.dataDir);
   mkdirSync(dir, { recursive: true });
   const mcpConfigPath = join(dir, "mcp.json");
   writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: asClaudeMap(servers) }, null, 2), "utf8");
   const skills = defaultSkillsDir(opts.cfg.ncliRoot);
-  const addDir = runtimeSkillDirs(skills);
-  const agentsMd = agentsBlock(skills);
+  const addDir = opts.addDir ?? runtimeSkillDirs(skills);
+  const agentsMd = opts.agentsMd ?? agentsBlock(skills);
   writeFileSync(join(dir, "AGENTS.md"), agentsMd, "utf8");
   const extraArgs = extraFor(opts.harness, servers, addDir);
   maybeWriteCursorWorkspace(opts.worktree, opts.cfg, servers, agentsMd);
@@ -56,10 +62,10 @@ export function prepareSpawn(opts: {
   };
 }
 
-export function extraFor(harness: string, servers: McpServerSpec[], addDirs: string[]): string[] {
+export function extraFor(harness: string, servers: McpServerSpec[], skillsDir: string | string[]): string[] {
   switch (harness) {
     case "claude":
-      return addDirs.flatMap((d) => ["--add-dir", d]);
+      return (Array.isArray(skillsDir) ? skillsDir : [skillsDir]).flatMap((d) => ["--add-dir", d]);
     case "codex":
       return codexMcpFlags(servers);
     case "cursor":
