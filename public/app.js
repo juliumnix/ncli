@@ -1696,6 +1696,12 @@ overlay.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-act]");
   if (!btn || !state.openSpark) return;
   const act = btn.dataset.act;
+  if (act === "comment-add") {
+    const body = window.prompt("Comentário nesta linha");
+    if (!body || !body.trim()) return;
+    postAct({ type: "comment-add", id: btn.dataset.id, value: body.trim() });
+    return;
+  }
   if (act === "other") {
     const id = btn.dataset.id;
     const input = document.createElement("input");

@@ -6,6 +6,8 @@
   "url": "https://github.com/acme/shop/pull/482",
   "baseRefName": "main",
   "headRefName": "feat/member-discount-before-tax",
+  "headOid": "aaa1111reviewhead0000000000000000000001",
+  "state": "OPEN",
   "additions": 17,
   "deletions": 3,
   "files": [

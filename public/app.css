@@ -1054,3 +1054,29 @@ body.rv-open .shortcuts {
   .jump-latest:hover { border-color: #3a3a3c; }
   .rv-ord:hover, .rv-risk:hover { opacity: 0.72; }
 }
+.rv-find {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.rv-find b { font-weight: 500; display: block; }
+.rv-find small { color: var(--muted); }
+.rv-triage { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.rv-tri {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 0;
+}
+.rv-tri.on { color: var(--fg); }
+.rv-cmt {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 11px; margin-left: 8px; opacity: 0;
+}
+.rv-diff tr:hover .rv-cmt { opacity: 1; }
+.rv-loop {
+  display: flex; gap: 12px; align-items: center;
+  padding: 8px 0 0; font-size: 12px;
+}
+.rv-loop button, .rv-send {
+  border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit;
+}
+.rv-head { font-size: 12px; color: var(--muted); margin: 0 0 8px; }

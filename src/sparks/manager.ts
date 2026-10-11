@@ -155,6 +155,7 @@ export class SparkManager {
     this.runtimes.set(id, rt);
     persistSpark(this.cfg.dataDir, spark);
     this.hooks.onEvent({ type: "spark", session: id, payload: spark });
+    await this.maybeArchiveMerged(rt);
     void this.runTurn(rt, created.prompt, true);
     return rt;
   }
@@ -180,7 +181,11 @@ export class SparkManager {
     const plugin = this.views.get(rt.spark.view);
     const posted = [action.type, action.id, action.value].filter(Boolean).join(" ");
     rt.memory.append({ kind: "user", text: posted });
-    const result = plugin?.applyAction?.(rt.spark, action);
+    const result = await plugin?.applyAction?.(rt.spark, action, {
+      dataDir: this.cfg.dataDir,
+      repo: this.cfg.repo,
+      fetchPr: (pr) => this.gh.view(pr),
+    });
     if (result?.ui !== undefined) rt.spark.ui = result.ui;
     if (result?.flowStep) rt.spark.flowStep = result.flowStep;
     if (result?.result) rt.spark.result = result.result;
@@ -191,8 +196,20 @@ export class SparkManager {
       rt.spark.needsUser = result.needsUser;
       rt.spark.status = "needs_user";
     }
+    if (result?.note) {
+      const note = rt.memory.append({ kind: "note", text: result.note });
+      this.hooks.onEvent({ type: "message", session: id, payload: note });
+    }
     persistSpark(this.cfg.dataDir, rt.spark);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
+    await this.maybeArchiveMerged(rt);
+    if (result?.ask) {
+      rt.spark.status = "running";
+      rt.spark.needsUser = undefined;
+      persistSpark(this.cfg.dataDir, rt.spark);
+      this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
+      await this.runTurn(rt, result.ask, false);
+    }
     if (result?.merge) {
       await this.merge(rt, result.summary ?? rt.spark.summary ?? posted);
     }
@@ -212,8 +229,25 @@ export class SparkManager {
     if (rt.spark.status !== "merged") {
       await this.merge(rt, rt.spark.summary ?? "fechado");
     }
+    await this.maybeArchiveMerged(rt);
     if (rt.worktree) {
       await this.archive(id, false);
+    }
+  }
+
+  async maybeArchiveMerged(rt: SparkRuntime): Promise<void> {
+    const pr = rt.spark.params.pr;
+    if (!pr) return;
+    try {
+      const info = await this.gh.view(pr);
+      if (rt.spark.ui && typeof rt.spark.ui === "object") {
+        (rt.spark.ui as { prState?: string; head?: string }).prState = info.state;
+        if (info.headOid) (rt.spark.ui as { head?: string }).head = info.headOid;
+      }
+      if (info.state !== "MERGED" || !rt.worktree) return;
+      await this.archive(rt.spark.id, false);
+    } catch {
+      return;
     }
   }
 
@@ -341,7 +375,11 @@ export class SparkManager {
           const patch = plugin?.onEvent?.(rt.spark, { type: "done", text: ev.text });
           if (patch?.ui !== undefined) rt.spark.ui = patch.ui;
           if (patch?.flowStep) rt.spark.flowStep = patch.flowStep;
-          if (patch?.ui !== undefined || patch?.flowStep) {
+          if (patch?.note) {
+            const note = rt.memory.append({ kind: "note", text: patch.note });
+            this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: note });
+          }
+          if (patch?.ui !== undefined || patch?.flowStep || patch?.note) {
             persistSpark(this.cfg.dataDir, rt.spark);
             this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
           }
