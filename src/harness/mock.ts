@@ -43,6 +43,13 @@ export class MockHarness implements Harness {
       }
     }.bind(this);
     yield { type: "model", model: "mock" };
+    if (/^(quota|limite de uso)\b/i.test(lastUserBlock(opts.prompt).trim())) {
+      yield {
+        type: "error",
+        error: "429 rate_limit quota exceeded. Usage limit resets at 15:00.",
+      };
+      return;
+    }
     yield { type: "thinking", text: "lendo o contexto…", seat: "claude" };
     await delay(20);
     yield* drain();

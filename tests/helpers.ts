@@ -1,7 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config";
+import { loadConfig, type HarnessKind } from "../src/config";
+import { parseFallbackChain } from "../src/harness/usage";
 import { Hub } from "../src/hub";
 import { MockHarness } from "../src/harness/mock";
 import type { Harness } from "../src/harness/types";
@@ -17,6 +18,8 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   demo?: boolean;
   viewBytes?: number;
   nodeBytes?: number;
+  backupHarness?: HarnessKind;
+  fallbackChain?: HarnessKind[];
 } = {}): Promise<{ hub: Hub; repo: string; dataDir: string; harness: H }> {
   const dataDir = tmpDir("ncli-data");
   const repo = await initTempRepo();
@@ -31,6 +34,8 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     viewBytes: opts.viewBytes ?? 800,
     nodeBytes: opts.nodeBytes ?? 140,
     port: 47231,
+    backupHarness: opts.backupHarness ?? "mock",
+    fallbackChain: opts.fallbackChain ?? parseFallbackChain(undefined, opts.backupHarness ?? "mock"),
   });
   const hub = new Hub(
     cfg,
