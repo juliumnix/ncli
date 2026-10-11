@@ -1,31 +1,20 @@
 import { seatOf } from "../agent";
 import type { HarnessEvent, RunOpts } from "../harness/types";
-import { detectSeatCommand, watchSeatOut } from "../harness/seats";
 import type { SeatId } from "../types";
 import type { AcpUpdate } from "./types";
 
 export async function* toHarnessEvents(
   updates: AsyncIterable<AcpUpdate>,
-  opts: RunOpts,
+  _opts: RunOpts,
   harnessId?: string,
 ): AsyncIterable<HarnessEvent> {
-  const seatWatchers: Array<AsyncGenerator<HarnessEvent>> = [];
   const seat = seatOf(harnessId);
   for await (const update of updates) {
-    yield* mapOne(update, seatWatchers, opts, seat);
-    for (const w of seatWatchers) {
-      const next = await w.next();
-      if (!next.done && next.value) yield next.value;
-    }
+    yield* mapOne(update, seat);
   }
 }
 
-function* mapOne(
-  update: AcpUpdate,
-  seatWatchers: Array<AsyncGenerator<HarnessEvent>>,
-  opts: RunOpts,
-  seat: SeatId,
-): Generator<HarnessEvent> {
+function* mapOne(update: AcpUpdate, seat: SeatId): Generator<HarnessEvent> {
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
       if (update.text) yield { type: "text", text: update.text, seat };
@@ -36,7 +25,7 @@ function* mapOne(
     case "model":
       if (update.model) yield { type: "model", model: update.model, seat };
       break;
-    case "tool_call": {
+    case "tool_call":
       yield {
         type: "tool",
         name: update.title,
@@ -44,11 +33,7 @@ function* mapOne(
         id: update.toolCallId,
         seat,
       };
-      const cmd = typeof update.rawInput?.command === "string" ? update.rawInput.command : "";
-      const detected = cmd ? detectSeatCommand(cmd) : null;
-      if (detected) seatWatchers.push(watchSeatOut(detected.out, detected.seat, opts.signal));
       break;
-    }
     case "tool_call_update":
       yield { type: "tool_result", id: update.toolCallId, content: update.content };
       break;

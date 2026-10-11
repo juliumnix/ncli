@@ -36,11 +36,5 @@ export class MockAcpAdapter implements AcpAdapter {
 }
 
 function defaultScript(prompt: string): MockAcpScript {
-  if (/pstack-codex/i.test(prompt)) {
-    return {
-      tools: [{ id: "bash-1", title: "Bash", command: "pstack-codex --out /tmp/ncli-codex --prompt-file x" }],
-      text: "Consultei o Codex.",
-    };
-  }
   return { text: prompt.slice(-180) || "ok" };
 }

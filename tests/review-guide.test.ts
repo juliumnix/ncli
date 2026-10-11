@@ -109,6 +109,7 @@ test("invalid agent plan falls back; valid plan maps files to chapters", () => {
   const planned = buildReviewUi(pr, agent);
   expect(planned.planSource).toBe("agent");
   expect(planned.overview).toBe("Plano do agente.");
+  expect(planned.summary).toBe("Plano do agente.");
   expect(planned.chapters[0]?.files.map((f) => f.path)).toEqual([
     "src/billing/discount.ts",
     "src/billing/types.ts",
@@ -194,6 +195,112 @@ test("diagram nodes are changed functions mapped to the chapter of their file", 
   );
   expect(garbage.nodes.map((n) => n.label)).toEqual(["calcTotal()"]);
   expect(garbage.nodes[0]?.chapter).toBe(1);
+});
+
+function agentPlan() {
+  return {
+    overview: "O desconto passa a ser aplicado antes do imposto e só para membros.",
+    summary:
+      "O PR aplica o desconto antes do imposto e só quando o cliente é membro. calcTotal lê customer.kind; applyDiscount capea o valor para não passar do total. A API passa o customer adiante. O teste novo só afirma toBeDefined, então o valor ainda não está provado.",
+    risks: [
+      {
+        id: "guest-gate",
+        severity: "high" as const,
+        text: "Guest com discount no item ainda entra no fluxo e pode mascarar o gate.",
+        path: "src/billing/calcTotal.ts",
+        line: 4,
+      },
+      {
+        severity: "med" as const,
+        text: "O cap em applyDiscount muda o contrato sem teste de overflow.",
+        path: "src/billing/discount.ts",
+        line: 11,
+      },
+      {
+        severity: "low" as const,
+        text: "O teste novo só afirma toBeDefined — não prova o valor.",
+        path: "src/billing/discount.test.ts",
+        line: 1,
+      },
+      {
+        severity: "high" as const,
+        text: "Arquivo inventado não pode virar risco.",
+        path: "src/secret/backdoor.ts",
+        line: 1,
+      },
+    ],
+    approach: ["núcleo", "tipos", "API", "testes"],
+    diagram: {
+      title: "fluxo",
+      additions: 17,
+      nodes: [{ id: "a", label: "applyDiscount()", chapter: 1, added: true }],
+      edges: [],
+    },
+    chapters: [
+      { title: "Núcleo", body: "desconto", files: ["src/billing/discount.ts", "src/billing/types.ts", "src/billing/calcTotal.ts"] },
+      { title: "API", body: "handler", files: ["src/api/budget.ts"] },
+    ],
+  };
+}
+
+test("fallback Overview shimmers brief and keeps reading order from gh classify", async () => {
+  const { hub } = await makeHub();
+  const rt = await hub.forks.open("review", { pr: "482" });
+  const ui = rt.fork.ui as ReturnType<typeof buildReviewUi>;
+  expect(ui.planSource).toBe("fallback");
+  expect(ui.summary).toBe("");
+  expect(ui.risks).toEqual([]);
+  expect(ui.chapters.map((c) => c.kind)).toEqual(["core", "api", "test"]);
+  const html = review.render!(rt.fork);
+  expect(html).toContain("rv-overview");
+  expect(html).toContain("rv-shimmer");
+  expect(html).toContain("aria-busy");
+  expect(html).toContain("Ordem de leitura");
+  expect(html).toContain("rv-ord");
+  expect(html).toContain("data-rv-goto=\"ch-1\"");
+  expect(html).toContain("a ler");
+  expect(html).toContain("Files 5");
+  expect(html).not.toContain("class=\"rv-risk\"");
+  expect(html).not.toContain("src/secret/backdoor.ts");
+  hub.close();
+});
+
+test("agent plan fills summary and known risks; unknown paths drop", async () => {
+  const pr = fixturePr();
+  const planned = buildReviewUi(pr, agentPlan());
+  expect(planned.planSource).toBe("agent");
+  expect(planned.summary).toContain("desconto antes do imposto");
+  expect(planned.risks.map((r) => r.path)).toEqual([
+    "src/billing/calcTotal.ts",
+    "src/billing/discount.ts",
+    "src/billing/discount.test.ts",
+  ]);
+  expect(planned.risks[0]).toMatchObject({
+    severity: "high",
+    line: 4,
+    chapter: "ch-1",
+  });
+  expect(planned.risks[2]?.chapter).toBe("ch-3");
+  expect(planned.risks.some((r) => r.path.includes("backdoor"))).toBe(false);
+
+  const { hub } = await makeHub();
+  const rt = await hub.forks.open("review", { pr: "482" });
+  const patched = review.onEvent?.(rt.fork, {
+    type: "done",
+    text: `ok\n\`\`\`json\n${JSON.stringify(agentPlan())}\n\`\`\`\n`,
+  });
+  if (patched?.ui) rt.fork.ui = patched.ui;
+  const html = review.render!(rt.fork);
+  expect(html).not.toContain("rv-shimmer");
+  expect(html).toContain("O PR aplica o desconto antes do imposto");
+  expect(html).toContain("rv-sev-high");
+  expect(html).toContain("calcTotal.ts:4");
+  expect(html).toContain("data-rv-file=\"src/billing/calcTotal.ts\"");
+  expect(html).toContain("data-rv-line=\"4\"");
+  expect(html).toContain("data-rv-tab=\"Guide\"");
+  expect(html).toContain("data-new=\"4\"");
+  expect(html).not.toContain("src/secret/backdoor.ts");
+  hub.close();
 });
 
 test("a file with no hunk is dropped from the chapter and not rendered empty", () => {
