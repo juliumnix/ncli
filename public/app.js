@@ -82,7 +82,7 @@ function markEnter() {
 
 const state = {
   messages: [],
-  forks: [],
+  sparks: [],
   views: [],
   waiting: [],
   debug: null,
@@ -96,15 +96,15 @@ const state = {
   zoomId: "",
   zoomLines: [],
   lastTurn: null,
-  openFork: null,
-  forkTab: "Guide",
-  forkDetail: null,
+  openSpark: null,
+  sparkTab: "Guide",
+  sparkDetail: null,
   stream: "",
   streamSeat: "claude",
   streamModel: "",
   main: { harness: "claude", model: "" },
   turn: null,
-  forkTurns: {},
+  sparkTurns: {},
   compact: null,
   userName: "Você",
 };
@@ -472,8 +472,8 @@ function rich(s) {
     .replace(
       /view:\/\/([a-z0-9_-]+)(?:\?([^&\s<,]+))?/g,
       (_, id, q) => {
-        const fork = state.forks.find((f) => f.view === id && f.status !== "merged");
-        const label = fork ? `${id} #${fork.seq}` : id;
+        const spark = state.sparks.find((f) => f.view === id && f.status !== "merged");
+        const label = spark ? `${id} #${spark.seq}` : id;
         return `<a class="vlink fl" data-view="${id}" data-q="${q || ""}">${escapeHtml(label)}</a>`;
       },
     )
@@ -816,9 +816,9 @@ function dayLabel(iso) {
 const seenPills = new Set();
 
 function renderShortcuts() {
-  const pills = state.forks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
+  const pills = state.sparks.filter((f) => f.status === "running" || f.status === "needs_user" || f.status === "done");
   const nextIds = new Set(pills.map((f) => f.id));
-  const leaving = [...shortcuts.querySelectorAll("[data-fork]")].filter((el) => !nextIds.has(el.dataset.fork));
+  const leaving = [...shortcuts.querySelectorAll("[data-spark]")].filter((el) => !nextIds.has(el.dataset.spark));
   const glyph = { review: "⌥", refino: "✎", live: "▣" };
   shortcuts.innerHTML = pills
     .map((f) => {
@@ -829,7 +829,7 @@ function renderShortcuts() {
       const sub = f.needsUser?.label || (f.status === "done" ? "pronto" : f.status === "running" ? "rodando" : f.title);
       const short = f.view === "refino" && f.needsUser?.count ? `${n} pergunta${n === 1 ? "" : "s"}` : sub;
       const badge = n ? `<span class="badge">${n}</span>` : "";
-      return `<button class="${klass}" data-fork="${f.id}">
+      return `<button class="${klass}" data-spark="${f.id}">
         <div class="lbl"><b>${escapeHtml(f.view)} #${f.seq}</b>${escapeHtml(short)}</div>
         <div class="fa">${glyph[f.view] || "●"}${badge}</div>
       </button>`;
@@ -1058,21 +1058,21 @@ function diffContext(prev, next) {
   return ops;
 }
 
-async function openFork(id) {
-  const keepTab = state.openFork === id && !overlay.hidden;
-  const res = await fetch(`/api/forks/${encodeURIComponent(id)}`);
+async function openSpark(id) {
+  const keepTab = state.openSpark === id && !overlay.hidden;
+  const res = await fetch(`/api/sparks/${encodeURIComponent(id)}`);
   if (!res.ok) return;
-  state.forkDetail = await res.json();
-  state.openFork = id;
-  const f = state.forkDetail.fork;
+  state.sparkDetail = await res.json();
+  state.openSpark = id;
+  const f = state.sparkDetail.spark || state.sparkDetail.fork;
   if (f.status === "merged") {
     hideOverlay();
     return;
   }
   if (!keepTab) {
     const qTab = new URLSearchParams(location.search).get("tab");
-    if (qTab === "Overview" || qTab === "Guide" || qTab === "Diff") state.forkTab = qTab;
-    else state.forkTab = (f.ui && f.ui.tab) || (state.views.find((v) => v.id === f.view)?.tabs?.[0]) || "Guide";
+    if (qTab === "Overview" || qTab === "Guide" || qTab === "Diff") state.sparkTab = qTab;
+    else state.sparkTab = (f.ui && f.ui.tab) || (state.views.find((v) => v.id === f.view)?.tabs?.[0]) || "Guide";
   }
   const already = !overlay.hidden && overlay.classList.contains("in");
   overlay.hidden = false;
@@ -1085,20 +1085,20 @@ async function openFork(id) {
 }
 
 async function postAct(action) {
-  if (!state.openFork) return;
-  const id = state.openFork;
-  const res = await fetch(`/api/forks/${encodeURIComponent(id)}/act`, {
+  if (!state.openSpark) return;
+  const id = state.openSpark;
+  const res = await fetch(`/api/sparks/${encodeURIComponent(id)}/act`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(action),
   });
   if (!res.ok) return;
   const data = await res.json();
-  if (data.fork?.status === "merged") {
+  if ((data.spark || data.fork)?.status === "merged") {
     hideOverlay();
     return;
   }
-  await openFork(id);
+  await openSpark(id);
 }
 
 function seatTrio(ui, fromLog) {
@@ -1130,7 +1130,7 @@ function hideOverlay() {
     overlay.classList.remove("rv");
     modal.classList.remove("rv");
     document.body.classList.remove("rv-open");
-    state.openFork = null;
+    state.openSpark = null;
   });
 }
 
@@ -1139,8 +1139,8 @@ function jumpReview(el) {
   const goto = el.dataset.rvGoto;
   const path = el.dataset.rvFile;
   const line = el.dataset.rvLine;
-  if (tab !== state.forkTab) {
-    state.forkTab = tab;
+  if (tab !== state.sparkTab) {
+    state.sparkTab = tab;
     bindGuidedReview(modal);
   }
   requestAnimationFrame(() => {
@@ -1162,7 +1162,7 @@ function jumpReview(el) {
 }
 
 function bindGuidedReview(root) {
-  const tab = state.forkTab || "Guide";
+  const tab = state.sparkTab || "Guide";
   root.querySelectorAll("[data-rv-panel]").forEach((p) => {
     p.hidden = p.dataset.rvPanel !== tab;
   });
@@ -1194,9 +1194,9 @@ function bindGuidedReview(root) {
 }
 
 function drawModal() {
-  const detail = state.forkDetail;
+  const detail = state.sparkDetail;
   if (!detail) return;
-  const view = detail.fork?.view;
+  const view = (detail.spark || detail.fork)?.view;
   overlay.classList.toggle("rv", view === "review");
   modal.classList.toggle("rv", view === "review");
   if (detail.html) {
@@ -1204,7 +1204,7 @@ function drawModal() {
     if (view === "review") bindGuidedReview(modal);
     return;
   }
-  const f = detail.fork;
+  const f = detail.spark || detail.fork;
   const ui = f.ui || {};
   const tabs = (state.views.find((v) => v.id === f.view)?.tabs) || ["Overview", "Guide", "Diff"];
   const fromLog = { claude: "", codex: "", cursor: "" };
@@ -1215,9 +1215,9 @@ function drawModal() {
   const chapters = ui.chapters || [];
   const prLabel = (f.title || "").replace(/^PR\s+(\d+).*/, "PR $1") || f.title;
   let body = "";
-  if (state.forkTab === "Overview") {
+  if (state.sparkTab === "Overview") {
     body = `<div>${escapeHtml(ui.overview || f.title)}</div>`;
-  } else if (state.forkTab === "Diff") {
+  } else if (state.sparkTab === "Diff") {
     const hunks = chapters.flatMap((c) => c.hunks || []);
     body = `<div class="diff">${hunks
       .map((h) => `<div class="${h.startsWith("+") ? "a" : "r"}">${escapeHtml(h)}</div>`)
@@ -1246,11 +1246,11 @@ function drawModal() {
       <button class="x" id="closeModal" type="button">✕</button>
     </div>
     <div class="tabs">${tabs
-      .map((t) => `<button data-tab="${t}" class="${t === state.forkTab ? "on" : ""}">${t}</button>`)
+      .map((t) => `<button data-tab="${t}" class="${t === state.sparkTab ? "on" : ""}">${t}</button>`)
       .join("")}</div>
     <div class="mbody">${body}</div>
-    <form class="mi" id="forkForm">
-      <input name="t" placeholder="Fala com esse fork… (volta pro chat sozinho quando terminar)" autocomplete="off" />
+    <form class="mi" id="sparkForm">
+      <input name="t" placeholder="Fala com esse spark… (volta pro chat sozinho quando terminar)" autocomplete="off" />
     </form>`;
 }
 
@@ -1263,9 +1263,9 @@ function applyEvent(ev) {
         if (pendingAt >= 0) state.messages.splice(pendingAt, 1, ev.message);
         else state.messages.push(ev.message);
         scheduleFullPaint();
-      } else if (state.openFork === ev.session && state.forkDetail) {
-        state.forkDetail.messages = state.forkDetail.messages || [];
-        state.forkDetail.messages.push(ev.message);
+      } else if (state.openSpark === ev.session && state.sparkDetail) {
+        state.sparkDetail.messages = state.sparkDetail.messages || [];
+        state.sparkDetail.messages.push(ev.message);
         drawModal();
       }
       break;
@@ -1298,8 +1298,8 @@ function applyEvent(ev) {
           scheduleLivePaint();
         }
       } else {
-        state.forkTurns[ev.session] = ev.turn;
-        if (state.openFork === ev.session) drawModal();
+        state.sparkTurns[ev.session] = ev.turn;
+        if (state.openSpark === ev.session) drawModal();
       }
       break;
     case "step":
@@ -1318,21 +1318,22 @@ function applyEvent(ev) {
       state.compact = ev.compact;
       renderChrome();
       break;
-    case "fork": {
-      const i = state.forks.findIndex((f) => f.id === ev.fork.id);
-      if (i >= 0) state.forks[i] = ev.fork;
-      else state.forks.push(ev.fork);
+    case "spark": {
+      const i = state.sparks.findIndex((f) => f.id === ev.spark.id);
+      const spark = ev.spark || ev.fork;
+      if (i >= 0) state.sparks[i] = spark;
+      else state.sparks.push(spark);
       renderShortcuts();
       if (state.turn && state.turn.status === "running") scheduleFullPaint();
       else renderChat();
-      if (state.openFork === ev.fork.id) {
-        if (ev.fork.status === "merged") {
+      if (state.openSpark === spark.id) {
+        if (spark.status === "merged") {
           hideOverlay();
           break;
         }
-        if (state.forkDetail) {
-          state.forkDetail.fork = ev.fork;
-          if (!state.forkDetail.html) drawModal();
+        if (state.sparkDetail) {
+          state.sparkDetail.spark = ev.spark || ev.fork;
+          if (!state.sparkDetail.html) drawModal();
         }
       }
       break;
@@ -1450,12 +1451,12 @@ chat.addEventListener("click", (e) => {
   e.preventDefault();
   const id = a.dataset.view;
   const params = Object.fromEntries(new URLSearchParams(a.dataset.q || ""));
-  const existing = state.forks.find((f) => f.view === id && f.status !== "merged");
+  const existing = state.sparks.find((f) => f.view === id && f.status !== "merged");
   if (existing) {
-    openFork(existing.id);
+    openSpark(existing.id);
     return;
   }
-  fetch("/api/forks", {
+  fetch("/api/sparks", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ view: id, params }),
@@ -1463,8 +1464,8 @@ chat.addEventListener("click", (e) => {
 });
 
 shortcuts.addEventListener("click", (e) => {
-  const b = e.target.closest("[data-fork]");
-  if (b) openFork(b.dataset.fork);
+  const b = e.target.closest("[data-spark]");
+  if (b) openSpark(b.dataset.spark);
 });
 
 overlay.addEventListener("click", (e) => {
@@ -1481,7 +1482,7 @@ overlay.addEventListener("click", (e) => {
   }
   const tab = e.target.closest?.("[data-tab]")?.dataset?.tab;
   if (tab) {
-    state.forkTab = tab;
+    state.sparkTab = tab;
     drawModal();
     return;
   }
@@ -1517,7 +1518,7 @@ overlay.addEventListener("click", (e) => {
     return;
   }
   const btn = e.target.closest("[data-act]");
-  if (!btn || !state.openFork) return;
+  if (!btn || !state.openSpark) return;
   const act = btn.dataset.act;
   if (act === "other") {
     const id = btn.dataset.id;
@@ -1596,22 +1597,22 @@ document.addEventListener("keydown", (e) => {
 $("uiCollapse")?.addEventListener("click", () => collapseUi());
 
 overlay.addEventListener("submit", async (e) => {
-  if (e.target.id !== "forkForm") return;
+  if (e.target.id !== "sparkForm" && e.target.id !== "forkForm") return;
   e.preventDefault();
   const t = e.target.t.value.trim();
-  if (!t || !state.openFork) return;
+  if (!t || !state.openSpark) return;
   e.target.t.value = "";
-  const view = state.forkDetail?.fork?.view;
+  const view = (state.sparkDetail?.spark || state.sparkDetail?.fork)?.view;
   if (view === "refino") {
     await postAct({ type: "say", value: t });
     return;
   }
-  await fetch(`/api/forks/${encodeURIComponent(state.openFork)}/message`, {
+  await fetch(`/api/sparks/${encodeURIComponent(state.openSpark)}/message`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text: t }),
   });
-  if (state.openFork) await openFork(state.openFork);
+  if (state.openSpark) await openSpark(state.openSpark);
 });
 
 $("menuBtn").addEventListener("click", () => {
@@ -1641,8 +1642,8 @@ async function boot() {
   };
   const snap = await (await fetch("/api/state")).json();
   if (!state.messages.length) state.messages = snap.messages || [];
-  if (!state.forks.length) state.forks = snap.forks || [];
-  for (const f of state.forks) seenPills.add(f.id);
+  if (!state.sparks.length) state.sparks = snap.sparks || snap.forks || [];
+  for (const f of state.sparks) seenPills.add(f.id);
   if (!state.views.length) state.views = snap.views || [];
   state.debug = state.debug || snap.debug;
   state.context = state.context || snap.context || null;
@@ -1657,8 +1658,8 @@ async function boot() {
   const q = new URLSearchParams(location.search);
   const open = q.get("open");
   const tab = q.get("tab");
-  if (tab === "Overview" || tab === "Guide" || tab === "Diff") state.forkTab = tab;
-  if (open) await openFork(open);
+  if (tab === "Overview" || tab === "Guide" || tab === "Diff") state.sparkTab = tab;
+  if (open) await openSpark(open);
   const ch = q.get("chapter");
   if (ch) document.getElementById(ch)?.scrollIntoView({ block: "start" });
 }

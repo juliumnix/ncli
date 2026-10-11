@@ -22,22 +22,22 @@ export interface FlowStep {
   next?: string;
 }
 
-export interface ForkArtifact {
+export interface SparkArtifact {
   kind: string;
   label: string;
   text?: string;
   path?: string;
 }
 
-export interface ForkDecision {
+export interface SparkDecision {
   id: string;
   text: string;
 }
 
-export interface ForkResult {
+export interface SparkResult {
   summary: string;
-  artifacts: ForkArtifact[];
-  decisions: ForkDecision[];
+  artifacts: SparkArtifact[];
+  decisions: SparkDecision[];
   links: string[];
 }
 
@@ -66,11 +66,11 @@ export interface ViewPackage {
 const FLOW_KINDS = new Set<FlowKind>(["spark", "work", "wait_user", "result"]);
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
-export function emptyResult(summary: string): ForkResult {
+export function emptyResult(summary: string): SparkResult {
   return { summary, artifacts: [], decisions: [], links: [] };
 }
 
-export function formatForkResult(id: { view: string; seq: number }, result: ForkResult): string {
+export function formatSparkResult(id: { view: string; seq: number }, result: SparkResult): string {
   const bits = [`${id.view} #${id.seq} voltou · ${oneLine(result.summary)}`];
   if (result.decisions.length === 1) bits.push("1 decisão");
   else if (result.decisions.length) bits.push(`${result.decisions.length} decisões`);
@@ -121,11 +121,11 @@ export function listPackSkills(dir: string): Array<{ id: string; dir: string; de
   return out;
 }
 
-export function forkSkillPrompt(pack: ViewPackage): string {
+export function sparkSkillPrompt(pack: ViewPackage): string {
   const skills = pack.skillDirs.flatMap((d) => listPackSkills(d));
   const index = skills.map((s) => `- ${s.id} — ${s.description}  (${s.dir}/SKILL.md)`).join("\n");
-  return `You are inside an isolated NCLI fork of type '${pack.manifest.name}' v${pack.manifest.version}.
-This fork has its own worktree, memory, skills, and MCP. Do not use main-session skills (ncli-bus, add-view, pstack).
+  return `You are inside an isolated NCLI spark of view '${pack.manifest.name}' v${pack.manifest.version}.
+This spark has its own worktree, memory, skills, and MCP. Do not use main-session skills (ncli-bus, add-view, pstack).
 Follow the declared flow. When the flow reaches result, finish. Do not leak work into the main chat.
 
 Exclusive skills:

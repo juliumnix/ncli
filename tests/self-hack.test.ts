@@ -57,7 +57,7 @@ test("scripted agent follows add-view, the view appears live, remove-view takes 
   const harness = new MockHarness((prompt, session) => {
     const user = prompt.split("\n\n").at(-1) ?? prompt;
     if (session && session !== "main") {
-      return { text: `fork ${session} ok` };
+      return { text: `spark ${session} ok` };
     }
     if (/cria uma view ping/i.test(user)) {
       return {
@@ -87,11 +87,11 @@ test("scripted agent follows add-view, the view appears live, remove-view takes 
     newView("ping", paths(viewsDir));
     await waitUntil(() => Boolean(hub.views.get("ping")));
     expect(hub.views.get("ping")?.id).toBe("ping");
-    const created = await hub.views.get("ping")!.createFork({}, { dataDir: viewsDir, repo: viewsDir });
+    const created = await hub.views.get("ping")!.createSpark({}, { dataDir: viewsDir, repo: viewsDir });
     expect(created.title).toBe("ping");
 
     await hub.send("view://ping");
-    await waitUntil(() => hub.forks.list().some((f) => f.view === "ping"));
+    await waitUntil(() => hub.sparks.list().some((f) => f.view === "ping"));
 
     await hub.send("remove a view ping");
     expect(hub.memory.log.some((m) => m.kind === "talk" && m.text.includes("ncli remove view ping"))).toBe(true);

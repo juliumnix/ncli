@@ -6,7 +6,7 @@ const plugin = {
   parseLink(params) {
     return params;
   },
-  async createFork(params) {
+  async createSpark(params) {
     const title = params.title ?? "{{id}}";
     const ui = { kind: "{{id}}", title, note: "waiting" };
     return {
@@ -18,10 +18,10 @@ const plugin = {
       needsUser: { kind: "question", label: "sua vez", count: 1 },
     };
   },
-  applyAction(fork, action) {
+  applyAction(spark, action) {
     if (action.type === "say" || action.type === "done") {
       return {
-        ui: { ...fork.ui, note: action.value ?? "ok" },
+        ui: { ...spark.ui, note: action.value ?? "ok" },
         needsUser: null,
         merge: true,
         summary: action.value ?? "ok",
@@ -29,11 +29,11 @@ const plugin = {
     }
     return;
   },
-  render(fork) {
-    const ui = fork.ui ?? { title: "{{id}}", note: "" };
-    return `<div class="mh"><b>{{id}} #${fork.seq}</b> ${ui.title}<button class="x" id="closeModal" type="button">✕</button></div>
+  render(spark) {
+    const ui = spark.ui ?? { title: "{{id}}", note: "" };
+    return `<div class="mh"><b>{{id}} #${spark.seq}</b> ${ui.title}<button class="x" id="closeModal" type="button">✕</button></div>
       <div class="mbody"><p>${ui.note}</p></div>
-      <form class="mi" id="forkForm"><input name="t" placeholder="responde e volta pro chat" autocomplete="off" /></form>`;
+      <form class="mi" id="sparkForm"><input name="t" placeholder="responde e volta pro chat" autocomplete="off" /></form>`;
   },
 };
 

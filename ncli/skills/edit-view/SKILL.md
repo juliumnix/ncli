@@ -1,6 +1,6 @@
 ---
 name: edit-view
-description: Change an existing fork package in place (manifest, flow, exclusive skills, UI).
+description: Change an existing view package in place (manifest, flow, exclusive skills, UI).
 ---
 
 # Edit a view

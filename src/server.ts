@@ -75,50 +75,51 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         hub.switchMain(kind);
         return Response.json({ ok: true, main: hub.mainAgent() });
       }
-      if (url.pathname === "/api/forks" && req.method === "POST") {
+      if ((url.pathname === "/api/sparks" || url.pathname === "/api/forks") && req.method === "POST") {
         const body = (await req.json()) as { view?: string; params?: Record<string, string> };
-        const rt = await hub.forks.open(body.view ?? "", body.params ?? {});
-        return Response.json({ ok: true, fork: rt.fork });
+        const rt = await hub.sparks.open(body.view ?? "", body.params ?? {});
+        return Response.json({ ok: true, spark: rt.spark, fork: rt.spark });
       }
-      const forkMsg = url.pathname.match(/^\/api\/forks\/([^/]+)\/message$/);
-      if (forkMsg && req.method === "POST") {
+      const sparkMsg = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/message$/);
+      if (sparkMsg && req.method === "POST") {
         const body = (await req.json()) as { text?: string };
-        void hub.forks.message(decodeURIComponent(forkMsg[1]), body.text ?? "");
+        void hub.sparks.message(decodeURIComponent(sparkMsg[1]), body.text ?? "");
         return Response.json({ ok: true });
       }
-      const forkAck = url.pathname.match(/^\/api\/forks\/([^/]+)\/ack$/);
-      if (forkAck && req.method === "POST") {
+      const sparkAck = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ack$/);
+      if (sparkAck && req.method === "POST") {
         const body = (await req.json()) as { summary?: string };
-        await hub.ackFork(decodeURIComponent(forkAck[1]), body.summary);
+        await hub.ackSpark(decodeURIComponent(sparkAck[1]), body.summary);
         return Response.json({ ok: true });
       }
-      const forkAct = url.pathname.match(/^\/api\/forks\/([^/]+)\/act$/);
-      if (forkAct && req.method === "POST") {
+      const sparkAct = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/act$/);
+      if (sparkAct && req.method === "POST") {
         const body = (await req.json()) as { type?: string; id?: string; value?: string };
-        const fork = await hub.actFork(decodeURIComponent(forkAct[1]), {
+        const spark = await hub.actSpark(decodeURIComponent(sparkAct[1]), {
           type: body.type ?? "say",
           id: body.id,
           value: body.value,
         });
-        const plugin = hub.views.get(fork.view);
-        return Response.json({ ok: true, fork, html: plugin?.render?.(fork) });
+        const plugin = hub.views.get(spark.view);
+        return Response.json({ ok: true, spark, fork: spark, html: plugin?.render?.(spark) });
       }
-      const forkGet = url.pathname.match(/^\/api\/forks\/([^/]+)$/);
-      if (forkGet && req.method === "GET") {
-        const rt = hub.forks.get(decodeURIComponent(forkGet[1]));
+      const sparkGet = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)$/);
+      if (sparkGet && req.method === "GET") {
+        const rt = hub.sparks.get(decodeURIComponent(sparkGet[1]));
         if (!rt) return new Response("not found", { status: 404 });
-        const plugin = hub.views.get(rt.fork.view);
+        const plugin = hub.views.get(rt.spark.view);
         return Response.json({
-          fork: rt.fork,
+          spark: rt.spark,
+          fork: rt.spark,
           messages: rt.memory.log,
           debug: rt.memory.debug(),
-          html: plugin?.render?.(rt.fork),
+          html: plugin?.render?.(rt.spark),
         });
       }
       if (url.pathname === "/api/memory" && req.method === "GET") {
         const session = url.searchParams.get("session") ?? "main";
         if (session === "main") return Response.json(hub.memory.debug());
-        const rt = hub.forks.get(session);
+        const rt = hub.sparks.get(session);
         if (!rt) return new Response("not found", { status: 404 });
         return Response.json(rt.memory.debug());
       }
@@ -126,7 +127,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const id = Number(url.searchParams.get("id"));
         const n = Number(url.searchParams.get("n"));
         const session = url.searchParams.get("session") ?? "main";
-        const mem = session === "main" ? hub.memory : hub.forks.get(session)?.memory;
+        const mem = session === "main" ? hub.memory : hub.sparks.get(session)?.memory;
         if (!mem) return new Response("not found", { status: 404 });
         return Response.json(mem.zoom(id, n));
       }

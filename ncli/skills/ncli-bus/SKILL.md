@@ -5,15 +5,15 @@ description: Ask Codex/Cursor/Claude through NCLI. Agents exist only while worki
 
 # ncli-bus
 
-The NCLI server is the only long-lived process. `ask` spawns a CLI in the fork worktree, returns a ticket, the child exits. `wait` is an in-memory promise — zero polling. This is the only way to talk to another seat.
+The NCLI server is the only long-lived process. `ask` spawns a CLI in the spark worktree, returns a ticket, the child exits. `wait` is an in-memory promise — zero polling. This is the only way to talk to another seat.
 
 ## Tools (MCP `ncli`, same stdio server as zoom)
 
-- `ask(agent, prompt, {fork?, mode?, timeout?})` → ticket
+- `ask(agent, prompt, {spark?, mode?, timeout?})` → ticket
 - `wait(ticket|tickets, timeout)` → text
 
 `timeout` is seconds when the number is below 1000 (so `120` is two minutes), or milliseconds when it is 1000 or more. Default ask is 120s. Default wait is 30s.
-- `post(to, msg)` → short note to a seat, fork id, or `main`
+- `post(to, msg)` → short note to a seat, spark id, or `main`
 - `inbox()` → drain pending posts (also prepended on the next turn)
 - `read(query)` → search the bus ledger
 
@@ -33,11 +33,11 @@ PostToolUse / Stop. Not a daemon.
 
 ## Guards
 
-`NCLI_BUS_DEPTH` (default 1, max useful 2), `NCLI_BUS_CHILDREN` (4), `NCLI_BUS_BUDGET` (8 asks per fork). Cycles on the ticket chain are rejected.
+`NCLI_BUS_DEPTH` (default 1, max useful 2), `NCLI_BUS_CHILDREN` (4), `NCLI_BUS_BUDGET` (8 asks per spark). Cycles on the ticket chain are rejected.
 
 ## UI
 
-Each ask/reply/post is a ledger line, Telegram-style (`Codex → Claude: …`). Keep body short. Detail stays in the fork; `zoom` it.
+Each ask/reply/post is a ledger line, Telegram-style (`Codex → Claude: …`). Keep body short. Detail stays in the spark; `zoom` it.
 
 ## Check
 

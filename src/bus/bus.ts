@@ -9,6 +9,7 @@ import {
   inboxBlock,
   inboxKey,
   isSeat,
+  sparkIdOf,
   type BusAskOpts,
   type BusGuards,
   type BusKind,
@@ -22,7 +23,7 @@ import {
 export interface BusOpts {
   cfg: NcliConfig;
   runner?: BusRunner;
-  cwdFor?: (fork?: string) => string;
+  cwdFor?: (spark?: string) => string;
   onLine?: (line: BusLine) => void;
   onMcp?: (name: string, args: Record<string, unknown>, from: string) => Promise<string>;
 }
@@ -43,14 +44,14 @@ export class Bus {
   private server: ReturnType<typeof Bun.listen> | undefined;
   private readonly runner: BusRunner;
   private readonly guards: BusGuards;
-  private readonly cwdFor: (fork?: string) => string;
+  private readonly cwdFor: (spark?: string) => string;
   private readonly onLine?: (line: BusLine) => void;
   private readonly onMcp?: (name: string, args: Record<string, unknown>, from: string) => Promise<string>;
 
   constructor(opts: BusOpts) {
     this.socketPath = join(opts.cfg.dataDir, "ncli-bus.sock");
     this.runner = opts.runner ?? defaultBusRunner(opts.cfg);
-    this.cwdFor = opts.cwdFor ?? ((fork) => (fork ? opts.cfg.repo : opts.cfg.repo));
+    this.cwdFor = opts.cwdFor ?? ((spark) => (spark ? opts.cfg.repo : opts.cfg.repo));
     this.onLine = opts.onLine;
     this.onMcp = opts.onMcp;
     this.guards = {
@@ -97,10 +98,10 @@ export class Bus {
     if (this.running >= this.guards.maxChildren) {
       return { error: `muitos filhos ao mesmo tempo (${this.guards.maxChildren})` };
     }
-    const billed = opts.fork ?? from;
+    const billed = sparkIdOf(opts) ?? from;
     const used = this.asksByFrom.get(billed) ?? 0;
     if (used >= this.guards.budget) {
-      return { error: `orçamento do fork ${billed} esgotado (${this.guards.budget})` };
+      return { error: `orçamento do spark ${billed} esgotado (${this.guards.budget})` };
     }
     this.asksByFrom.set(billed, used + 1);
     const id = `t${++this.ticketN}`;
@@ -113,7 +114,7 @@ export class Bus {
       from,
       to: agent,
       prompt,
-      fork: opts.fork,
+      spark: sparkIdOf(opts),
       parent,
       depth: depth + 1,
       status: "pending",
@@ -131,7 +132,7 @@ export class Bus {
       body: prompt,
       ticket: id,
       parent,
-      fork: opts.fork,
+      spark: sparkIdOf(opts),
     });
     void this.runTicket(ticket, timeoutMs(opts.timeout, 120_000));
     return { ticket: id };
@@ -199,7 +200,7 @@ export class Bus {
     switch (kind) {
       case "ask": {
         const r = this.ask(msg.from, msg.to ?? "", msg.body, {
-          fork: msg.fork,
+          spark: sparkIdOf(msg),
           timeout: msg.timeout,
           parent: msg.parent ?? msg.ticket,
         });
@@ -287,7 +288,7 @@ export class Bus {
       const out = await this.runner({
         agent: ticket.to,
         prompt: ticket.prompt,
-        cwd: this.cwdFor(ticket.fork),
+        cwd: this.cwdFor(ticket.spark),
         timeout,
         signal: ac.signal,
         ticket: ticket.id,
@@ -301,7 +302,7 @@ export class Bus {
         body: out.text,
         ticket: ticket.id,
         parent: ticket.parent,
-        fork: ticket.fork,
+        spark: ticket.spark,
       });
     } catch (err) {
       ticket.status = "error";
@@ -312,7 +313,7 @@ export class Bus {
         kind: "event",
         body: ticket.error,
         ticket: ticket.id,
-        fork: ticket.fork,
+        spark: ticket.spark,
       });
     } finally {
       if (timer) clearTimeout(timer);

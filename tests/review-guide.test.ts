@@ -124,8 +124,8 @@ test("extractPlan reads a fenced json block from agent text", () => {
 
 test("render is a guided review: tabs, file grid, 40/60 guide, no approve/chat trio", async () => {
   const { hub } = await makeHub();
-  const rt = await hub.forks.open("review", { pr: "482" });
-  const html = review.render!(rt.fork);
+  const rt = await hub.sparks.open("review", { pr: "482" });
+  const html = review.render!(rt.spark);
   expect(html).toContain("data-tab=\"Overview\"");
   expect(html).toContain("data-tab=\"Guide\"");
   expect(html).toContain("data-tab=\"Diff\"");
@@ -146,7 +146,7 @@ test("render is a guided review: tabs, file grid, 40/60 guide, no approve/chat t
   expect(html).not.toContain("Merge");
   expect(html).not.toContain("class=\"trio\"");
   expect(html).toContain('class="ln"');
-  const ui = rt.fork.ui as ReturnType<typeof buildReviewUi>;
+  const ui = rt.spark.ui as ReturnType<typeof buildReviewUi>;
   expect(ui.chapters[0]?.kind).toBe("core");
   expect(ui.chapters.at(-1)?.kind).toBe("test");
   hub.close();
@@ -154,12 +154,12 @@ test("render is a guided review: tabs, file grid, 40/60 guide, no approve/chat t
 
 test("Reviewed toggles persist on the chapter", async () => {
   const { hub } = await makeHub();
-  const rt = await hub.forks.open("review", { pr: "482" });
-  const before = (rt.fork.ui as ReturnType<typeof buildReviewUi>).chapters[0]!;
+  const rt = await hub.sparks.open("review", { pr: "482" });
+  const before = (rt.spark.ui as ReturnType<typeof buildReviewUi>).chapters[0]!;
   expect(before.reviewed).toBe(false);
-  await hub.actFork(rt.fork.id, { type: "review-chapter", id: before.id });
-  expect((rt.fork.ui as ReturnType<typeof buildReviewUi>).chapters[0]?.reviewed).toBe(true);
-  const next = toggleReviewed(rt.fork.ui as ReturnType<typeof buildReviewUi>, "file", "src/billing/discount.ts");
+  await hub.actSpark(rt.spark.id, { type: "review-chapter", id: before.id });
+  expect((rt.spark.ui as ReturnType<typeof buildReviewUi>).chapters[0]?.reviewed).toBe(true);
+  const next = toggleReviewed(rt.spark.ui as ReturnType<typeof buildReviewUi>, "file", "src/billing/discount.ts");
   expect(next.fileState.find((f) => f.path.endsWith("discount.ts"))?.reviewed).toBe(true);
   hub.close();
 });

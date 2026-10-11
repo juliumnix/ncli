@@ -1,11 +1,11 @@
 import type { HarnessKind } from "./config";
-import type { ForkResult } from "./views/manifest";
+import type { SparkResult } from "./views/manifest";
 
 export type SeatId = "claude" | "codex" | "cursor";
 
 export type MsgKind = "user" | "talk" | "tool" | "echo" | "note" | "seat" | "merge" | "bus" | "think";
 
-export type ForkStatus = "running" | "needs_user" | "done" | "merged" | "error";
+export type SparkStatus = "running" | "needs_user" | "done" | "merged" | "error";
 
 export type NeedsUserKind = "question" | "review";
 
@@ -24,7 +24,7 @@ export interface Message {
   seat?: SeatId;
   model?: string;
   to?: string;
-  forkId?: string;
+  sparkId?: string;
   tool?: { name: string; input?: unknown };
   hops?: string;
   stepId?: string;
@@ -132,12 +132,12 @@ export interface NeedsUser {
   count?: number;
 }
 
-export interface Fork {
+export interface Spark {
   id: string;
   seq: number;
   view: string;
   title: string;
-  status: ForkStatus;
+  status: SparkStatus;
   needsUser?: NeedsUser;
   worktree?: string;
   branch?: string;
@@ -149,7 +149,7 @@ export interface Fork {
   ui?: unknown;
   hold?: boolean;
   flowStep?: string;
-  result?: ForkResult;
+  result?: SparkResult;
 }
 
 export interface SeatSnapshot {
@@ -177,7 +177,7 @@ export type HubEvent =
   | { type: "step"; session: string; turnId: string; step: TurnStep }
   | { type: "main"; main: MainAgent }
   | { type: "compact"; compact: CompactStatus }
-  | { type: "fork"; fork: Fork }
+  | { type: "spark"; spark: Spark }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
   | ContextSnapshot

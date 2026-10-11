@@ -36,8 +36,8 @@ ACP is NCLI's internal session contract (`src/acp/types.ts`). Do not add `@anthr
 Read the leaf skill before applying it.
 
 - Subtract before you add. Delete dead views, mock paths, and unused adapters before growing the tree.
-- Separate before serializing shared state. Each fork owns its memory directory, harness process, and git worktree. The main log is the only merge point.
-- Model the domain. Chat is an append-only log plus a binary summary tree. Forks are isolated runtimes, not flags on the main session.
+- Separate before serializing shared state. Each spark owns its memory directory, harness process, and git worktree. The main log is the only merge point.
+- Model the domain. Chat is an append-only log plus a binary summary tree. Sparks are isolated runtimes of a view, not flags on the main session.
 - Test behavior, not implementation. Assert recovered facts, merge text, worktree paths, and registry ids. Do not assert mock call counts.
 - Prove it works. `bun test` plus a running `bun start` page, not "it typechecks".
 
@@ -48,7 +48,7 @@ Follow the matching skill, do not improvise a second registry.
 | Ask | Skill |
 | --- | --- |
 | new / edit / delete a `view://` surface | `ncli/skills/add-view`, `edit-view`, `remove-view` |
-| fork type (hold, needs_user, worktree) | `ncli/skills/add-mode` |
+| view lifecycle (hold, needs_user, worktree) | `ncli/skills/add-mode` |
 | new ` ```ncli ` kind | `ncli/skills/add-render-kind` |
 | interactive in-chat mini-app (`ncli ui`) | `ncli/skills/ncli-ui` |
 | wrap another CLI | `ncli/skills/add-harness` |
@@ -59,4 +59,4 @@ Follow the matching skill, do not improvise a second registry.
 | add a skill / MCP once | `ncli/skills/add-skill`, `add-mcp` |
 | stuck turn | `ncli/skills/debug-ncli` |
 
-A fork type is a package in `views/<id>/` (`manifest.json`, `view.ts`, exclusive `skills/`). Loose `views/<id>.ts` is only for previews. Default export, hot-reloaded. No registry edit. Share with `bun run ncli view pack` / `view add`.
+A view is a package in `views/<id>/` (`manifest.json`, `view.ts`, exclusive `skills/`). A spark is a running instance of that view. Loose `views/<id>.ts` is only for previews. Default export, hot-reloaded. No registry edit. Share with `bun run ncli view pack` / `view add`.

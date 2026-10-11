@@ -1,11 +1,11 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Fork, ForkStatus, Message, NeedsUser } from "../types";
+import type { Spark, SparkStatus, Message, NeedsUser } from "../types";
 import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
 import type { ViewRegistry } from "../views/registry";
-import { assertRunnable, availableHarnesses, emptyResult, formatForkResult, forkSkillPrompt, type ForkResult } from "../views/manifest";
+import { assertRunnable, availableHarnesses, emptyResult, formatSparkResult, sparkSkillPrompt, type SparkResult } from "../views/manifest";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
@@ -18,17 +18,17 @@ import { joinText } from "../live/join-text";
 import { seatOf } from "../agent";
 import type { SpawnInject } from "../mcp/inject";
 
-export interface ForkRuntime {
-  fork: Fork;
+export interface SparkRuntime {
+  spark: Spark;
   memory: Memory;
   abort: AbortController;
   worktree?: WorktreeHandle;
   seats: Record<string, string>;
 }
 
-export interface ForkManagerHooks {
+export interface SparkManagerHooks {
   onEvent: (ev: { type: string; session: string; payload?: unknown }) => void;
-  onMerge: (fork: Fork, summary: string, result: ForkResult) => void;
+  onMerge: (spark: Spark, summary: string, result: SparkResult) => void;
   compressor: Compressor;
   harness: Harness;
   git?: GitRunner;
@@ -36,24 +36,25 @@ export interface ForkManagerHooks {
   inject?: (session: string, worktree?: string) => SpawnInject;
 }
 
-export class ForkManager {
-  readonly runtimes = new Map<string, ForkRuntime>();
+export class SparkManager {
+  readonly runtimes = new Map<string, SparkRuntime>();
   private seqByView = new Map<string, number>();
 
   constructor(
     private readonly cfg: NcliConfig,
     private readonly views: ViewRegistry,
     private readonly gh: GhClient,
-    private readonly hooks: ForkManagerHooks,
+    private readonly hooks: SparkManagerHooks,
   ) {
-    mkdirSync(join(cfg.dataDir, "forks"), { recursive: true });
+    mkdirSync(join(cfg.dataDir, "sparks"), { recursive: true });
   }
 
   restore(): void {
-    const root = join(this.cfg.dataDir, "forks");
-    if (!existsSync(root)) return;
+    const roots = ["sparks", "forks"].map((n) => join(this.cfg.dataDir, n)).filter((p) => existsSync(p));
+    for (const root of roots) {
     for (const name of readdirSync(root)) {
-      const meta = loadForkMeta(this.cfg.dataDir, name);
+      if (this.runtimes.has(name)) continue;
+      const meta = loadSparkMeta(this.cfg.dataDir, name);
       if (!meta) continue;
       const prev = this.seqByView.get(meta.view) ?? 0;
       if (meta.seq > prev) this.seqByView.set(meta.view, meta.seq);
@@ -68,12 +69,13 @@ export class ForkManager {
         ? { path: join(meta.repo, ".ncli", "wt", name), branch: meta.branch, repo: meta.repo }
         : undefined;
       this.runtimes.set(meta.id, {
-        fork: meta,
+        spark: meta,
         memory,
         abort: new AbortController(),
         worktree,
         seats: {},
       });
+    }
     }
   }
 
@@ -81,23 +83,23 @@ export class ForkManager {
     this.seqByView.set(view, last);
   }
 
-  list(): Fork[] {
-    return [...this.runtimes.values()].map((r) => r.fork);
+  list(): Spark[] {
+    return [...this.runtimes.values()].map((r) => r.spark);
   }
 
   setHarness(harness: Harness): void {
     this.hooks.harness = harness;
   }
 
-  waitingOnUser(): Fork[] {
+  waitingOnUser(): Spark[] {
     return this.list().filter((f) => f.status === "needs_user");
   }
 
-  get(id: string): ForkRuntime | undefined {
+  get(id: string): SparkRuntime | undefined {
     return this.runtimes.get(id);
   }
 
-  async open(viewId: string, params: Record<string, string>): Promise<ForkRuntime> {
+  async open(viewId: string, params: Record<string, string>): Promise<SparkRuntime> {
     const plugin = this.views.get(viewId);
     if (!plugin) throw new Error(`view desconhecida: ${viewId}`);
     const pack = this.views.packageOf(viewId);
@@ -106,12 +108,12 @@ export class ForkManager {
     this.seqByView.set(viewId, seq);
     const id = `${viewId}-${seq}`;
     const parsed = plugin.parseLink?.(params) ?? params;
-    const created = await plugin.createFork(parsed, {
+    const created = await plugin.createSpark(parsed, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
       fetchPr: (pr) => this.gh.view(pr),
     });
-    const fork: Fork = {
+    const spark: Spark = {
       id,
       seq,
       view: viewId,
@@ -129,85 +131,85 @@ export class ForkManager {
     if (created.needsWorktree) {
       try {
         worktree = await addWorktree(created.repo ?? this.cfg.repo, id, this.hooks.git);
-        fork.worktree = shortWt(worktree.path);
-        fork.branch = worktree.branch;
+        spark.worktree = shortWt(worktree.path);
+        spark.branch = worktree.branch;
       } catch {
-        fork.worktree = "sem wt";
+        spark.worktree = "sem wt";
       }
     }
     const memory = new Memory({
-      dir: join(this.cfg.dataDir, "forks", id),
+      dir: join(this.cfg.dataDir, "sparks", id),
       nodeBytes: this.cfg.nodeBytes,
       viewBytes: this.cfg.viewBytes,
       compressor: this.hooks.compressor,
       pumpBatch: this.cfg.compactBatch,
     });
-    const rt: ForkRuntime = {
-      fork,
+    const rt: SparkRuntime = {
+      spark,
       memory,
       abort: new AbortController(),
       worktree,
       seats: {},
     };
     this.runtimes.set(id, rt);
-    persistFork(this.cfg.dataDir, fork);
-    this.hooks.onEvent({ type: "fork", session: id, payload: fork });
+    persistSpark(this.cfg.dataDir, spark);
+    this.hooks.onEvent({ type: "spark", session: id, payload: spark });
     void this.runTurn(rt, created.prompt, true);
     return rt;
   }
 
   async message(id: string, text: string): Promise<void> {
     const rt = this.runtimes.get(id);
-    if (!rt) throw new Error(`fork ${id} não existe`);
-    const plugin = this.views.get(rt.fork.view);
+    if (!rt) throw new Error(`spark ${id} não existe`);
+    const plugin = this.views.get(rt.spark.view);
     if (plugin?.applyAction) {
       await this.act(id, { type: "say", value: text });
       return;
     }
-    rt.fork.status = "running";
-    rt.fork.needsUser = undefined;
-    persistFork(this.cfg.dataDir, rt.fork);
-    this.hooks.onEvent({ type: "fork", session: id, payload: rt.fork });
+    rt.spark.status = "running";
+    rt.spark.needsUser = undefined;
+    persistSpark(this.cfg.dataDir, rt.spark);
+    this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     await this.runTurn(rt, text, false);
   }
 
-  async act(id: string, action: ViewAction): Promise<Fork> {
+  async act(id: string, action: ViewAction): Promise<Spark> {
     const rt = this.runtimes.get(id);
-    if (!rt) throw new Error(`fork ${id} não existe`);
-    const plugin = this.views.get(rt.fork.view);
+    if (!rt) throw new Error(`spark ${id} não existe`);
+    const plugin = this.views.get(rt.spark.view);
     const posted = [action.type, action.id, action.value].filter(Boolean).join(" ");
     rt.memory.append({ kind: "user", text: posted });
-    const result = plugin?.applyAction?.(rt.fork, action);
-    if (result?.ui !== undefined) rt.fork.ui = result.ui;
-    if (result?.flowStep) rt.fork.flowStep = result.flowStep;
-    if (result?.result) rt.fork.result = result.result;
+    const result = plugin?.applyAction?.(rt.spark, action);
+    if (result?.ui !== undefined) rt.spark.ui = result.ui;
+    if (result?.flowStep) rt.spark.flowStep = result.flowStep;
+    if (result?.result) rt.spark.result = result.result;
     if (result?.needsUser === null) {
-      rt.fork.needsUser = undefined;
-      if (!result.merge) rt.fork.status = "running";
+      rt.spark.needsUser = undefined;
+      if (!result.merge) rt.spark.status = "running";
     } else if (result?.needsUser) {
-      rt.fork.needsUser = result.needsUser;
-      rt.fork.status = "needs_user";
+      rt.spark.needsUser = result.needsUser;
+      rt.spark.status = "needs_user";
     }
-    persistFork(this.cfg.dataDir, rt.fork);
-    this.hooks.onEvent({ type: "fork", session: id, payload: rt.fork });
+    persistSpark(this.cfg.dataDir, rt.spark);
+    this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     if (result?.merge) {
-      await this.merge(rt, result.summary ?? rt.fork.summary ?? posted);
+      await this.merge(rt, result.summary ?? rt.spark.summary ?? posted);
     }
-    return rt.fork;
+    return rt.spark;
   }
 
   async finish(id: string, summary?: string): Promise<void> {
     const rt = this.runtimes.get(id);
     if (!rt) return;
-    await this.merge(rt, summary ?? rt.fork.summary ?? `fork ${id} terminou`);
+    await this.merge(rt, summary ?? rt.spark.summary ?? `spark ${id} terminou`);
   }
 
   async close(id: string): Promise<void> {
     const rt = this.runtimes.get(id);
     if (!rt) return;
     rt.abort.abort();
-    if (rt.fork.status !== "merged") {
-      await this.merge(rt, rt.fork.summary ?? "fechado");
+    if (rt.spark.status !== "merged") {
+      await this.merge(rt, rt.spark.summary ?? "fechado");
     }
     if (rt.worktree) {
       try {
@@ -218,34 +220,34 @@ export class ForkManager {
     }
   }
 
-  private async runTurn(rt: ForkRuntime, userText: string, isBoot: boolean): Promise<void> {
+  private async runTurn(rt: SparkRuntime, userText: string, isBoot: boolean): Promise<void> {
     void rt.memory.pump();
-    const pack = this.views.packageOf(rt.fork.view);
+    const pack = this.views.packageOf(rt.spark.view);
     const extra = pack
-      ? `Fork ${rt.fork.id} of ${pack.manifest.name}. Isolated worktree: ${rt.worktree?.path ?? "none"}. Flow step: ${rt.fork.flowStep ?? "spark"}.`
-      : `You are running view '${rt.fork.view}' as fork ${rt.fork.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`;
+      ? `Spark ${rt.spark.id} of ${pack.manifest.name}. Isolated worktree: ${rt.worktree?.path ?? "none"}. Flow step: ${rt.spark.flowStep ?? "spark"}.`
+      : `You are running view '${rt.spark.view}' as spark ${rt.spark.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`;
     const ctx = assemble(
       rt.memory,
       extra,
-      pack ? forkSkillPrompt(pack) : undefined,
+      pack ? sparkSkillPrompt(pack) : undefined,
       pack ? "" : undefined,
     );
     if (!isBoot) rt.memory.append({ kind: "user", text: userText });
-    else rt.memory.append({ kind: "note", text: `boot ${rt.fork.view} ${JSON.stringify(rt.fork.params)}` });
+    else rt.memory.append({ kind: "note", text: `boot ${rt.spark.view} ${JSON.stringify(rt.spark.params)}` });
     let talk = "";
     try {
-      const inbox = this.hooks.bus?.drainPrompt(rt.fork.id) ?? "";
+      const inbox = this.hooks.bus?.drainPrompt(rt.spark.id) ?? "";
       const inj = this.hooks.inject
-        ? this.hooks.inject(rt.fork.id, rt.worktree?.path)
+        ? this.hooks.inject(rt.spark.id, rt.worktree?.path)
         : undefined;
-      const live = new LiveTurn(rt.fork.id, seatOf(this.hooks.harness.id));
+      const live = new LiveTurn(rt.spark.id, seatOf(this.hooks.harness.id));
       const tools: string[] = [];
-      this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
+      this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       for await (const ev of this.hooks.harness.run({
         prompt: `${inbox}${ctx.view}\n\n${userText}`,
         system: ctx.system,
         cwd: rt.worktree?.path ?? this.cfg.repo,
-        session: rt.fork.id,
+        session: rt.spark.id,
         signal: rt.abort.signal,
         mcpConfigPath: inj?.mcpConfigPath,
         mcpServers: inj?.mcpServers,
@@ -258,75 +260,75 @@ export class ForkManager {
         if (ev.type === "error") throw new Error(ev.error);
       }
       live.finish(rt.abort.signal.aborted ? "stopped" : "done");
-      this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
+      this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       const summary = toolActivityLine(tools);
       if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(this.hooks.harness.id) });
-      rt.fork.summary = talk.trim().slice(0, 400) || rt.fork.summary;
-      if (rt.fork.status === "merged") return;
-      if (rt.fork.needsUser) {
-        rt.fork.status = "needs_user";
-        persistFork(this.cfg.dataDir, rt.fork);
-        this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
+      rt.spark.summary = talk.trim().slice(0, 400) || rt.spark.summary;
+      if (rt.spark.status === "merged") return;
+      if (rt.spark.needsUser) {
+        rt.spark.status = "needs_user";
+        persistSpark(this.cfg.dataDir, rt.spark);
+        this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
-      if (rt.fork.hold) {
-        rt.fork.status = "running";
-        persistFork(this.cfg.dataDir, rt.fork);
-        this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
+      if (rt.spark.hold) {
+        rt.spark.status = "running";
+        persistSpark(this.cfg.dataDir, rt.spark);
+        this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
-      rt.fork.status = "done";
-      await this.merge(rt, rt.fork.summary ?? talk);
+      rt.spark.status = "done";
+      await this.merge(rt, rt.spark.summary ?? talk);
     } catch (err) {
-      rt.fork.status = "error";
-      rt.fork.summary = (err as Error).message;
-      persistFork(this.cfg.dataDir, rt.fork);
-      this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
+      rt.spark.status = "error";
+      rt.spark.summary = (err as Error).message;
+      persistSpark(this.cfg.dataDir, rt.spark);
+      this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     }
   }
 
-  private handleHarness(rt: ForkRuntime, ev: HarnessEvent, live: LiveTurn, tools: string[]): void {
+  private handleHarness(rt: SparkRuntime, ev: HarnessEvent, live: LiveTurn, tools: string[]): void {
     const applied = live.apply(ev);
-    this.hooks.onEvent({ type: "turn", session: rt.fork.id, payload: live.turn });
+    this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
     if (applied.step) {
-      this.hooks.onEvent({ type: "step", session: rt.fork.id, payload: { turnId: live.id, step: applied.step } });
+      this.hooks.onEvent({ type: "step", session: rt.spark.id, payload: { turnId: live.id, step: applied.step } });
     }
     switch (ev.type) {
       case "text":
       case "thinking":
       case "model":
-        this.hooks.onEvent({ type: "delta", session: rt.fork.id, payload: ev });
+        this.hooks.onEvent({ type: "delta", session: rt.spark.id, payload: ev });
         break;
       case "tool":
         tools.push(ev.name);
-        this.hooks.onEvent({ type: "tool", session: rt.fork.id, payload: ev });
+        this.hooks.onEvent({ type: "tool", session: rt.spark.id, payload: ev });
         break;
       case "tool_result":
         break;
       case "seat":
         if (ev.status === "done" && ev.text) {
           const msg = rt.memory.append({ kind: "seat", text: ev.text, seat: ev.seat });
-          this.hooks.onEvent({ type: "message", session: rt.fork.id, payload: msg });
+          this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: msg });
         } else {
-          this.hooks.onEvent({ type: "delta", session: rt.fork.id, payload: ev });
+          this.hooks.onEvent({ type: "delta", session: rt.spark.id, payload: ev });
         }
         break;
       case "done":
         if (ev.text) {
           const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.hooks.harness.id), model: live.turn.model });
-          this.hooks.onEvent({ type: "message", session: rt.fork.id, payload: msg });
-          const plugin = this.views.get(rt.fork.view);
-          const patch = plugin?.onEvent?.(rt.fork, { type: "done", text: ev.text });
-          if (patch?.ui !== undefined) rt.fork.ui = patch.ui;
-          if (patch?.flowStep) rt.fork.flowStep = patch.flowStep;
+          this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: msg });
+          const plugin = this.views.get(rt.spark.view);
+          const patch = plugin?.onEvent?.(rt.spark, { type: "done", text: ev.text });
+          if (patch?.ui !== undefined) rt.spark.ui = patch.ui;
+          if (patch?.flowStep) rt.spark.flowStep = patch.flowStep;
           if (patch?.ui !== undefined || patch?.flowStep) {
-            persistFork(this.cfg.dataDir, rt.fork);
-            this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
+            persistSpark(this.cfg.dataDir, rt.spark);
+            this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
           }
         }
         break;
       case "error":
-        this.hooks.onEvent({ type: "error", session: rt.fork.id, payload: ev });
+        this.hooks.onEvent({ type: "error", session: rt.spark.id, payload: ev });
         break;
       default: {
         const _n: never = ev;
@@ -335,19 +337,19 @@ export class ForkManager {
     }
   }
 
-  private async merge(rt: ForkRuntime, summary: string): Promise<void> {
-    if (rt.fork.status === "merged") return;
-    const plugin = this.views.get(rt.fork.view);
-    const result = rt.fork.result ?? plugin?.result?.(rt.fork) ?? emptyResult(summary);
+  private async merge(rt: SparkRuntime, summary: string): Promise<void> {
+    if (rt.spark.status === "merged") return;
+    const plugin = this.views.get(rt.spark.view);
+    const result = rt.spark.result ?? plugin?.result?.(rt.spark) ?? emptyResult(summary);
     result.summary = summary || result.summary;
-    rt.fork.status = "merged";
-    rt.fork.mergedAt = nowIso();
-    rt.fork.summary = result.summary;
-    rt.fork.result = result;
-    rt.fork.flowStep = "result";
-    persistFork(this.cfg.dataDir, rt.fork);
-    this.hooks.onEvent({ type: "fork", session: rt.fork.id, payload: rt.fork });
-    this.hooks.onMerge(rt.fork, formatForkResult(rt.fork, result), result);
+    rt.spark.status = "merged";
+    rt.spark.mergedAt = nowIso();
+    rt.spark.summary = result.summary;
+    rt.spark.result = result;
+    rt.spark.flowStep = "result";
+    persistSpark(this.cfg.dataDir, rt.spark);
+    this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
+    this.hooks.onMerge(rt.spark, formatSparkResult(rt.spark, result), result);
   }
 }
 
@@ -356,24 +358,26 @@ function shortWt(path: string): string {
   return `wt/${parts[parts.length - 1]}`;
 }
 
-function persistFork(dataDir: string, fork: Fork): void {
-  const dir = join(dataDir, "forks", fork.id);
+function persistSpark(dataDir: string, spark: Spark): void {
+  const dir = join(dataDir, "sparks", spark.id);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "meta.json"), JSON.stringify(fork, null, 2), "utf8");
+  writeFileSync(join(dir, "meta.json"), JSON.stringify(spark, null, 2), "utf8");
 }
 
-export function loadForkMeta(dataDir: string, id: string): Fork | null {
-  const p = join(dataDir, "forks", id, "meta.json");
-  if (!existsSync(p)) return null;
-  return JSON.parse(readFileSync(p, "utf8")) as Fork;
+export function loadSparkMeta(dataDir: string, id: string): Spark | null {
+  for (const root of ["sparks", "forks"]) {
+    const p = join(dataDir, root, id, "meta.json");
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf8")) as Spark;
+  }
+  return null;
 }
 
-export function mergeMessage(fork: Fork, summary: string): Omit<Message, "i" | "size"> {
+export function mergeMessage(spark: Spark, summary: string): Omit<Message, "i" | "size"> {
   return {
     kind: "merge",
-    text: fork.result ? formatForkResult(fork, fork.result) : `${fork.view} #${fork.seq} voltou · ${oneLine(summary)}`,
+    text: spark.result ? formatSparkResult(spark, spark.result) : `${spark.view} #${spark.seq} voltou · ${oneLine(summary)}`,
     date: nowIso(),
-    forkId: fork.id,
+    sparkId: spark.id,
     seat: "claude",
   };
 }
@@ -382,4 +386,4 @@ function oneLine(s: string): string {
   return s.replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
-export type { ForkStatus, NeedsUser };
+export type { SparkStatus, NeedsUser };

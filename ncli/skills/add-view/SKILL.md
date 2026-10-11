@@ -1,18 +1,18 @@
 ---
 name: add-view
-description: Add a shareable view:// fork package (manifest, agents, exclusive skills, flow, UI). Use when the user wants a new isolated fork type.
+description: Add a shareable view:// package (manifest, agents, exclusive skills, flow, UI). Use when the user wants a new isolated view that runs as a spark.
 ---
 
-# Add a fork package
+# Add a view package
 
-A fork type is a self-contained package. Anyone who installs it must get the same agents, exclusive skills, flow, and UI. No author home paths. No global `~/.cursor` / `~/.claude` / `~/.codex`.
+A view is a self-contained package. Anyone who installs it must get the same agents, exclusive skills, flow, and UI. The main chat starts a spark of that view. No author home paths. No global `~/.cursor` / `~/.claude` / `~/.codex`.
 
 ```
 views/<id>/
   manifest.json    # name, semver, requires.harnesses[+models], agents, skills, flow, optional mcp
   view.ts          # default export ViewPlugin + render / result
   skills/<id>-flow/SKILL.md
-  mcp.json         # optional; extra MCP servers, fork spawn only
+  mcp.json         # optional; extra MCP servers, spark spawn only
 ```
 
 `live` stays a loose `views/live.ts` preview. Review and refino are packages. Dropping the folder into `views/<id>/` is enough for hot-reload.
@@ -33,7 +33,7 @@ Id: `[a-z][a-z0-9]*`. Scaffold writes the folder from `ncli/skills/add-view/temp
 - `flow` — first step `spark`, some step `result`, `next` ids must exist
 - `skills` / `mcp` — package-relative. `..`, `~/`, `$ENV`, `.cursor` are rejected
 
-Open with `view://<id>?key=value`. The hub sparks the fork (own memory, own worktree if `needsWorktree`, own skills, own optional MCP). When the flow hits `result`, `{ summary, artifacts, decisions, links }` lands on the main memory tree.
+Open with `view://<id>?key=value`. The hub starts a spark (own memory, own worktree if `needsWorktree`, own skills, own optional MCP). When the flow hits `result`, `{ summary, artifacts, decisions, links }` lands on the main memory tree.
 
 ## Share
 

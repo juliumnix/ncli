@@ -112,7 +112,7 @@ export class ViewRegistry {
 async function importPlugin(full: string): Promise<ViewPlugin | null> {
   const href = `${pathToFileURL(full).href}?t=${Date.now()}`;
   const mod = (await import(href)) as { default?: ViewPlugin } & Partial<ViewPlugin>;
-  const plugin: ViewPlugin | undefined = mod.default ?? (mod.id && mod.createFork ? (mod as ViewPlugin) : undefined);
-  if (!plugin?.id || !plugin.createFork) return null;
+  const plugin: ViewPlugin | undefined = mod.default ?? (mod.id && mod.createSpark ? (mod as ViewPlugin) : undefined);
+  if (!plugin?.id || !plugin.createSpark) return null;
   return plugin;
 }
