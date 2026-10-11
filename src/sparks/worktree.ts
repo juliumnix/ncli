@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 export interface WorktreeHandle {
@@ -20,6 +20,39 @@ export async function realGit(args: string[], cwd: string): Promise<{ stdout: st
   return { stdout, stderr, code };
 }
 
+export interface WorktreePolicy {
+  detached: boolean;
+  include: string;
+}
+
+export interface WorktreeStatus {
+  dirty: boolean;
+  unpushed: boolean;
+  files: string[];
+}
+
+export interface ArchiveResult {
+  ok: boolean;
+  archived: boolean;
+  blocked?: "dirty" | "unpushed";
+  status: WorktreeStatus;
+}
+
+export function loadWorktreePolicy(repo: string): WorktreePolicy {
+  const file = join(repo, ".ncli", "worktree.json");
+  const fallback: WorktreePolicy = { detached: true, include: ".worktreeinclude" };
+  if (!existsSync(file)) return fallback;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<WorktreePolicy>;
+    return {
+      detached: raw.detached !== false,
+      include: typeof raw.include === "string" && raw.include.trim() ? raw.include.trim() : fallback.include,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function addWorktree(
   repo: string,
   sparkId: string,
@@ -27,6 +60,7 @@ export async function addWorktree(
   baseDir?: string,
 ): Promise<WorktreeHandle> {
   const absRepo = resolve(repo);
+  const policy = loadWorktreePolicy(absRepo);
   const root = baseDir ?? join(absRepo, ".ncli", "wt");
   mkdirSync(root, { recursive: true });
   const path = join(root, sparkId);
@@ -34,14 +68,55 @@ export async function addWorktree(
   if (existsSync(path)) {
     return { path, branch, repo: absRepo };
   }
-  const result = await git(["worktree", "add", "-B", branch, path, "HEAD"], absRepo);
+  const args = policy.detached
+    ? (["worktree", "add", "--detach", path, "HEAD"] as string[])
+    : (["worktree", "add", "-B", branch, path, "HEAD"] as string[]);
+  const result = await git(args, absRepo);
   if (result.code !== 0) {
-    const retry = await git(["worktree", "add", "--force", path, "HEAD"], absRepo);
+    const retry = await git(["worktree", "add", "--force", "--detach", path, "HEAD"], absRepo);
     if (retry.code !== 0) {
       throw new Error(`git worktree add failed: ${result.stderr || retry.stderr}`);
     }
   }
+  applyInclude(absRepo, path, policy.include);
   return { path, branch, repo: absRepo };
+}
+
+export async function inspectWorktree(
+  handle: WorktreeHandle,
+  git: GitRunner = realGit,
+): Promise<WorktreeStatus> {
+  const porcelain = await git(["status", "--porcelain"], handle.path);
+  const files = porcelain.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.slice(3).trim());
+  const base = await git(["rev-parse", "HEAD"], handle.repo);
+  const extra = await git(["log", "--pretty=%H", `${base.stdout.trim()}..HEAD`], handle.path);
+  const unpushed = extra.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean).length > 0;
+  return { dirty: files.length > 0, unpushed, files };
+}
+
+export async function archiveWorktree(
+  handle: WorktreeHandle,
+  git: GitRunner = realGit,
+  opts: { force?: boolean } = {},
+): Promise<ArchiveResult> {
+  const status = existsSync(handle.path)
+    ? await inspectWorktree(handle, git)
+    : { dirty: false, unpushed: false, files: [] };
+  if (!opts.force && status.dirty) {
+    return { ok: false, archived: false, blocked: "dirty", status };
+  }
+  if (!opts.force && status.unpushed) {
+    return { ok: false, archived: false, blocked: "unpushed", status };
+  }
+  await removeWorktree(handle, git);
+  return { ok: true, archived: true, status };
 }
 
 export async function removeWorktree(
@@ -51,6 +126,22 @@ export async function removeWorktree(
   await git(["worktree", "remove", "--force", handle.path], handle.repo);
   await git(["branch", "-D", handle.branch], handle.repo);
   if (existsSync(handle.path)) rmSync(handle.path, { recursive: true, force: true });
+}
+
+export function applyInclude(repo: string, dest: string, includeFile: string): void {
+  const listed = join(repo, includeFile);
+  if (!existsSync(listed)) return;
+  const lines = readFileSync(listed, "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !l.includes(".."));
+  for (const rel of lines) {
+    const from = join(repo, rel);
+    if (!existsSync(from)) continue;
+    const to = join(dest, rel);
+    mkdirSync(dirname(to), { recursive: true });
+    copyFileSync(from, to);
+  }
 }
 
 export async function initTempRepo(prefix = "ncli-repo"): Promise<string> {
