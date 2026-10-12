@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Hub } from "./hub";
 import type { NcliConfig } from "./config";
@@ -6,6 +6,7 @@ import type { HarnessKind } from "./config";
 import type { HubEvent } from "./types";
 import { handleMcpHttp } from "./mcp/http";
 import { sanitizeViewHtml } from "./util";
+import { liveOrigin } from "./live/origin";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -200,6 +201,15 @@ function staticFile(root: string, pathname: string): Response {
     const headers: Record<string, string> = {};
     if (p === "/ncli3d.js" || p === "/vendor/three.global.js") {
       headers["Cross-Origin-Resource-Policy"] = "cross-origin";
+    }
+    if (p === "/index.html") {
+      const origin = liveOrigin()?.origin ?? "";
+      const html = readFileSync(abs, "utf8").replace(
+        "</head>",
+        `<script>window.NCLI_LIVE_ORIGIN=${JSON.stringify(origin)}</script></head>`,
+      );
+      headers["content-type"] = "text/html; charset=utf-8";
+      return new Response(html, { headers });
     }
     return new Response(Bun.file(abs), { headers });
   }

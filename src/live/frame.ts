@@ -1,10 +1,9 @@
 import { escapeHtml } from "../util";
 import type { LiveBlock, LiveKind } from "./parse";
 import { ncli3dSrc } from "./3d-frame";
+import { compartmentHtml } from "./compartment";
+import { liveDocUrl } from "./origin";
 import { liveDocCss, uiKey, wrapUiSource } from "./ui-frame";
-
-const CSP =
-  "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'";
 
 export function frameHtml(block: LiveBlock): string {
   switch (block.kind) {
@@ -27,20 +26,28 @@ export function frameHtml(block: LiveBlock): string {
   }
 }
 
+let liveFrameSeq = 0;
+
+function nextLiveFrameName(kind: LiveKind): string {
+  liveFrameSeq += 1;
+  return `ncliLive${kind}${liveFrameSeq}`;
+}
+
 export function iframeTag(block: LiveBlock, id?: string): string {
   if (block.kind === "3d") {
     const src = ncli3dSrc(block.source);
-    return `<iframe class="live-frame live-3d" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe>`;
+    return `<iframe class="live-frame live-3d" name="${nextLiveFrameName(block.kind)}" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe>`;
   }
   if (block.kind === "url") {
     const href = safeUrl(block.source);
     if (!href) return `<div class="live mute">url bloqueada</div>`;
-    return `<iframe class="live-frame" title="live url"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts allow-popups" src="${escapeHtml(href)}"></iframe>`;
+    return `<div class="live-wrap in live-url-ask"${id ? ` data-live="${id}"` : ""} data-live-url="${escapeHtml(href)}"><p class="live-url-msg">Abrir <code>${escapeHtml(href)}</code>?</p><button type="button" class="live-url-go" data-href="${escapeHtml(href)}">abrir</button></div>`;
   }
-  const srcdoc = frameHtml(block)
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;");
-  const frame = `<iframe class="live-frame${block.kind === "ui" ? " live-ui" : ""}" title="live ${block.kind}"${id ? ` data-live="${id}"` : ""}${block.kind === "ui" ? ` data-ui-key="${uiKey(block.source)}"` : ""} sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe>`;
+  const html = frameHtml(block);
+  const src = liveDocUrl(html);
+  const frame = src
+    ? `<iframe class="live-frame${block.kind === "ui" ? " live-ui" : ""}" name="${nextLiveFrameName(block.kind)}" title="live ${block.kind}"${id ? ` data-live="${id}"` : ""}${block.kind === "ui" ? ` data-ui-key="${uiKey(block.source)}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe>`
+    : `<iframe class="live-frame${block.kind === "ui" ? " live-ui" : ""}" name="${nextLiveFrameName(block.kind)}" title="live ${block.kind}"${id ? ` data-live="${id}"` : ""}${block.kind === "ui" ? ` data-ui-key="${uiKey(block.source)}"` : ""} sandbox="allow-scripts" srcdoc="${html.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"></iframe>`;
   if (block.kind === "ui") {
     return `<div class="ui-card live-wrap in" data-ui-key="${uiKey(block.source)}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${frame}</div>`;
   }
@@ -58,7 +65,7 @@ export function safeUrl(raw: string): string | null {
 }
 
 function doc(body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${liveDocCss()}</style></head><body>${body}</body></html>`;
+  return compartmentHtml(body, `<style>${liveDocCss()}</style>`);
 }
 
 export function mermaidSvg(source: string): string {
