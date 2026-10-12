@@ -155,6 +155,7 @@ const state = {
   workOpen: new Set(),
   zoomId: "",
   zoomLines: [],
+  citeId: -1,
   lastTurn: null,
   openSpark: null,
   sparkTab: "Guide",
@@ -617,9 +618,11 @@ function renderChat() {
     const who = m.kind === "bus"
       ? busWho(m)
       : agentLabel(seat, m.model);
+    const chips = m.kind === "talk" ? recallChipHtml(m.recall) : "";
     parts.push(`<div class="m${sm}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${avatar(seat)}<div class="bb">
       <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
       <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
+      ${chips}
     </div></div>`);
     if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) {
       parts.push(workDisclosure(state.lastTurn));
@@ -1161,11 +1164,38 @@ function rowLines(rows) {
   return (rows || []).map((r) => `${r.id}|${r.text}`);
 }
 
+function recallChipHtml(citations) {
+  if (!citations || !citations.length) return "";
+  const label = { verified: "verificado", superseded: "substituído", unverified: "sem zoom" };
+  return `<div class="recall-chips">${citations.map((c) => {
+    const st = c.status === "verified" || c.status === "superseded" ? c.status : "unverified";
+    return `<button type="button" class="recall-chip ${st}" data-cite="${Number(c.id)}">#${Number(c.id)} ${label[st]}</button>`;
+  }).join("")}</div>`;
+}
+
+function openRecallCite(id) {
+  state.citeId = id;
+  setDrawer(true);
+  renderContext();
+  requestAnimationFrame(() => {
+    const row = [...document.querySelectorAll(".ctx-row")].find((el) => rowCoversCite(el, id));
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function rowCoversCite(el, id) {
+  const start = Number(el.dataset.start);
+  const n = Number(el.dataset.n) || 1;
+  return id >= start && id < start + n;
+}
+
 function contextRowHtml(row) {
   const op = (state.ctxOps || []).find((o) => o.id === row.id || o.into === row.id);
   const enter = op && op.op === "add";
   const flash = op && (op.op === "update" || op.op === "merge");
-  const klass = ["ctx-row", !row.built ? "pending" : "", enter ? "enter" : "", flash ? "flash" : ""].filter(Boolean).join(" ");
+  const cite = Number.isInteger(state.citeId) && state.citeId >= row.start && state.citeId < row.start + row.n;
+  const klass = ["ctx-row", !row.built ? "pending" : "", enter ? "enter" : "", flash ? "flash" : "", cite ? "cite" : ""].filter(Boolean).join(" ");
   const zoom = state.zoomId === row.id && state.zoomLines.length
     ? `<div class="ctx-zoom">${state.zoomLines.map((ln) => `<div>${escapeHtml(ln)}</div>`).join("")}</div>`
     : "";
@@ -1744,6 +1774,12 @@ $("ctxRaw")?.addEventListener("change", (e) => {
   setCtxMode(e.target.checked ? "raw" : "list");
 });
 chat.addEventListener("click", (e) => {
+  const chip = e.target.closest(".recall-chip");
+  if (chip) {
+    e.preventDefault();
+    openRecallCite(Number(chip.dataset.cite));
+    return;
+  }
   const expand = e.target.closest(".ui-expand");
   if (expand) {
     e.preventDefault();

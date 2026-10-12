@@ -712,7 +712,7 @@ body.ui-open .ui-pane {
     transition: opacity 160ms var(--ease-out);
     transform: none;
   }
-  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text {
+  .ctx-row, .ctx-row.flash, .ctx-row.enter, .shimmer-text, .recall-chip {
     animation: none;
     transition: none;
     transform: none;
@@ -998,6 +998,18 @@ body.rv-open .shortcuts {
 .ctx-row:active { transform: scale(0.97); }
 .ctx-row.enter { animation: ctx-enter .22s ease-out; }
 .ctx-row.flash { animation: ctx-flash 1s ease-out; }
+.ctx-row.cite { border-color: var(--accent); background: var(--accent-bg); }
+.recall-chips { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }
+.recall-chip {
+  font-size: var(--text-sm); line-height: var(--lh-sm); letter-spacing: var(--tr-sm);
+  border-radius: var(--r-full); border: 1px solid var(--border);
+  background: var(--raised); color: var(--fg-3);
+  padding: 2px 8px; cursor: pointer; font: inherit;
+}
+.recall-chip.verified { background: var(--success-bg); color: var(--success); border-color: transparent; }
+.recall-chip.superseded { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.recall-chip.unverified { color: var(--fg-3); }
+.recall-chip:active { transform: scale(0.97); }
 .ctx-row.pending .ctx-sum { opacity: .72; }
 .ctx-row.pending .ctx-sum::after {
   content: "";
@@ -1214,6 +1226,8 @@ code, .md pre, .tool, .diff, .rv-diff, .rv-raw, #debugView { font-family: var(--
 .drawer { background: var(--bg); border-color: var(--border); }
 .drawer h2 { font-size: var(--text-lg); }
 .ctx-row { background: var(--surface); border-color: var(--border); border-radius: var(--r-md); }
+.ctx-row.cite { border-color: var(--accent); background: var(--accent-bg); }
+.recall-chip { font-size: var(--text-sm); }
 .ctx-sum { font-size: var(--text-md); line-height: var(--lh-md); } .ctx-time { font-size: var(--text-sm); color: var(--fg-3); }
 .ctx-chip { font-size: var(--text-md); }
 .ctx-who.agent b { color: var(--fg); }
