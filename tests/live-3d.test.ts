@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
 import { demo3dFence } from "../src/live/3d-demo";
-import { ncli3dSrc } from "../src/live/3d-frame";
 import { frameHtml, iframeTag } from "../src/live/frame";
 import { liveBlocks, parseLive, renderToolToFence } from "../src/live/parse";
 import { liveLabel, liveShape, shimmerHtml } from "../src/live/shimmer";
@@ -31,17 +30,16 @@ test("3d iframe vendors three.js from this hub and is first-party sandboxed", ()
   expect(page).not.toContain("cdn");
   expect(page).not.toContain("unpkg");
   expect(page).not.toContain("jsdelivr");
-  expect(ncli3dSrc("ncli3d.desk()")).toBe("/ncli3d.html#" + encodeURIComponent("ncli3d.desk()"));
   const framed = iframeTag({ kind: "3d", source: "ncli3d.desk()" });
   expect(framed).toContain("live-3d");
   expect(framed).toContain('sandbox="allow-scripts allow-same-origin"');
-  expect(framed).toContain('src="/ncli3d.html#');
+  expect(framed).toContain('src="/ncli3d.html"');
   expect(framed).not.toContain("srcdoc=");
   expect(framed).not.toContain("ui-card");
   const html = iframeTag({ kind: "html", source: "<b>x</b>" });
   expect(html).toContain('sandbox="allow-scripts"');
   expect(html).not.toContain("allow-same-origin");
-  expect(frameHtml({ kind: "3d", source: "ncli3d.desk()" })).toContain("/ncli3d.html#");
+  expect(frameHtml({ kind: "3d", source: "ncli3d.desk()" })).toBe("/ncli3d.html");
 });
 
 test("shimmer for 3d is a scene placeholder", () => {
@@ -57,7 +55,7 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   const kit = readFileSync(new URL("../public/ncli3d.js", import.meta.url), "utf8");
   const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
   expect(js).toContain("mermaid|html|react|url|ui|3d");
-  expect(js).toContain("/ncli3d.html#");
+  expect(js).toContain("/ncli3d.html");
   expect(js).toContain("function bind3dPause");
   expect(js).toContain("live-3d");
   expect(kit).toContain("export function desk");

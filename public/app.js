@@ -273,8 +273,7 @@ function iframeFor(kind, source) {
       return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button><iframe class="live-frame live-ui" title="live ui" data-ui-key="${key}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
     }
     if (kind === "3d") {
-      const src = `/ncli3d.html#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
-      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts allow-same-origin" src="${escapeHtml(src)}"></iframe></div>`;
+      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts allow-same-origin" src="/ncli3d.html"></iframe></div>`;
     }
     const inner =
       kind === "mermaid"
@@ -313,7 +312,7 @@ function wrapUiSource(source) {
 }
 
 function bind3dPause() {
-  if (!("IntersectionObserver" in window) || !log) return;
+  if (!log) return;
   if (!log._ncli3dObs) {
     log._ncli3dObs = new IntersectionObserver((entries) => {
       for (const e of entries) {
