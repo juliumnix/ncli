@@ -89,8 +89,8 @@ test("a Claude project slug without cwd does not invent a path or a project spac
   }
 });
 
-test("hub zoom and recall stay on the current space even when space names another project", async () => {
-  const other = await initTempRepo("hub-other");
+test("hub zoom and recall reject a space that is not this session", async () => {
+  const other = tmpDir("hub-other");
   const { hub, dataDir } = await makeHub();
   try {
     hub.memory.append({ kind: "user", text: "CURRENT_SPACE_FACT" });
@@ -98,12 +98,11 @@ test("hub zoom and recall stay on the current space even when space names anothe
     const recall = await hub.callMcp("recall", { pattern: "SPACE_FACT" }, "main");
     expect(recall).toContain("CURRENT_SPACE_FACT");
     expect(recall).not.toContain("OTHER_SPACE_FACT");
-    const otherRecall = await hub.callMcp("recall", { pattern: "SPACE_FACT", space: spaceFor(other) }, "main");
-    expect(otherRecall).not.toContain("OTHER_SPACE_FACT");
-    expect(otherRecall).toContain("CURRENT_SPACE_FACT");
+    const otherId = spaceFor(other);
+    const otherRecall = await hub.callMcp("recall", { pattern: "SPACE_FACT", space: otherId }, "main");
+    expect(otherRecall).toBe(`space ${otherId} is not this session.`);
     const pathRecall = await hub.callMcp("recall", { pattern: "SPACE_FACT", space: "../../etc" }, "main");
-    expect(pathRecall).not.toContain("OTHER_SPACE_FACT");
-    expect(pathRecall).toContain("CURRENT_SPACE_FACT");
+    expect(pathRecall).toBe("space ../../etc is not this session.");
     const zoom = await hub.callMcp("zoom", { id: 0, n: 1 }, "main");
     expect(zoom).toContain("CURRENT_SPACE_FACT");
     expect(zoom).not.toContain("OTHER_SPACE_FACT");
@@ -121,12 +120,15 @@ test("a spark cannot read the parent project through space", async () => {
     hub.memory.append({ kind: "user", text: "PROJECT_ONLY_FACT" });
     const rt = await hub.sparks.open("live", {});
     rt.memory.append({ kind: "user", text: "SPARK_ONLY_FACT" });
-    const fromSpark = await hub.callMcp("recall", { pattern: "FACT", space: spaceFor(hub.cfg.repo) }, rt.spark.id);
-    expect(fromSpark).not.toContain("PROJECT_ONLY_FACT");
-    expect(fromSpark).toContain("SPARK_ONLY_FACT");
-    const fromMain = await hub.callMcp("recall", { pattern: "FACT", space: `spark:${rt.spark.id}` }, "main");
-    expect(fromMain).not.toContain("SPARK_ONLY_FACT");
-    expect(fromMain).toContain("PROJECT_ONLY_FACT");
+    const parent = spaceFor(hub.cfg.repo);
+    const fromSpark = await hub.callMcp("recall", { pattern: "FACT", space: parent }, rt.spark.id);
+    expect(fromSpark).toBe(`space ${parent} is not this session.`);
+    const own = await hub.callMcp("recall", { pattern: "FACT" }, rt.spark.id);
+    expect(own).toContain("SPARK_ONLY_FACT");
+    expect(own).not.toContain("PROJECT_ONLY_FACT");
+    const sparkSpace = `spark:${rt.spark.id}`;
+    const fromMain = await hub.callMcp("recall", { pattern: "FACT", space: sparkSpace }, "main");
+    expect(fromMain).toBe(`space ${sparkSpace} is not this session.`);
   } finally {
     hub.close();
   }
@@ -149,6 +151,19 @@ test("spark memory is its own space and merge lands on the parent project, not g
   } finally {
     hub.close();
   }
+});
+
+test("spaceFor re-probes after a directory becomes a git repo", async () => {
+  const root = tmpDir("becomes-repo");
+  const nested = join(root, "src");
+  mkdirSync(nested, { recursive: true });
+  const before = spaceFor(nested);
+  expect(before).toStartWith("proj:");
+  const init = await realGit(["init"], root);
+  expect(init.code).toBe(0);
+  const after = spaceFor(nested);
+  expect(after).toBe(spaceFor(root));
+  expect(after).not.toBe(before);
 });
 
 test("parseSessionFile reads cwd only from the record", () => {

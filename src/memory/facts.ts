@@ -18,19 +18,6 @@ export function factsOf(log: readonly Message[]): Map<number, Successor> {
   return index;
 }
 
-export function successorOf(index: Map<number, Successor>, id: number): Successor | undefined {
-  let cur = index.get(id);
-  if (!cur) return undefined;
-  const seen = new Set<number>([id]);
-  while (index.has(cur.by) && !seen.has(cur.by)) {
-    seen.add(cur.by);
-    const next = index.get(cur.by);
-    if (!next) break;
-    cur = next;
-  }
-  return cur;
-}
-
 export function wouldCycle(index: Map<number, Successor>, olds: readonly number[], neu: number): boolean {
   const blocked = new Set(olds);
   const seen = new Set<number>();
@@ -44,7 +31,7 @@ export function wouldCycle(index: Map<number, Successor>, olds: readonly number[
 }
 
 export function supersededHeader(index: Map<number, Successor>, id: number): string | undefined {
-  const hit = successorOf(index, id);
+  const hit = index.get(id);
   if (!hit) return undefined;
   return `SUPERSEDED by #${hit.by} (${hit.reason})`;
 }
