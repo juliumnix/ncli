@@ -208,6 +208,7 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
+    this.offerClaudeImport();
     void this.memory.pump();
     this.emitDebug();
     this.emitQueue();
@@ -393,6 +394,13 @@ export class Hub {
     this.lastImport = preview;
     this.emit({ type: "import", preview });
     return preview;
+  }
+
+  private offerClaudeImport(): void {
+    if (this.memory.T !== 0) return;
+    const preview = this.importer.preview("claude");
+    if (preview.sessions === 0) return;
+    this.lastImport = preview;
   }
 
   applyImport(source: ImportPreview["source"], since?: string): ReturnType<Importer["apply"]> {
