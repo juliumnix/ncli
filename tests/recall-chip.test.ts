@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { bootNcli } from "../src/boot";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub } from "./helpers";
+import { makeHub, waitUntil } from "./helpers";
 
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
@@ -44,7 +44,11 @@ test("chrome: chips sit under the talk and a click highlights the drawer row", a
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
-    await waitChips(driver);
+    await waitUntil(
+      () => driver.session.evaluate(`document.querySelectorAll(".recall-chip").length >= 3`),
+      8000,
+      "recall chips",
+    );
     const before = await driver.session.evaluate<{
       chips: string[];
       drawerOpen: boolean;
@@ -58,16 +62,17 @@ test("chrome: chips sit under the talk and a click highlights the drawer row", a
     writeFileSync(`${SHOTS}/recall-chips.png`, await driver.session.screenshot());
 
     await driver.session.evaluate(`document.querySelector(".recall-chip.verified").click()`);
+    await waitUntil(
+      () => driver.session.evaluate(`Boolean(document.body.classList.contains("drawer-open") && document.querySelector(".ctx-row.cite"))`),
+      8000,
+      "drawer cite row",
+    );
     const after = await driver.session.evaluate<{
       drawerOpen: boolean;
       cite: string | null;
       citeText: string;
-    }>(`(async () => {
+    }>(`(() => {
       const drawer = document.getElementById("drawer");
-      for (let i = 0; i < 40; i++) {
-        if (document.body.classList.contains("drawer-open") && document.querySelector(".ctx-row.cite")) break;
-        await new Promise((r) => setTimeout(r, 40));
-      }
       const cite = document.querySelector(".ctx-row.cite");
       return {
         drawerOpen: document.body.classList.contains("drawer-open") && drawer && !drawer.hidden,
@@ -84,13 +89,3 @@ test("chrome: chips sit under the talk and a click highlights the drawer row", a
     booted.stop();
   }
 }, 30000);
-
-async function waitChips(driver: { session: { evaluate: (expr: string) => Promise<unknown> } }): Promise<void> {
-  await driver.session.evaluate(`new Promise((resolve) => {
-    const ready = () => document.querySelectorAll(".recall-chip").length >= 3;
-    if (ready()) return resolve(true);
-    const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => resolve(Boolean(ready())), 6000);
-  })`);
-}
