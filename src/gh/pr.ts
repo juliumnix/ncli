@@ -43,6 +43,15 @@ export interface GhClient {
   view(pr: string, spec?: GhPrSpec): Promise<PrInfo>;
 }
 
+export async function createPr(opts: { cwd: string; title: string; head: string }): Promise<{ url: string }> {
+  const out = await gh(["pr", "create", "--title", opts.title, "--body", opts.title, "--head", opts.head], opts.cwd);
+  const url = out
+    .trim()
+    .split(/\s+/)
+    .find((s) => /\/pull\/\d+/.test(s));
+  return { url: url ?? out.trim() };
+}
+
 export class RealGh implements GhClient {
   constructor(private readonly cwd: string) {}
   async view(pr: string, spec?: GhPrSpec): Promise<PrInfo> {

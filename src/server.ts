@@ -124,6 +124,11 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         void hub.sparks.message(decodeURIComponent(sparkMsg[1]), body.text ?? "");
         return Response.json({ ok: true });
       }
+      const sparkShip = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ship$/);
+      if (sparkShip && req.method === "POST") {
+        const result = await hub.sparks.ship(decodeURIComponent(sparkShip[1]));
+        return Response.json(result);
+      }
       const sparkArchive = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/archive$/);
       if (sparkArchive && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { force?: boolean };
@@ -160,6 +165,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           messages: rt.memory.log,
           debug: rt.memory.debug(),
           html: raw === undefined ? undefined : sanitizeViewHtml(raw),
+          ship: await hub.sparks.shipPlanOf(rt.spark.id),
         });
       }
       if (url.pathname === "/api/memory" && req.method === "GET") {

@@ -1630,6 +1630,7 @@ function drawModal() {
   if (detail.html) {
     modal.innerHTML = detail.html;
     if (view === "review") bindGuidedReview(modal);
+    bindShip(modal);
     return;
   }
   const f = detail.spark || detail.fork;
@@ -1680,6 +1681,28 @@ function drawModal() {
     <form class="mi" id="sparkForm">
       <input name="t" placeholder="Fala com esse spark… (volta pro chat sozinho quando terminar)" autocomplete="off" />
     </form>`;
+  bindShip(modal);
+}
+
+function bindShip(root) {
+  const ship = state.sparkDetail && state.sparkDetail.ship;
+  const spark = state.sparkDetail && (state.sparkDetail.spark || state.sparkDetail.fork);
+  if (!ship || ship.kind === "idle" || !spark) return;
+  const mh = (root || modal).querySelector(".mh");
+  if (!mh || mh.querySelector(".ship-go")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ship-go";
+  btn.textContent = ship.label;
+  btn.addEventListener("click", () => shipSpark(spark.id));
+  const close = mh.querySelector(".x");
+  mh.insertBefore(btn, close);
+}
+
+async function shipSpark(id) {
+  const res = await fetch(`/api/sparks/${encodeURIComponent(id)}/ship`, { method: "POST" });
+  if (!res.ok) return;
+  await openSpark(id);
 }
 
 function applyEvent(ev) {
