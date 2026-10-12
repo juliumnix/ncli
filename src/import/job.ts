@@ -1,5 +1,6 @@
 import { rootFor } from "./roots";
 import type { ImportApply, ImportLine, ImportRoots, ImportSource } from "./types";
+import type { FileCursor } from "./checkpoint";
 import {
   IMPORT_BATCH_BYTES,
   IMPORT_BATCH_LINES,
@@ -9,15 +10,23 @@ import {
 } from "./protocol";
 import type { ImportProgress } from "./progress";
 
+export type ImportBatchMeta = {
+  file: string;
+  fileDone: boolean;
+};
+
 export type ImportJobOpts = {
   source: ImportSource;
   roots: ImportRoots;
   since?: string;
   seenFile: string;
+  cursors?: FileCursor[];
   onProgress?: (progress: ImportProgress) => void;
-  onBatch: (lines: ImportLine[]) => void | Promise<void>;
+  onCursor?: (file: string, lastFingerprint: string | undefined, fileDone: boolean) => void;
+  onBatch: (lines: ImportLine[], meta: ImportBatchMeta) => void | Promise<void>;
   batch?: number;
   memCap?: number;
+  signal?: AbortSignal;
 };
 
 export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
@@ -30,6 +39,7 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
     root,
     since: opts.since,
     seenFile: opts.seenFile,
+    cursors: opts.cursors ?? [],
     batch: opts.batch ?? IMPORT_BATCH_LINES,
     memCap: opts.memCap ?? IMPORT_BATCH_BYTES,
   };
@@ -38,17 +48,30 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
+      opts.signal?.removeEventListener("abort", onAbort);
       worker.terminate();
       fn();
     };
+    const onAbort = () => {
+      worker.postMessage({ type: "stop" } satisfies ImportWorkerIn);
+      finish(() => reject(new Error("import stopped")));
+    };
+    if (opts.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
     worker.onmessage = (ev: MessageEvent<ImportWorkerOut>) => {
       const msg = ev.data;
       switch (msg.type) {
         case "progress":
           opts.onProgress?.({ source: msg.source, done: msg.done, total: msg.total });
           return;
+        case "cursor":
+          opts.onCursor?.(msg.file, msg.lastFingerprint, msg.fileDone);
+          return;
         case "batch":
-          void Promise.resolve(opts.onBatch(msg.lines))
+          void Promise.resolve(opts.onBatch(msg.lines, { file: msg.file, fileDone: msg.fileDone }))
             .then(() => {
               if (!settled) worker.postMessage({ type: "pull" } satisfies ImportWorkerIn);
             })
@@ -68,6 +91,8 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
                 since: opts.since,
               },
               applied: msg.applied,
+              filesSkipped: msg.filesSkipped,
+              filesScanned: msg.filesScanned,
             }),
           );
           return;

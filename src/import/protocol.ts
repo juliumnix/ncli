@@ -1,3 +1,4 @@
+import type { FileCursor } from "./checkpoint";
 import type { ImportLine, ImportSource } from "./types";
 
 export const IMPORT_BATCH_LINES = 32;
@@ -11,6 +12,7 @@ export type ImportWorkerIn =
       root: string;
       since?: string;
       seenFile: string;
+      cursors: FileCursor[];
       batch: number;
       memCap: number;
     }
@@ -19,8 +21,9 @@ export type ImportWorkerIn =
 
 export type ImportWorkerOut =
   | { type: "progress"; source: ImportSource; done: number; total: number }
-  | { type: "batch"; lines: ImportLine[] }
-  | { type: "done"; applied: number; seenCount: number; skipped: number; sessions: number }
+  | { type: "batch"; lines: ImportLine[]; file: string; fileDone: boolean }
+  | { type: "cursor"; file: string; lastFingerprint?: string; fileDone: boolean; done: number; total: number }
+  | { type: "done"; applied: number; seenCount: number; skipped: number; sessions: number; filesSkipped: number; filesScanned: number }
   | { type: "error"; message: string };
 
 export function importWorkerUrl(): URL {
