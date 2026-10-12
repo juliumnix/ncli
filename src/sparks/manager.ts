@@ -10,7 +10,8 @@ import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
 import { toolActivityLine } from "../memory/turn-log";
-import { addWorktree, archiveWorktree, realGit, type ArchiveResult, type GitRunner, type WorktreeHandle } from "./worktree";
+import { addWorktree, archiveWorktree, inspectWorktree, realGit, type ArchiveResult, type GitRunner, type WorktreeHandle } from "./worktree";
+import { planShip, runShip, type FindPr, type OpenPr, type ShipPlan, type ShipResult } from "./ship";
 import { nowIso, sameReviewParams } from "../util";
 import type { Bus } from "../bus/bus";
 import { LiveTurn } from "../live/turn";
@@ -33,6 +34,8 @@ export interface SparkManagerHooks {
   compressor: Compressor;
   harness: Harness;
   git?: GitRunner;
+  openPr?: OpenPr;
+  findPr?: FindPr;
   bus?: Bus;
   inject?: (session: string, worktree?: string) => SpawnInject;
 }
@@ -40,6 +43,7 @@ export interface SparkManagerHooks {
 export class SparkManager {
   readonly runtimes = new Map<string, SparkRuntime>();
   private seqByView = new Map<string, number>();
+  private shipping = new Map<string, Promise<ShipResult>>();
 
   constructor(
     private readonly cfg: NcliConfig,
@@ -281,6 +285,48 @@ export class SparkManager {
     } catch {
       return;
     }
+  }
+
+  async shipPlanOf(id: string): Promise<ShipPlan> {
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`spark ${id} não existe`);
+    if (!rt.worktree) return planShip({ dirty: false, unpushed: false, files: [] }, rt.spark.title);
+    return planShip(await inspectWorktree(rt.worktree, this.hooks.git ?? realGit), rt.spark.title);
+  }
+
+  async ship(id: string): Promise<ShipResult> {
+    const pending = this.shipping.get(id);
+    if (pending) return pending;
+    const work = this.shipOnce(id).finally(() => this.shipping.delete(id));
+    this.shipping.set(id, work);
+    return work;
+  }
+
+  private async shipOnce(id: string): Promise<ShipResult> {
+    const rt = this.runtimes.get(id);
+    if (!rt) throw new Error(`spark ${id} não existe`);
+    if (!rt.worktree) {
+      return { ok: false, plan: planShip({ dirty: false, unpushed: false, files: [] }, rt.spark.title), error: "sem worktree" };
+    }
+    if (!this.hooks.openPr) {
+      return { ok: false, plan: await this.shipPlanOf(id), error: "sem gh" };
+    }
+    const result = await runShip({
+      handle: rt.worktree,
+      title: rt.spark.title,
+      git: this.hooks.git ?? realGit,
+      openPr: this.hooks.openPr,
+      findPr: this.hooks.findPr,
+    });
+    if (result.ok && result.url) {
+      const num = result.url.match(/\/pull\/(\d+)/)?.[1];
+      if (num) rt.spark.params.pr = num;
+      const note = rt.memory.append({ kind: "note", text: `PR ${result.url}` });
+      persistSpark(this.cfg.dataDir, rt.spark);
+      this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
+      this.hooks.onEvent({ type: "message", session: id, payload: note });
+    }
+    return result;
   }
 
   async archive(id: string, force = false): Promise<ArchiveResult | undefined> {

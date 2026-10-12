@@ -92,13 +92,26 @@ export async function inspectWorktree(
     .map((l) => l.trim())
     .filter(Boolean)
     .map((l) => l.slice(3).trim());
-  const base = await git(["rev-parse", "HEAD"], handle.repo);
-  const extra = await git(["log", "--pretty=%H", `${base.stdout.trim()}..HEAD`], handle.path);
-  const unpushed = extra.stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean).length > 0;
+  const unpushed = await aheadOfUpstream(handle, git);
   return { dirty: files.length > 0, unpushed, files };
+}
+
+export async function upstreamRef(handle: WorktreeHandle, git: GitRunner = realGit): Promise<string | null> {
+  const tracked = await git(["rev-parse", "--abbrev-ref", "@{upstream}"], handle.path);
+  if (tracked.code === 0 && tracked.stdout.trim()) return tracked.stdout.trim();
+  const origin = await git(["rev-parse", "--verify", `origin/${handle.branch}`], handle.path);
+  if (origin.code === 0) return `origin/${handle.branch}`;
+  return null;
+}
+
+async function aheadOfUpstream(handle: WorktreeHandle, git: GitRunner): Promise<boolean> {
+  const upstream = await upstreamRef(handle, git);
+  const base = upstream ?? (await git(["rev-parse", "HEAD"], handle.repo)).stdout.trim();
+  if (!base) return false;
+  const extra = await git(["rev-list", "--count", `${base}..HEAD`], handle.path);
+  if (extra.code !== 0) return true;
+  const n = Number.parseInt(extra.stdout.trim(), 10);
+  return Number.isFinite(n) && n > 0;
 }
 
 export async function archiveWorktree(
