@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { bootNcli, formatBoot } from "./boot";
 import { loadNcliSecrets } from "./secrets";
 

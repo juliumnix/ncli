@@ -6,14 +6,15 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+. One command starts everything in a single Bun process: HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
+You need [Bun](https://bun.sh) 1.1+. One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
 
 ```bash
-bun install
-bun start
+bunx github:juliumnix/ncli
 ```
 
 The process prints the UI URL, the main agent and model, the MCP URL, detected CLIs, and the compact model. It exits if HTTP, the bus, or MCP cannot start.
+
+From a clone, `bun install` then `bun start` is the same process. `bun run ncli` stays the view scaffold.
 
 Open the UI URL (default http://127.0.0.1:47231). For a mock harness and a short demo conversation, without Claude Code:
 
