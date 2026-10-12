@@ -31,6 +31,12 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
+export function mcpToolName(title: string): string {
+  if (!title.startsWith("mcp__")) return title;
+  const parts = title.split("__");
+  return parts[parts.length - 1] || title;
+}
+
 export function localTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });

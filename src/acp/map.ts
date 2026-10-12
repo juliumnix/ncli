@@ -1,6 +1,7 @@
 import { seatOf } from "../agent";
 import type { HarnessEvent, RunOpts } from "../harness/types";
 import type { SeatId } from "../types";
+import { mcpToolName } from "../util";
 import type { AcpUpdate } from "./types";
 
 export async function* toHarnessEvents(
@@ -28,7 +29,7 @@ function* mapOne(update: AcpUpdate, seat: SeatId): Generator<HarnessEvent> {
     case "tool_call":
       yield {
         type: "tool",
-        name: update.title,
+        name: mcpToolName(update.title),
         input: update.rawInput ?? {},
         id: update.toolCallId,
         seat,

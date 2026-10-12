@@ -131,6 +131,21 @@ test("toHarnessEvents maps ACP chunks without spawning a real CLI", async () => 
   expect(events).toEqual([{ type: "text", text: "olá", seat: "claude" }]);
 });
 
+test("an ACP tool_call titled mcp__ncli__zoom becomes zoom", async () => {
+  async function* updates() {
+    yield {
+      sessionUpdate: "tool_call" as const,
+      toolCallId: "call_zoom_1",
+      title: "mcp__ncli__zoom",
+      rawInput: { id: 0, n: 1 },
+    };
+  }
+  const events = await collect(toHarnessEvents(updates(), { prompt: "x" }));
+  expect(events).toEqual([
+    { type: "tool", name: "zoom", input: { id: 0, n: 1 }, id: "call_zoom_1", seat: "claude" },
+  ]);
+});
+
 test("codex exec omits --model unless NCLI_CODEX_MODEL is set", () => {
   const cfg = loadConfig({ codexBin: "codex" });
   expect(cfg.codexModel).toBe("");
