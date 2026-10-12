@@ -30,6 +30,18 @@ export function successorOf(index: Map<number, Successor>, id: number): Successo
   return cur;
 }
 
+export function wouldCycle(index: Map<number, Successor>, olds: readonly number[], neu: number): boolean {
+  const blocked = new Set(olds);
+  const seen = new Set<number>();
+  let cur: number | undefined = neu;
+  while (cur !== undefined && !seen.has(cur)) {
+    if (blocked.has(cur)) return true;
+    seen.add(cur);
+    cur = index.get(cur)?.by;
+  }
+  return false;
+}
+
 export function supersededHeader(index: Map<number, Successor>, id: number): string | undefined {
   const hit = successorOf(index, id);
   if (!hit) return undefined;
