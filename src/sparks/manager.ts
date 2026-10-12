@@ -123,14 +123,14 @@ export class SparkManager {
       this.hooks.onEvent({ type: "spark", session: existing.spark.id, payload: existing.spark });
       return existing;
     }
-    const seq = (this.seqByView.get(viewId) ?? 0) + 1;
-    this.seqByView.set(viewId, seq);
-    const id = `${viewId}-${seq}`;
     const created = await plugin.createSpark(parsed, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
       fetchPr: (pr, spec) => this.gh.view(pr, spec),
     });
+    const seq = (this.seqByView.get(viewId) ?? 0) + 1;
+    this.seqByView.set(viewId, seq);
+    const id = `${viewId}-${seq}`;
     const spark: Spark = {
       id,
       seq,
@@ -174,7 +174,7 @@ export class SparkManager {
     this.runtimes.set(id, rt);
     persistSpark(this.cfg.dataDir, spark);
     this.hooks.onEvent({ type: "spark", session: id, payload: spark });
-    await this.maybeArchiveMerged(rt);
+    await this.maybeArchiveMerged(rt, false);
     void this.runTurn(rt, created.prompt, true);
     return rt;
   }
@@ -254,19 +254,29 @@ export class SparkManager {
     }
   }
 
-  async maybeArchiveMerged(rt: SparkRuntime): Promise<void> {
+  async maybeArchiveMerged(rt: SparkRuntime, fresh = true): Promise<void> {
     const pr = rt.spark.params.pr;
     if (!pr) return;
     try {
-      const info = await this.gh.view(pr, {
-        owner: rt.spark.params.owner,
-        repo: rt.spark.params.repo,
-      });
-      if (rt.spark.ui && typeof rt.spark.ui === "object") {
-        (rt.spark.ui as { prState?: string; head?: string }).prState = info.state;
-        if (info.headOid) (rt.spark.ui as { head?: string }).head = info.headOid;
+      const ui =
+        rt.spark.ui && typeof rt.spark.ui === "object"
+          ? (rt.spark.ui as { prState?: string; head?: string })
+          : undefined;
+      let state = ui?.prState;
+      let head = ui?.head;
+      if (fresh || !state) {
+        const info = await this.gh.view(pr, {
+          owner: rt.spark.params.owner,
+          repo: rt.spark.params.repo,
+        });
+        state = info.state;
+        head = info.headOid;
+        if (ui) {
+          ui.prState = state;
+          if (head) ui.head = head;
+        }
       }
-      if (info.state !== "MERGED" || !rt.worktree) return;
+      if (state !== "MERGED" || !rt.worktree) return;
       await this.archive(rt.spark.id, false);
     } catch {
       return;
