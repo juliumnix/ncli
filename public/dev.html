@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NCLI /dev</title>
+  <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/app.css" />
+  <style>
+    .dev-page { max-width: 720px; margin: 0 auto; padding: 76px 24px 80px; display: flex; flex-direction: column; gap: var(--s-9); }
+    .dev-page h1 { font-size: var(--text-xl); letter-spacing: var(--tr-xl); }
+    .dev-page h2 { font-size: var(--text-sm); color: var(--fg-3); font-weight: 500; margin: 0 0 var(--s-4); }
+    .dev-block { display: flex; flex-direction: column; gap: var(--s-4); }
+    .dev-long { max-height: 220px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <main class="dev-page">
+    <h1>Estados</h1>
+
+    <section class="dev-block">
+      <h2>vazio</h2>
+      <div class="welcome">
+        <p>NCLI</p>
+        <p class="welcome-hint">hub local · um chat infinito</p>
+      </div>
+    </section>
+
+    <section class="dev-block">
+      <h2>pensando</h2>
+      <div class="live quiet">
+        <div class="live-status"><span class="shimmer-text">Pensando…</span><span class="tdur">3s</span></div>
+      </div>
+    </section>
+
+    <section class="dev-block">
+      <h2>streaming</h2>
+      <div class="u">explica o desconto</div>
+      <div class="m stream">
+        <div class="av cl"><img alt="" src="/icons/claude.svg"></div>
+        <div class="bb">
+          <div class="nm ncl">Claude<span class="tm">…</span></div>
+          <div class="md chunk"><p>O desconto de member entra antes do imposto. Em ordem:</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="dev-block">
+      <h2>erro</h2>
+      <div class="live-err">
+        <div class="live-err-h">o card não abriu</div>
+        <div class="live-err-m">fonte sem kind=ui</div>
+      </div>
+      <div class="note warn">Claude bateu no limite. Sem seat livre · volta 14:20.</div>
+    </section>
+
+    <section class="dev-block">
+      <h2>nomes longos</h2>
+      <div class="m">
+        <div class="av cl"><img alt="" src="/icons/claude.svg"></div>
+        <div class="bb">
+          <div class="nm ncl">Claude Code · claude-opus-4-7-thinking-max<span class="tm">22:41</span></div>
+          <div class="md"><p>view://review?pr=482</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="dev-block">
+      <h2>lista enorme</h2>
+      <div class="dev-long md">
+        <ol>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
