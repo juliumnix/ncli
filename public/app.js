@@ -1057,7 +1057,9 @@ function renderChrome() {
       const name = hit.seat === "mock" ? "mock" : agentLabel(hit.seat === "claude" || hit.seat === "codex" || hit.seat === "cursor" ? hit.seat : "claude");
       const label = name.split(" · ")[0];
       const action = hit.policy === "snooze" ? "retomar" : "adiar";
-      const html = `${escapeHtml(label)} limitado${when ? ` · ${escapeHtml(when)}` : ""} <button type="button" data-limit-seat="${escapeHtml(hit.seat)}" data-limit-policy="${hit.policy === "snooze" ? "resume" : "snooze"}">${action}</button>`;
+      const next = state.usage && state.usage.next;
+      const nextName = next && next !== "mock" ? agentLabel(next === "claude" || next === "codex" || next === "cursor" ? next : "claude").split(" · ")[0] : next === "mock" ? "mock" : "";
+      const html = `${escapeHtml(label)} limitado${when ? ` · ${escapeHtml(when)}` : ""}${nextName ? ` · próximo ${escapeHtml(nextName)}` : ""} <button type="button" data-limit-seat="${escapeHtml(hit.seat)}" data-limit-policy="${hit.policy === "snooze" ? "resume" : "snooze"}">${action}</button>`;
       limit.hidden = !html.trim();
       limit.innerHTML = html;
     }
