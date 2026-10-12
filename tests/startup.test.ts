@@ -53,6 +53,7 @@ test("boot report mentions the main agent and compact model", () => {
     clis: { claude: true, codex: false, cursor: true },
     bus: "/tmp/ncli-bus.sock",
     views: ["review"],
+    liveOrigin: "http://127.0.0.1:9",
   });
   expect(text).toContain("agent claude · opus");
   expect(text).toContain("compact: cursor-sdk ok");

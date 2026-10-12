@@ -23,10 +23,14 @@ test("mermaid becomes an inline SVG (no CDN) and html/react/url go through a san
   expect(svg).not.toContain("cdn");
   const html = iframeTag({ kind: "html", source: "<b>card</b>" });
   expect(html).toContain("sandbox=\"allow-scripts\"");
+  expect(html).toContain("RTCPeerConnection");
   expect(html).not.toContain("allow-same-origin");
-  expect(html).toContain("srcdoc=");
+  expect(html.includes("srcdoc=") || html.includes("/shell#")).toBe(true);
   expect(html).toContain("Content-Security-Policy");
   expect(frameHtml({ kind: "html", source: "<p>x</p>" })).toContain("default-src 'none'");
+  expect(frameHtml({ kind: "html", source: "<p>x</p>" })).toContain("form-action 'none'");
+  expect(html).not.toContain("allow-forms");
+  expect(html).not.toContain("allow-top-navigation");
   const pickup = frameHtml({ kind: "html", source: "<b>Pickup scheduling</b><p>customer picks a slot</p>" });
   expect(pickup).toContain("--fg:#eeeef0");
   expect(pickup).toContain("color:var(--fg)");
@@ -40,6 +44,10 @@ test("url previews only allow http(s)", () => {
   expect(safeUrl("javascript:alert(1)")).toBeNull();
   expect(safeUrl("file:///etc/passwd")).toBeNull();
   expect(iframeTag({ kind: "url", source: "javascript:alert(1)" })).toContain("url bloqueada");
+  const ask = iframeTag({ kind: "url", source: "https://example.com" });
+  expect(ask).toContain("live-url-go");
+  expect(ask).toContain("https://example.com/");
+  expect(ask).not.toContain("<iframe");
 });
 
 test("view://live holds six sandboxed previews and stays on the waiting rail", async () => {

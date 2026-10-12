@@ -27,7 +27,7 @@ ncli3d.desk()
 
 The fence source is the scene. `ncli3d.desk()` draws a wood top, metal frame, and clamp. `ncli3d.box()` draws a red cube. Scripts load from this hub (`/vendor/three.global.js`, `/ncli3d.js`) as classic scripts.
 
-HTML, react, and 3d stay on `sandbox="allow-scripts"` without `allow-same-origin`. CSP is `default-src 'none'`. 3d scripts are `'self' blob:` (vendored three.js). Network is off. Images are `data:` only.
+HTML, react, and 3d stay on `sandbox="allow-scripts"` without `allow-same-origin`, `allow-forms`, or `allow-top-navigation`. They load from the live origin, not the hub. CSP is `default-src 'none'` plus `form-action 'none'` and `navigate-to 'none'`. 3d scripts are `'self' blob:` (vendored three.js). Network is off. Images are `data:` only. Fence scripts run inside `ncliFakes`. `url` waits for a click before loading.
 
 ## When
 
