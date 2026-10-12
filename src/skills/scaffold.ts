@@ -5,7 +5,7 @@ import { availableHarnesses } from "../views/manifest";
 import { loadConfig } from "../config";
 import { defaultSkillsDir, listSkills, readSkill } from "./catalog";
 
-export const SHIPPED_VIEWS = ["live", "refino", "review"] as const;
+export const SHIPPED_VIEWS = ["live", "refino", "review", "team"] as const;
 
 export interface ScaffoldPaths {
   viewsDir: string;

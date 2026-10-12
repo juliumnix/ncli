@@ -127,6 +127,7 @@ export class SparkManager {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
       fetchPr: (pr, spec) => this.gh.view(pr, spec),
+      listPrs: (spec) => this.gh.list?.(spec) ?? Promise.resolve([]),
     });
     const seq = (this.seqByView.get(viewId) ?? 0) + 1;
     this.seqByView.set(viewId, seq);
