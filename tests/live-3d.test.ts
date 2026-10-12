@@ -4,6 +4,7 @@ import { bootNcli } from "../src/boot";
 import { demo3dBoxFence, demo3dFence } from "../src/live/3d-demo";
 import { ncli3dSrc } from "../src/live/3d-frame";
 import { frameHtml, iframeTag } from "../src/live/frame";
+import { setLiveOrigin } from "../src/live/origin";
 import { liveBlocks, parseLive, renderToolToFence } from "../src/live/parse";
 import { liveLabel, liveShape, shimmerHtml } from "../src/live/shimmer";
 import { chromePath, launchChrome } from "../src/perf/cdp";
@@ -17,10 +18,14 @@ test("ncli 3d is a live kind and render keeps the fence", () => {
 });
 
 test("3d iframe vendors three.js, stays unique-origin, and keeps the fence source", () => {
+  setLiveOrigin(null);
   const page = readFileSync(new URL("../public/ncli3d.html", import.meta.url), "utf8");
   expect(page).toContain("/ncli3d.js");
   expect(page).toContain("/vendor/three.global.js");
   expect(page).toMatch(/script-src 'self' blob:/);
+  expect(page).toContain("form-action 'none'");
+  expect(page).toContain("navigate-to 'none'");
+  expect(page).toContain('href="/tokens.css"');
   expect(page).not.toMatch(/script-src[^"]*http:/);
   expect(page).not.toMatch(/script-src[^"]*https:/);
   expect(page).not.toContain("cdn");
@@ -55,7 +60,8 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   const kit = readFileSync(new URL("../public/ncli3d.js", import.meta.url), "utf8");
   const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
   expect(js).toContain("mermaid|html|react|url|ui|3d");
-  expect(js).toContain("/ncli3d.html#");
+  expect(js).toContain("/ncli3d.html");
+  expect(js).toContain("${origin}/3d");
   expect(js).toContain('sandbox="allow-scripts"');
   expect(js).not.toContain("allow-same-origin");
   expect(js).toContain("function bind3dPause");

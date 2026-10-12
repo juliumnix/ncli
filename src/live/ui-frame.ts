@@ -1,3 +1,5 @@
+import { compartmentHtml } from "./compartment";
+
 export const NCLI_UI_TOKENS = {
   bg: "#0f0f11",
   card: "#151518",
@@ -6,9 +8,6 @@ export const NCLI_UI_TOKENS = {
   muted: "#a8a8b3",
   accent: "#6ea4ff",
 } as const;
-
-export const UI_CSP =
-  "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'";
 
 export type UiHostMsg =
   | { type: "ncli-ui"; op: "height"; h: number }
@@ -50,8 +49,10 @@ a{color:var(--accent)}`;
 }
 
 export function wrapUiSource(source: string): string {
-  const body = extractUiBody(source);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${UI_CSP}"><style>${uiThemeCss()}</style><script>${uiLibScript()}</script></head><body>${body}<script>${uiHeightScript()}</script></body></html>`;
+  return compartmentHtml(
+    extractUiBody(source),
+    `<style>${uiThemeCss()}</style><script>${uiLibScript()}</script><script>${uiHeightScript()}</script>`,
+  );
 }
 
 export function uiThemeCss(): string {

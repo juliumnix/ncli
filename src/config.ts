@@ -8,6 +8,7 @@ export type CompactBackend = "cursor" | "claude" | "mock" | "auto";
 export interface NcliConfig {
   dataDir: string;
   port: number;
+  livePort: number;
   host: string;
   harness: HarnessKind;
   demo: boolean;
@@ -83,6 +84,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
   return {
     dataDir: process.env.NCLI_DATA ?? join(process.cwd(), "data"),
     port: num("NCLI_PORT", 47231),
+    livePort: Math.max(0, Number(process.env.NCLI_LIVE_PORT ?? 0) || 0),
     host: process.env.NCLI_HOST ?? "0.0.0.0",
     harness: harnessEnv,
     demo: process.env.NCLI_DEMO === "1",

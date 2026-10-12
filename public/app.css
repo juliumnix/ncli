@@ -563,6 +563,13 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
 }
 .live-frame[src] { height: 180px; }
 .live-wrap { margin: 8px 0 4px; }
+.live-url-ask { padding: 12px 14px; }
+.live-url-msg { margin: 0 0 10px; color: var(--fg); font-size: 13px; }
+.live-url-msg code { font-size: 12px; word-break: break-all; }
+.live-url-go {
+  appearance: none; border: 0; background: var(--accent); color: var(--on-accent);
+  border-radius: 999px; padding: 6px 12px; font: 12px/1.2 inherit; cursor: pointer;
+}
 .live-wrap.in { animation: ncli-cross .32s var(--ease-out); }
 .live-ph {
   margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 16px;

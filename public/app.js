@@ -10,7 +10,12 @@ const viewList = $("viewList");
 
 const stick = { follow: true };
 const STICK_SLOP = 64;
-const UI_T = { bg: "#0f0f11", card: "#151518", line: "#2b2b31", fg: "#eeeef0", muted: "#a8a8b3", accent: "#6ea4ff" };
+function readUiTokens() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name) => s.getPropertyValue(name).trim();
+  return { bg: v("--bg"), card: v("--card"), line: v("--line"), fg: v("--fg"), muted: v("--muted"), accent: v("--accent") };
+}
+const UI_T = readUiTokens();
 const seenMsgs = new Set();
 let chatPrimed = false;
 let scrollRaf = 0;
@@ -261,21 +266,62 @@ function httpHref(raw) {
   return /^https?:\/\/[^\s]+$/i.test(text) ? text : "";
 }
 
+function sanitizeLiveSource(source) {
+  return String(source || "")
+    .replace(/<meta\b[^>]*>/gi, (tag) => (/refresh|url\s*=/i.test(tag) ? "" : tag))
+    .replace(/<base\b[^>]*>/gi, "")
+    .replace(/\s(?:href|src|action|formaction|xlink:href|poster)\s*=\s*(['"])[\s\S]*?\1/gi, "")
+    .replace(/\s(?:href|src|action|formaction|xlink:href|poster)\s*=\s*[^\s>]+/gi, "")
+    .replace(/\son[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, "")
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
+}
+
+const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();`;
+
+function wrapLiveScript(source) {
+  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,eval){"use strict";${source}\n}).apply(a[0],a)})();`;
+}
+
+function compartmentHtml(body, extraHead) {
+  const clean = sanitizeLiveSource(body);
+  const scripts = [];
+  const markup = clean.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_m, src) => {
+    if (String(src).trim()) scripts.push(src);
+    return "";
+  });
+  const wrapped = scripts.map((s) => `<script>${wrapLiveScript(s)}</script>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; navigate-to 'none'">${extraHead || ""}</head><body><script>${LIVE_PRELUDE}</script>${markup}${wrapped}</body></html>`;
+}
+
+function liveFrameSrc(html, klass, title) {
+  const origin = window.NCLI_LIVE_ORIGIN || "";
+  if (origin) {
+    return `<iframe class="${klass}" name="${nextLiveFrameName()}" title="${title}" sandbox="allow-scripts" src="${escapeHtml(`${origin}/shell#${encodeURIComponent(html)}`)}"></iframe>`;
+  }
+  return `<iframe class="${klass}" name="${nextLiveFrameName()}" title="${title}" sandbox="allow-scripts" srcdoc="${html.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"></iframe>`;
+}
+
+let liveFrameSeq = 0;
+function nextLiveFrameName() {
+  liveFrameSeq += 1;
+  return "ncliLive" + liveFrameSeq;
+}
+
 function iframeFor(kind, source) {
   try {
     if (kind === "url") {
       const href = httpHref(source);
       if (!href) return liveError(kind, source, "url bloqueada");
-      return `<div class="live-wrap in"><iframe class="live-frame" title="live url" sandbox="allow-scripts allow-popups" src="${escapeHtml(href)}"></iframe></div>`;
+      return `<div class="live-wrap in live-url-ask" data-live-url="${escapeHtml(href)}"><p class="live-url-msg">Abrir <code>${escapeHtml(href)}</code>?</p><button type="button" class="live-url-go" data-href="${escapeHtml(href)}">abrir</button></div>`;
     }
     if (kind === "ui") {
       const key = uiKey(source);
-      const srcdoc = wrapUiSource(source).replaceAll("&", "&amp;").replaceAll('"', "&quot;");
-      return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button><iframe class="live-frame live-ui" title="live ui" data-ui-key="${key}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
+      return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${liveFrameSrc(wrapUiSource(source), "live-frame live-ui", "live ui")}</div>`;
     }
     if (kind === "3d") {
-      const src = `/ncli3d.html#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
-      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
+      const origin = window.NCLI_LIVE_ORIGIN || "";
+      const src = `${origin ? `${origin}/3d` : "/ncli3d.html"}#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
+      return `<div class="live-wrap in"><iframe class="live-frame live-3d" name="${nextLiveFrameName()}" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
     }
     const inner =
       kind === "mermaid"
@@ -286,10 +332,8 @@ function iframeFor(kind, source) {
     if (kind === "mermaid" && !/<rect |<svg /.test(inner)) {
       return liveError(kind, source, "diagrama sem nós");
     }
-    const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"><style>${liveDocCss()}</style></head><body>${inner}</body></html>`
-      .replaceAll("&", "&amp;")
-      .replaceAll('"', "&quot;");
-    return `<div class="live-wrap in"><iframe class="live-frame" title="live ${kind}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
+    const html = compartmentHtml(inner, `<style>${liveDocCss()}</style>`);
+    return `<div class="live-wrap in">${liveFrameSrc(html, "live-frame", `live ${kind}`)}</div>`;
   } catch (err) {
     return liveError(kind, source, err instanceof Error ? err.message : String(err));
   }
@@ -309,8 +353,110 @@ function extractUiBody(source) {
 }
 
 function wrapUiSource(source) {
-  const body = extractUiBody(source);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'"><style>${uiThemeCss()}</style><script>${uiLibScript()}</script></head><body>${body}<script>${uiHeightScript()}</script></body></html>`;
+  return compartmentHtml(
+    extractUiBody(source),
+    `<style>${uiThemeCss()}</style><script>${uiLibScript()}</script><script>${uiHeightScript()}</script>`,
+  );
+}
+
+const liveFrameHome = new WeakMap();
+
+function isLiveUrlFrame(iframe) {
+  return (iframe.getAttribute("title") || "") === "live url";
+}
+
+function liveFrameFromEvent(ev) {
+  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
+    if (isLiveUrlFrame(iframe)) continue;
+    const home = liveFrameHome.get(iframe);
+    if (name && iframe.name === name) return iframe;
+    if (ev.source && iframe.contentWindow === ev.source) return iframe;
+    if (ev.source && home && home.win === ev.source) return iframe;
+  }
+  return null;
+}
+
+function adoptLiveFrame(iframe, win) {
+  if (isLiveUrlFrame(iframe)) return null;
+  let home = liveFrameHome.get(iframe);
+  if (!home) {
+    home = {
+      src: iframe.getAttribute("src") || "",
+      win: win || iframe.contentWindow,
+      dead: false,
+      guarded: false,
+    };
+    liveFrameHome.set(iframe, home);
+  } else if (!home.dead && win) {
+    home.win = win;
+  }
+  return home;
+}
+
+function killLiveFrame(iframe) {
+  const home = liveFrameHome.get(iframe) || adoptLiveFrame(iframe, iframe.contentWindow);
+  if (!home || home.dead) return;
+  home.dead = true;
+  iframe.removeAttribute("src");
+  iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body></body></html>';
+}
+
+function killLiveFrames(frame) {
+  if (frame) {
+    killLiveFrame(frame);
+    return;
+  }
+  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
+    if (!isLiveUrlFrame(iframe)) killLiveFrame(iframe);
+  }
+}
+
+function liveFrameAway(iframe) {
+  const home = liveFrameHome.get(iframe);
+  if (!home || home.dead) return false;
+  const src = iframe.src || "";
+  if (!/^https?:/i.test(src)) return false;
+  if (!home.src) return true;
+  try {
+    return new URL(src).href !== new URL(home.src, location.href).href;
+  } catch {
+    return true;
+  }
+}
+
+function guardLiveFrame(iframe) {
+  if (isLiveUrlFrame(iframe)) return;
+  const home = adoptLiveFrame(iframe, iframe.contentWindow);
+  if (!home || home.guarded) return;
+  home.guarded = true;
+  iframe.addEventListener("load", () => {
+    const next = liveFrameHome.get(iframe);
+    if (next && !next.dead) next.win = iframe.contentWindow;
+    if (liveFrameAway(iframe)) killLiveFrame(iframe);
+  });
+}
+
+function bindLiveGuards(root) {
+  const scope = root || document;
+  for (const iframe of scope.querySelectorAll("iframe.live-frame")) {
+    guardLiveFrame(iframe);
+  }
+}
+
+function bindLiveUrlAsks(root) {
+  const scope = root || document;
+  for (const btn of scope.querySelectorAll(".live-url-go")) {
+    if (btn.dataset.ncliBound) continue;
+    btn.dataset.ncliBound = "1";
+    btn.addEventListener("click", () => {
+      const href = httpHref(btn.getAttribute("data-href") || "");
+      const wrap = btn.closest(".live-url-ask");
+      if (!href || !wrap) return;
+      wrap.classList.remove("live-url-ask");
+      wrap.innerHTML = `<iframe class="live-frame" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
+    });
+  }
 }
 
 function bind3dPause() {
@@ -330,13 +476,27 @@ function bind3dPause() {
 }
 
 function live3dFrame(ev) {
-  for (const iframe of document.querySelectorAll("iframe.live-3d")) {
-    if (iframe.contentWindow === ev.source) return iframe;
+  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  const frames = document.querySelectorAll("iframe.live-3d");
+  for (const iframe of frames) {
+    if (name && iframe.name === name) return iframe;
+    try {
+      if (ev.source && iframe.contentWindow === ev.source) return iframe;
+    } catch {
+      continue;
+    }
   }
   return null;
 }
 
 window.addEventListener("message", (ev) => {
+  const d0 = ev.data;
+  if (d0 && d0.type === "ncli-live") {
+    const frame = liveFrameFromEvent(ev);
+    if (d0.op === "hello" && frame) adoptLiveFrame(frame, ev.source);
+    if (d0.op === "nav") killLiveFrames(frame);
+    return;
+  }
   const iframe = live3dFrame(ev);
   if (!iframe) return;
   const d = ev.data;
@@ -688,6 +848,8 @@ function renderChat() {
   const keep = chat.scrollTop;
   log.innerHTML = parts.join("");
   reattachUi();
+  bindLiveGuards(log);
+  bindLiveUrlAsks(log);
   bind3dPause();
   markEnter();
   measureComposer();
@@ -1631,6 +1793,9 @@ function drawModal() {
     modal.innerHTML = detail.html;
     if (view === "review") bindGuidedReview(modal);
     bindShip(modal);
+    bindLiveGuards(modal);
+    bindLiveUrlAsks(modal);
+    bind3dPause();
     return;
   }
   const f = detail.spark || detail.fork;

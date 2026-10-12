@@ -10,6 +10,7 @@ import { assertCompactModel } from "./memory/compact-model";
 import { compactSdkStatus } from "./memory/sdk-compact";
 import { compactSdkKey, loadNcliSecrets } from "./secrets";
 import { detectClis, type CliPresence } from "./ui/chrome";
+import { startLiveOrigin } from "./live/origin";
 export { detectClis };
 
 export interface BootReport {
@@ -21,6 +22,7 @@ export interface BootReport {
   clis: CliPresence;
   bus: string;
   views: string[];
+  liveOrigin: string;
 }
 
 export interface Booted {
@@ -75,10 +77,13 @@ export async function bootNcli(opts: {
     throw new Error(`ncli-bus failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!hub.bus.socketPath) throw new Error("ncli-bus failed to start: no socket path");
+  const publicDir = opts.publicDir ?? join(root, "public");
+  const live = startLiveOrigin({ port: cfg.livePort, publicDir });
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = serve(hub, cfg, opts.publicDir ?? join(root, "public"));
+    server = serve(hub, cfg, publicDir);
   } catch (err) {
+    live.stop();
     hub.close();
     throw new Error(`HTTP UI failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -87,6 +92,7 @@ export async function bootNcli(opts: {
   try {
     await assertMcp(hub.mcpUrl, token);
   } catch (err) {
+    live.stop();
     server.stop(true);
     hub.close();
     throw err;
@@ -109,12 +115,14 @@ export async function bootNcli(opts: {
     clis: detectClis(cfg),
     bus: hub.bus.socketPath,
     views: hub.views.list().map((v) => v.id),
+    liveOrigin: live.origin,
   };
   return {
     hub,
     server,
     report,
     stop() {
+      live.stop();
       server.stop(true);
       hub.close();
     },
