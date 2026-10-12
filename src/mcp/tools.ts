@@ -21,6 +21,15 @@ export const NCLI_TOOLS: McpToolDef[] = [
     inputSchema: { type: "object", properties: { pattern: { type: "string" } }, required: ["pattern"] },
   },
   {
+    name: "supersede",
+    description: "Mark earlier message id(s) as replaced. The latest word is the truth. old is one id or an array. new is the replacement message id. Omit new to use this note. reason is required.",
+    inputSchema: {
+      type: "object",
+      properties: { old: {}, new: { type: "number" }, reason: { type: "string" } },
+      required: ["old", "reason"],
+    },
+  },
+  {
     name: "ncli.render",
     description: "Show a live preview in chat. kind is mermaid, html, react, url, or ui. ui is an interactive mini-app. Repeat the returned fence in your reply.",
     inputSchema: {
