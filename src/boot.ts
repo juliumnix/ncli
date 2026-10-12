@@ -11,6 +11,7 @@ import { compactSdkStatus } from "./memory/sdk-compact";
 import { compactSdkKey, loadNcliSecrets } from "./secrets";
 import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
+import { announceReady, openReadyBrowser, readyUrl } from "./boot-ready";
 export { detectClis };
 
 export interface BootReport {
@@ -63,6 +64,7 @@ export async function bootNcli(opts: {
   root?: string;
   publicDir?: string;
   hub?: Hub;
+  openBrowser?: boolean;
 } = {}): Promise<Booted> {
   const root = opts.root ?? join(import.meta.dir, "..");
   loadNcliSecrets();
@@ -89,6 +91,11 @@ export async function bootNcli(opts: {
   }
   hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
+  const clis = detectClis(cfg);
+  announceReady({ url: readyUrl(server.port), clis });
+  if (opts.openBrowser) {
+    openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
+  }
   const token = hub.mcp.mint("boot");
   try {
     await assertMcp(hub.mcpUrl, token);
@@ -113,7 +120,7 @@ export async function bootNcli(opts: {
       cliConfigPath: cursorCliConfigPath(homedir()),
       compactModel: cfg.compactModel,
     }) ?? undefined,
-    clis: detectClis(cfg),
+    clis,
     bus: hub.bus.socketPath,
     views: hub.views.list().map((v) => v.id),
     liveOrigin: live.origin,

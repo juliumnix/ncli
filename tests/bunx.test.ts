@@ -40,6 +40,7 @@ test("the package bin boots HTTP the way bunx would", async () => {
       NCLI_DATA: dataDir,
       NCLI_PORT: String(port),
       NCLI_REPO: repo,
+      NCLI_NO_OPEN: "1",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -51,7 +52,7 @@ test("the package bin boots HTTP the way bunx would", async () => {
   })();
   try {
     await waitUntil(
-      () => out.includes("NCLI") && out.includes(`http://127.0.0.1:${port}`),
+      () => out.includes(`NCLI rodando em http://localhost:${port}`) && /\bclis\b/.test(out),
       8000,
       "boot banner",
     );
@@ -64,6 +65,17 @@ test("the package bin boots HTTP the way bunx would", async () => {
     await proc.exited;
     await pump;
   }
+});
+
+test("install-progress flushes bunx install lines on stderr", () => {
+  const script = join(import.meta.dir, "../scripts/install-progress.ts");
+  const install = Bun.spawnSync([process.execPath, script], { stdout: "pipe", stderr: "pipe" });
+  expect(install.exitCode).toBe(0);
+  expect(install.stdout.toString()).toBe("");
+  expect(install.stderr.toString()).toBe("NCLI: instalando dependências...\n");
+  const done = Bun.spawnSync([process.execPath, script, "done"], { stdout: "pipe", stderr: "pipe" });
+  expect(done.exitCode).toBe(0);
+  expect(done.stderr.toString()).toBe("NCLI: instalado.\n");
 });
 
 test("chrome: bunx-equivalent boot shows the first-session welcome", async () => {
