@@ -188,7 +188,11 @@ function staticFile(root: string, pathname: string): Response {
   for (const p of wanted) {
     const abs = join(root, p);
     if (!existsSync(abs)) continue;
-    return new Response(Bun.file(abs));
+    const headers: Record<string, string> = {};
+    if (p === "/ncli3d.js" || p === "/vendor/three.global.js") {
+      headers["Cross-Origin-Resource-Policy"] = "cross-origin";
+    }
+    return new Response(Bun.file(abs), { headers });
   }
   return new Response("not found", { status: 404 });
 }
