@@ -27,9 +27,9 @@ into the two lines it was made from, down to the messages, but only when
 the line's words show that what it needs is inside: what your line omits
 is lost to NCLI and to every line above.
 
-<chat> is NCLI's view up to the last message of your stretch: use it to
-understand what was going on, to resolve references, and to recover
-detail your input lost.
+<chat> is context: use it to resolve references in <input>, and never add what
+<input> lacks. Never make anything look further along than it was. Copy
+names, numbers, ids, paths and errors exactly.
 
 Goal: let NCLI work later as well as if it remembered the whole stretch.
 Space is scarce, so it goes by value:

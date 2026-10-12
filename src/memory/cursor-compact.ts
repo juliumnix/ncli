@@ -4,10 +4,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
-import { flattenLine, utf8Bytes } from "../util";
+import { flattenLine, keepRecent, utf8Bytes } from "../util";
 import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
 import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
+import { COMPACT_PROMPT } from "./compact";
+import { CompactDeferred } from "./compact-deferred";
 import type { CompactInput, Compressor } from "./store";
+
+export { CompactDeferred };
 
 export const CURSOR_COMPACT_PROMPT =
   "One-line memory for NCLI. Output only the line. Keep user words, decisions, ids. Drop tool noise.";
@@ -82,42 +86,44 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
     })();
   };
 
-  return async (input) => {
-    const skipAt = cfg.compactSkipTokens;
-    const raw = input.kind === "merge" ? `${input.left ?? ""} ${input.right ?? ""}` : input.source;
-    if (estimateTokens(raw) <= skipAt) {
-      logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 0, skipped: 1 });
-      return cut(flattenLine(raw), input.nodeBytes);
-    }
+  const compress: Compressor = async (input) => {
     const hash = nodeHash(input);
     const hit = cache.get(hash);
     if (hit) {
       logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 1, skipped: 0 });
       return cut(hit, input.nodeBytes);
     }
-    const budget = loadBudget(cfg);
-    if (budget.tokens >= cfg.compactBudgetTokens) {
-      return cut(flattenLine(raw), input.nodeBytes);
+    const source = input.kind === "merge"
+      ? `${input.left ?? ""}\n${input.right ?? ""}`
+      : input.source;
+    if (estimateTokens(source) <= cfg.compactSkipTokens) {
+      logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 0, skipped: 1 });
+      return cut(flattenLine(source), input.nodeBytes);
     }
+    const budget = loadBudget(cfg);
+    if (budget.tokens >= cfg.compactBudgetTokens) throw new CompactDeferred();
     return new Promise((resolve, reject) => {
       queue.push({ input, hash, resolve, reject });
       if (queue.length >= batchN) flush();
       else if (!timer) timer = setTimeout(flush, cfg.compactDebounceMs || 2500);
     });
   };
+  return compress;
 }
 
 export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
   const body = jobs
     .map((j, i) => {
+      const ruler = "-".repeat(j.input.nodeBytes);
+      const chat = (j.input.contextLines ?? []).join("\n");
       const step =
         j.input.kind === "leaf"
-          ? `Compress:\n${j.input.source}`
-          : `Merge:\n${j.input.left}\n${j.input.right}`;
-      return `### ${i + 1} (max ${j.input.nodeBytes} bytes)\n${step}`;
+          ? `Compress:\n<input>\n${j.input.source}\n</input>`
+          : `Merge:\n<input>\n${j.input.left}\n${j.input.right}\n</input>`;
+      return `### ${i + 1} (max ${j.input.nodeBytes} bytes)\n${ruler}\n<chat>\n${chat}\n</chat>\n${step}`;
     })
     .join("\n\n");
-  return `${CURSOR_COMPACT_PROMPT}\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
+  return `${COMPACT_PROMPT}\n${CURSOR_COMPACT_PROMPT}\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
 }
 
 export function splitJobsByTokens<T extends { input: CompactInput }>(
@@ -177,7 +183,12 @@ async function runBatch(
       skipped: 0,
     });
     jobs.forEach((j, i) => {
-      const line = cut(flattenLine(lines[i] ?? j.input.source), j.input.nodeBytes);
+      const raw = lines[i];
+      const line = raw ? flattenLine(raw) : "";
+      if (!line || utf8Bytes(line) > j.input.nodeBytes) {
+        j.reject(new CompactDeferred());
+        return;
+      }
       cache.set(j.hash, line);
       persistCache(cfg.dataDir, j.hash, line);
       j.resolve(line);
@@ -190,12 +201,16 @@ async function runBatch(
 }
 
 export function parseNumbered(reply: string, n: number): string[] {
-  const lines = reply
-    .split("\n")
-    .map((l) => l.replace(/^\s*\d+[.)]\s*/, "").trim())
-    .filter(Boolean);
-  while (lines.length < n) lines.push(lines[lines.length - 1] ?? "");
-  return lines.slice(0, n);
+  const byNum = new Map<number, string>();
+  for (const raw of reply.split("\n")) {
+    const m = raw.match(/^\s*(\d+)[.)]\s*(.*)$/);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    if (idx < 1 || idx > n || byNum.has(idx)) continue;
+    const text = m[2].trim();
+    if (text) byNum.set(idx, text);
+  }
+  return Array.from({ length: n }, (_, i) => byNum.get(i + 1) ?? "");
 }
 
 export function parseCursorPrint(stdout: string): string {
@@ -308,7 +323,5 @@ function logCall(dir: string, row: CompactLog): void {
 }
 
 function cut(s: string, n: number): string {
-  let out = s;
-  while (utf8Bytes(out) > n && out.length) out = out.slice(0, -1);
-  return out || "…";
+  return keepRecent(s, n);
 }

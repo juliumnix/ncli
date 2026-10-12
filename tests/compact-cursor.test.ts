@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import {
   CURSOR_COMPACT_PROMPT,
+  CompactDeferred,
   cursorCompressor,
   estimateTokens,
   jobPrompt,
@@ -12,6 +13,7 @@ import {
   parseNumbered,
   splitJobsByTokens,
 } from "../src/memory/cursor-compact";
+import { Memory } from "../src/memory/store";
 import { tmpDir } from "./helpers";
 
 const LONG = "user decided FACT_MEMBER_DISCOUNT_BEFORE_TAX applies only to member and before tax. ".repeat(4);
@@ -32,27 +34,44 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
 
 test("parseNumbered and parseCursorPrint recover a cheap one-line batch", () => {
   expect(parseNumbered("1. first fact\n2. second fact", 2)).toEqual(["first fact", "second fact"]);
+  expect(parseNumbered("1. only", 2)).toEqual(["only", ""]);
+  expect(parseNumbered("1. a\n3. c", 3)).toEqual(["a", "", "c"]);
   expect(parseCursorPrint(JSON.stringify({ result: "one line memory" }))).toBe("one line memory");
   expect(parseCursorPrint("plain line")).toBe("plain line");
 });
 
-test("tiny nodes skip the Cursor CLI and still return a line", async () => {
+test("jobPrompt shows the chat and forbids adding what input lacks", () => {
+  const prompt = jobPrompt([{
+    input: {
+      kind: "leaf",
+      source: "user: hello",
+      contextLines: ["0+1|older line"],
+      nodeBytes: 32,
+    },
+  }]);
+  expect(prompt).toContain("<chat>");
+  expect(prompt).toContain("0+1|older line");
+  expect(prompt).toContain("never add what");
+  expect(prompt).toContain("-".repeat(32));
+});
+
+test("a source that already fits is never sent to the Cursor runner", async () => {
   const dir = tmpDir("cskip");
   let calls = 0;
-  const compact = cursorCompressor(cfg(dir), async () => {
+  const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 1 }), async () => {
     calls += 1;
-    return "should not run";
+    return "1. should not run";
   });
-  const line = await compact({
-    kind: "leaf",
-    source: "curto",
-    contextLines: [],
+  const mem = new Memory({
+    dir: join(dir, "mem"),
     nodeBytes: 140,
+    viewBytes: 2000,
+    compressor: compact,
   });
+  mem.append({ kind: "user", text: "curto" });
+  await mem.pump();
   expect(calls).toBe(0);
-  expect(line).toContain("curto");
-  const log = readFileSync(join(dir, "compact-log.jsonl"), "utf8");
-  expect(log).toContain("\"skipped\":1");
+  expect(mem.nodeOf(0, 0)?.text).toBe("user: curto");
 });
 
 test("identical nodes hit the hash cache so the runner runs once", async () => {
@@ -94,7 +113,7 @@ test("a full batch is one Cursor call with a short numbered prompt", async () =>
   expect(row.model).toBe("claude-haiku-5-5");
 });
 
-test("daily budget stops further Cursor calls and falls back to a cut line", async () => {
+test("daily budget stops further Cursor calls and leaves the node unbuilt", async () => {
   const dir = tmpDir("cbudget");
   let calls = 0;
   const compact = cursorCompressor(
@@ -106,14 +125,19 @@ test("daily budget stops further Cursor calls and falls back to a cut line", asy
   );
   await compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
   expect(calls).toBe(1);
-  const second = await compact({
-    kind: "leaf",
-    source: `${LONG} another distinct node`,
-    contextLines: [],
-    nodeBytes: 140,
-  });
+  let rejected = false;
+  try {
+    await compact({
+      kind: "leaf",
+      source: `${LONG} another distinct node`,
+      contextLines: [],
+      nodeBytes: 140,
+    });
+  } catch {
+    rejected = true;
+  }
   expect(calls).toBe(1);
-  expect(second.length).toBeGreaterThan(0);
+  expect(rejected).toBe(true);
 });
 
 test("queueing a compact job does not block; the runner runs later", async () => {
@@ -143,6 +167,55 @@ test("queueing a compact job does not block; the runner runs later", async () =>
 test("estimateTokens is cheap and positive", () => {
   expect(estimateTokens("abcd")).toBeGreaterThan(0);
   expect(estimateTokens("")).toBe(1);
+});
+
+test("a skipped merge keeps the recent right child, not the left prefix", async () => {
+  const dir = tmpDir("cskip-recent");
+  const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 80 }), async () => {
+    throw new Error("runner should not run");
+  });
+  const left = "AAAA old left child text that would survive a prefix cut";
+  const right = "BBBB most recent ruling END_RIGHT_CHILD";
+  const line = await compact({
+    kind: "merge",
+    source: `${left}\n${right}`,
+    left,
+    right,
+    contextLines: [],
+    nodeBytes: 40,
+  });
+  expect(line).toContain("END_RIGHT_CHILD");
+  expect(line).not.toContain("AAAA");
+});
+
+test("debounce holds a job so a later sibling shares one Cursor call", async () => {
+  const dir = tmpDir("cdebounce");
+  let calls = 0;
+  const compact = cursorCompressor(cfg(dir, { compactBatch: 8, compactDebounceMs: 80, compactSkipTokens: 1 }), async () => {
+    calls += 1;
+    return "1. first\n2. second";
+  });
+  const a = compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
+  await Bun.sleep(20);
+  expect(calls).toBe(0);
+  const b = compact({ kind: "leaf", source: `${LONG} sibling`, contextLines: [], nodeBytes: 140 });
+  expect(await a).toBe("first");
+  expect(await b).toBe("second");
+  expect(calls).toBe(1);
+});
+
+test("a source under the skip token threshold never hits the runner", async () => {
+  const dir = tmpDir("cskip-tokens");
+  let calls = 0;
+  const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 80 }), async () => {
+    calls += 1;
+    return "1. should not run";
+  });
+  const source = "user decided a short fact about billing ".repeat(4);
+  expect(estimateTokens(source)).toBeLessThanOrEqual(80);
+  const line = await compact({ kind: "leaf", source, contextLines: [], nodeBytes: 140 });
+  expect(calls).toBe(0);
+  expect(line.length).toBeGreaterThan(0);
 });
 
 test("splitJobsByTokens keeps every cursor-agent prompt under the 100k surcharge line", async () => {
