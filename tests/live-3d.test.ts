@@ -1,20 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { bootNcli } from "../src/boot";
-import { demo3dFence } from "../src/live/3d-demo";
+import { demo3dBoxFence, demo3dFence } from "../src/live/3d-demo";
+import { ncli3dSrc } from "../src/live/3d-frame";
 import { frameHtml, iframeTag } from "../src/live/frame";
 import { liveBlocks, parseLive, renderToolToFence } from "../src/live/parse";
 import { liveLabel, liveShape, shimmerHtml } from "../src/live/shimmer";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, waitUntil } from "./helpers";
-
-function shots(): string {
-  const fromEnv = process.env.NCLI_SHOTS?.trim();
-  if (fromEnv) return fromEnv;
-  return join(tmpdir(), "ncli-shots");
-}
+import { makeHub, shotsDir, waitUntil } from "./helpers";
 
 test("ncli 3d is a live kind and render keeps the fence", () => {
   const text = `Mesa.\n\n${demo3dFence()}`;
@@ -23,23 +16,27 @@ test("ncli 3d is a live kind and render keeps the fence", () => {
   expect(renderToolToFence("3d", "ncli3d.desk()")).toBe("```ncli 3d\nncli3d.desk()\n```");
 });
 
-test("3d iframe vendors three.js from this hub and is first-party sandboxed", () => {
+test("3d iframe vendors three.js, stays unique-origin, and keeps the fence source", () => {
   const page = readFileSync(new URL("../public/ncli3d.html", import.meta.url), "utf8");
   expect(page).toContain("/ncli3d.js");
-  expect(page).toContain("script-src 'self'");
+  expect(page).toContain("/vendor/three.global.js");
   expect(page).not.toContain("cdn");
   expect(page).not.toContain("unpkg");
   expect(page).not.toContain("jsdelivr");
+  expect(ncli3dSrc("ncli3d.desk()")).toBe("/ncli3d.html#" + encodeURIComponent("ncli3d.desk()"));
+  expect(ncli3dSrc("ncli3d.box()")).toBe("/ncli3d.html#" + encodeURIComponent("ncli3d.box()"));
   const framed = iframeTag({ kind: "3d", source: "ncli3d.desk()" });
   expect(framed).toContain("live-3d");
-  expect(framed).toContain('sandbox="allow-scripts allow-same-origin"');
-  expect(framed).toContain('src="/ncli3d.html"');
+  expect(framed).toContain('sandbox="allow-scripts"');
+  expect(framed).not.toContain("allow-same-origin");
+  expect(framed).toContain('src="/ncli3d.html#');
+  expect(framed).toContain(encodeURIComponent("ncli3d.desk()"));
   expect(framed).not.toContain("srcdoc=");
-  expect(framed).not.toContain("ui-card");
+  expect(iframeTag({ kind: "3d", source: "ncli3d.box()" })).toContain(encodeURIComponent("ncli3d.box()"));
   const html = iframeTag({ kind: "html", source: "<b>x</b>" });
   expect(html).toContain('sandbox="allow-scripts"');
   expect(html).not.toContain("allow-same-origin");
-  expect(frameHtml({ kind: "3d", source: "ncli3d.desk()" })).toBe("/ncli3d.html");
+  expect(frameHtml({ kind: "3d", source: "ncli3d.desk()" })).toContain("/ncli3d.html#");
 });
 
 test("shimmer for 3d is a scene placeholder", () => {
@@ -55,12 +52,16 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   const kit = readFileSync(new URL("../public/ncli3d.js", import.meta.url), "utf8");
   const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
   expect(js).toContain("mermaid|html|react|url|ui|3d");
-  expect(js).toContain("/ncli3d.html");
+  expect(js).toContain("/ncli3d.html#");
+  expect(js).toContain('sandbox="allow-scripts"');
+  expect(js).not.toContain("allow-same-origin");
   expect(js).toContain("function bind3dPause");
-  expect(js).toContain("live-3d");
-  expect(kit).toContain("export function desk");
-  expect(kit).toContain("./vendor/three.module.min.js");
-  expect(kit).toContain("MeshLambertMaterial");
+  expect(js).toContain('op === "wheel"');
+  expect(kit).toContain("function desk");
+  expect(kit).toContain("function box");
+  expect(kit).toContain("mesa inteira");
+  expect(kit).toContain("Ctrl+scroll");
+  expect(kit).toContain('op: "wheel"');
   expect(kit).not.toContain("OrbitControls");
   expect(css).toContain(".live-frame.live-3d");
   const three = readFileSync(new URL("../public/vendor/three.module.min.js", import.meta.url), "utf8");
@@ -68,78 +69,106 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   expect(three).toContain("@license");
 });
 
-test("chrome: a 3d fence paints a borderless scene in the chat", async () => {
+test("launchChrome close kills chrome after a failed run", async () => {
+  if (!chromePath()) throw new Error("chrome not found");
+  const port = 11000 + Math.floor(Math.random() * 400);
+  let driver: Awaited<ReturnType<typeof launchChrome>> | undefined;
+  try {
+    driver = await launchChrome(port);
+    await driver.session.attachPage("about:blank");
+    throw new Error("boom");
+  } catch (err) {
+    expect(String(err)).toContain("boom");
+  } finally {
+    driver?.close();
+  }
+  await Bun.sleep(200);
+  const alive = await fetch(`http://127.0.0.1:${port}/json/version`)
+    .then((r) => r.ok)
+    .catch(() => false);
+  expect(alive).toBe(false);
+});
+
+test("chrome: a 3d fence paints the requested scene without same-origin", async () => {
   if (!chromePath()) throw new Error("chrome not found");
   const { hub } = await makeHub();
-  hub.memory.append({ kind: "talk", text: `Aqui a mesa.\n\n${demo3dFence()}`, seat: "claude" });
+  hub.memory.append({
+    kind: "talk",
+    text: `Aqui a mesa.\n\n${demo3dFence()}\n\nE um cubo.\n\n${demo3dBoxFence()}`,
+    seat: "claude",
+  });
   hub.cfg.port = 19500 + Math.floor(Math.random() * 400);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
-  const driver = await launchChrome(10000 + Math.floor(Math.random() * 400));
-  const dir = shots();
+  let driver: Awaited<ReturnType<typeof launchChrome>> | undefined;
+  const dir = shotsDir();
   mkdirSync(dir, { recursive: true });
   try {
+    driver = await launchChrome(10000 + Math.floor(Math.random() * 400));
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
       () =>
-        driver.session.evaluate(`(() => {
-          const iframe = document.querySelector("iframe.live-3d");
-          if (!iframe) return false;
-          const doc = iframe.contentDocument;
-          const canvas = doc?.querySelector("canvas");
-          const cams = [...(doc?.querySelectorAll(".n3-cams button") || [])].map((b) => b.textContent);
-          const st = iframe.contentWindow?.ncli3dState;
-          const box = iframe.getBoundingClientRect();
+        driver!.session.evaluate(`(() => {
+          const frames = [...document.querySelectorAll("iframe.live-3d")];
+          if (frames.length < 2) return false;
+          const desk = frames[0];
+          const cube = frames[1];
+          const box = desk.getBoundingClientRect();
           return Boolean(
             box.height >= 400 &&
-              cams.includes("whole desk") &&
-              cams.includes("close-up of clamp") &&
-              canvas &&
-              canvas.width >= 400 &&
-              st?.renderer,
+              desk.getAttribute("sandbox") === "allow-scripts" &&
+              !String(desk.getAttribute("sandbox") || "").includes("allow-same-origin") &&
+              String(desk.getAttribute("src") || "").includes(encodeURIComponent("ncli3d.desk()")) &&
+              String(cube.getAttribute("src") || "").includes(encodeURIComponent("ncli3d.box()")) &&
+              String(desk.dataset.ncli3dBtns || "").includes("mesa inteira") &&
+              String(cube.dataset.ncli3dKind || "") === "box" &&
+              Number(desk.dataset.ncli3dTris || 0) > 0,
           );
         })()`),
       12000,
-      "3d scene",
+      "3d scenes",
     );
-    writeFileSync(join(dir, "ncli-3d-desk.png"), await driver.session.screenshot());
+    writeFileSync(`${dir}/ncli-3d-desk.png`, await driver.session.screenshot());
     const facts = await driver.session.evaluate<{
       card: boolean;
       height: number;
-      title: string;
-      src: string;
-      buttons: string[];
-      canvas: number[];
-      triangles: number;
+      sandbox: string;
+      deskSrc: string;
+      boxSrc: string;
+      deskBtns: string;
+      boxKind: string;
+      tris: number;
       engine: string;
     }>(`(() => {
-      const iframe = document.querySelector("iframe.live-3d");
-      const doc = iframe.contentDocument;
-      const canvas = doc.querySelector("canvas");
-      const box = iframe.getBoundingClientRect();
-      const st = iframe.contentWindow.ncli3dState;
+      const frames = [...document.querySelectorAll("iframe.live-3d")];
+      const desk = frames[0];
+      const cube = frames[1];
+      const box = desk.getBoundingClientRect();
       return {
-        card: Boolean(iframe.closest(".ui-card")),
+        card: Boolean(desk.closest(".ui-card")),
         height: Math.round(box.height),
-        title: iframe.getAttribute("title") || "",
-        src: iframe.getAttribute("src") || "",
-        buttons: [...doc.querySelectorAll("button")].map((b) => b.textContent),
-        canvas: [canvas.width, canvas.height],
-        triangles: st?.renderer?.info?.render?.triangles ?? 0,
-        engine: canvas.getAttribute("data-engine") || "",
+        sandbox: desk.getAttribute("sandbox") || "",
+        deskSrc: desk.getAttribute("src") || "",
+        boxSrc: cube.getAttribute("src") || "",
+        deskBtns: desk.dataset.ncli3dBtns || "",
+        boxKind: cube.dataset.ncli3dKind || "",
+        tris: Number(desk.dataset.ncli3dTris || 0),
+        engine: desk.dataset.ncli3dEngine || "",
       };
     })()`);
     expect(facts.card).toBe(false);
     expect(facts.height).toBeGreaterThanOrEqual(400);
-    expect(facts.title).toBe("live 3d");
-    expect(facts.src).toContain("/ncli3d.html");
-    expect(facts.buttons).toContain("whole desk");
-    expect(facts.buttons).toContain("Wood top");
-    expect(facts.canvas[0]).toBeGreaterThanOrEqual(400);
-    expect(facts.triangles).toBeGreaterThan(0);
+    expect(facts.sandbox).toBe("allow-scripts");
+    expect(facts.sandbox).not.toContain("allow-same-origin");
+    expect(facts.deskSrc).toContain(encodeURIComponent("ncli3d.desk()"));
+    expect(facts.boxSrc).toContain(encodeURIComponent("ncli3d.box()"));
+    expect(facts.deskBtns).toContain("mesa inteira");
+    expect(facts.deskBtns).toContain("Tampo");
+    expect(facts.boxKind).toBe("box");
+    expect(facts.tris).toBeGreaterThan(0);
     expect(facts.engine).toContain("three.js r170");
   } finally {
-    driver.close();
+    driver?.close();
     booted.stop();
   }
 }, 30000);

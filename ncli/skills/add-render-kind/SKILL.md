@@ -13,7 +13,7 @@ description: Add a ```ncli <kind> fence and ncli.render kind. Use when the user 
 - `src/mcp/memory-zoom.ts` — `ncli.render` description
 - `views/live.ts` — optional demo block
 
-No CDN. HTML/react stay on `sandbox="allow-scripts"` without `allow-same-origin`. `3d` is first-party `/ncli3d.html` and may add `allow-same-origin` so the vendored module can run. `url` only `http:`/`https:`.
+No CDN. HTML/react/3d stay on `sandbox="allow-scripts"` without `allow-same-origin`. `url` only `http:`/`https:`.
 
 ## Do
 

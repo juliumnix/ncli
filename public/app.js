@@ -273,7 +273,8 @@ function iframeFor(kind, source) {
       return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button><iframe class="live-frame live-ui" title="live ui" data-ui-key="${key}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
     }
     if (kind === "3d") {
-      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts allow-same-origin" src="/ncli3d.html"></iframe></div>`;
+      const src = `/ncli3d.html#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
+      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
     }
     const inner =
       kind === "mermaid"
@@ -326,6 +327,25 @@ function bind3dPause() {
     log._ncli3dObs.observe(iframe);
   }
 }
+
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.type !== "ncli-3d") return;
+  if (d.op === "ready") {
+    for (const iframe of document.querySelectorAll("iframe.live-3d")) {
+      if (iframe.contentWindow !== ev.source) continue;
+      iframe.dataset.ncli3dKind = d.kind || "";
+      iframe.dataset.ncli3dBtns = (d.buttons || []).join("|");
+      iframe.dataset.ncli3dEngine = d.engine || "";
+      iframe.dataset.ncli3dTris = String(d.triangles ?? 0);
+    }
+    return;
+  }
+  if (d.op === "wheel" && chat) {
+    if (d.deltaY < 0) markUserUp();
+    chat.scrollTop += Number(d.deltaY) || 0;
+  }
+});
 
 function liveDocCss() {
   return `:root{--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}

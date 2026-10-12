@@ -25,9 +25,9 @@ ncli3d.desk()
 ```
 ````
 
-`ncli3d.desk()` draws a wood top, metal frame, and clamp with camera pills and part toggles. Scripts load from this hub (`/vendor/three.module.min.js`, `/ncli3d.js`) only.
+The fence source is the scene. `ncli3d.desk()` draws a wood top, metal frame, and clamp. `ncli3d.box()` draws a red cube. Scripts load from this hub (`/vendor/three.global.js`, `/ncli3d.js`) as classic scripts.
 
-HTML and react stay on `sandbox="allow-scripts"` without `allow-same-origin`. `3d` loads first-party `/ncli3d.html` with `allow-scripts allow-same-origin` so the vendored ES module can run. CSP is `default-src 'none'`. Network is off. Images are `data:` only.
+HTML, react, and 3d stay on `sandbox="allow-scripts"` without `allow-same-origin`. CSP is `default-src 'none'`. Network is off. Images are `data:` only.
 
 ## When
 

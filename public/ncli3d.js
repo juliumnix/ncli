@@ -1,5 +1,4 @@
-import * as THREE from "./vendor/three.module.min.js";
-
+const THREE = window.THREE;
 const WOOD = 0x8b5a2b;
 const METAL = 0x6a7078;
 const CLAMP = 0x4a86d4;
@@ -7,12 +6,25 @@ const BG = 0x0f0f11;
 
 const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-export function desk() {
-  return mount();
+function sceneSource() {
+  try {
+    return decodeURIComponent(String(location.hash || "").replace(/^#/, "")).trim() || "ncli3d.desk()";
+  } catch {
+    return "ncli3d.desk()";
+  }
 }
 
-export function mount() {
+function desk() {
+  return mountDesk();
+}
+
+function box() {
+  return mountBox();
+}
+
+function mountWorld() {
   const host = document.getElementById("ncli3d") || document.body;
+  host.replaceChildren();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 40);
@@ -20,21 +32,15 @@ export function mount() {
   renderer.setClearColor(BG, 1);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   host.appendChild(renderer.domElement);
-
-  const parts = addDesk(scene);
-  const cameras = {
-    whole: { pos: new THREE.Vector3(1.7, 1.25, 1.7), target: new THREE.Vector3(0, 0.2, 0) },
-    clamp: { pos: new THREE.Vector3(0.18, 0.48, 0.62), target: new THREE.Vector3(0, 0.34, -0.28) },
-    under: { pos: new THREE.Vector3(0.25, -0.7, 0.85), target: new THREE.Vector3(0, 0.08, 0) },
-  };
+  const canvas = renderer.domElement;
+  canvas.tabIndex = 0;
   const target = new THREE.Vector3(0, 0.2, 0);
-  const sph = new THREE.Spherical();
+  const sph = new THREE.Spherical(2.4, 1.12, 0.78);
   let paused = false;
   let flying = null;
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
-  const ui = paintUi(host);
   const clock = new THREE.Clock();
 
   function placeCam() {
@@ -73,28 +79,11 @@ export function mount() {
     };
   }
 
-  ui.cams.whole.classList.add("on");
-  applyCam(cameras.whole, true);
-  for (const [id, btn] of Object.entries(ui.cams)) {
-    btn.addEventListener("click", () => {
-      for (const b of Object.values(ui.cams)) b.classList.remove("on");
-      btn.classList.add("on");
-      applyCam(cameras[id], false);
-    });
-  }
-  for (const [id, btn] of Object.entries(ui.parts)) {
-    btn.addEventListener("click", () => {
-      const mesh = parts[id];
-      mesh.visible = !mesh.visible;
-      btn.classList.toggle("off", !mesh.visible);
-    });
-  }
-
-  const canvas = renderer.domElement;
   canvas.addEventListener("pointerdown", (e) => {
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
+    canvas.focus();
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
@@ -112,6 +101,11 @@ export function mount() {
   canvas.addEventListener(
     "wheel",
     (e) => {
+      const zoom = e.ctrlKey || e.metaKey || document.activeElement === canvas;
+      if (!zoom) {
+        parent.postMessage({ type: "ncli-3d", op: "wheel", deltaY: e.deltaY, deltaX: e.deltaX }, "*");
+        return;
+      }
       e.preventDefault();
       sph.radius = Math.min(Math.max(sph.radius + e.deltaY * 0.002, 0.55), 6);
       flying = null;
@@ -136,11 +130,8 @@ export function mount() {
   }
 
   resize();
-  renderer.render(scene, camera);
   new ResizeObserver(resize).observe(host);
   window.addEventListener("resize", resize);
-  tick();
-
   window.addEventListener("message", (ev) => {
     const d = ev.data;
     if (!d || d.type !== "ncli-3d") return;
@@ -150,18 +141,88 @@ export function mount() {
       clock.getDelta();
     }
   });
+  placeCam();
+  renderer.render(scene, camera);
+  tick();
 
-  window.ncli3dState = { parts, cameras, renderer, scene };
-  return window.ncli3dState;
+  function announce(kind, buttons) {
+    parent.postMessage(
+      {
+        type: "ncli-3d",
+        op: "ready",
+        kind,
+        buttons,
+        engine: canvas.getAttribute("data-engine") || "",
+        triangles: renderer.info?.render?.triangles ?? 0,
+      },
+      "*",
+    );
+  }
+
+  return { host, scene, camera, renderer, canvas, applyCam, announce };
 }
 
-function addDesk(scene) {
+function addLights(scene) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
   scene.add(new THREE.HemisphereLight(0xd8e2f0, 0x3a3028, 0.85));
   const key = new THREE.DirectionalLight(0xfff4e6, 1.15);
   key.position.set(1.6, 2.4, 1.3);
   scene.add(key);
+}
 
+function mountDesk() {
+  const world = mountWorld();
+  addLights(world.scene);
+  const parts = addDesk(world.scene);
+  const cameras = {
+    whole: { pos: new THREE.Vector3(1.7, 1.25, 1.7), target: new THREE.Vector3(0, 0.2, 0) },
+    clamp: { pos: new THREE.Vector3(0.18, 0.48, 0.62), target: new THREE.Vector3(0, 0.34, -0.28) },
+    under: { pos: new THREE.Vector3(0.25, -0.7, 0.85), target: new THREE.Vector3(0, 0.08, 0) },
+  };
+  const ui = paintDeskUi(world.host);
+  ui.cams.whole.classList.add("on");
+  world.applyCam(cameras.whole, true);
+  for (const [id, btn] of Object.entries(ui.cams)) {
+    btn.addEventListener("click", () => {
+      for (const b of Object.values(ui.cams)) b.classList.remove("on");
+      btn.classList.add("on");
+      world.applyCam(cameras[id], false);
+    });
+  }
+  for (const [id, btn] of Object.entries(ui.parts)) {
+    btn.addEventListener("click", () => {
+      parts[id].visible = !parts[id].visible;
+      btn.classList.toggle("off", !parts[id].visible);
+    });
+  }
+  world.renderer.render(world.scene, world.camera);
+  world.announce("desk", [...world.host.querySelectorAll("button")].map((b) => b.textContent));
+  return world;
+}
+
+function mountBox() {
+  const world = mountWorld();
+  addLights(world.scene);
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.7, 0.7),
+    new THREE.MeshLambertMaterial({ color: 0xc45c4a }),
+  );
+  mesh.position.y = 0.2;
+  world.scene.add(mesh);
+  const hint = document.createElement("div");
+  hint.className = "n3-hint";
+  hint.textContent = "cubo vermelho";
+  world.host.append(hint);
+  world.applyCam(
+    { pos: new THREE.Vector3(1.4, 1.1, 1.4), target: new THREE.Vector3(0, 0.2, 0) },
+    true,
+  );
+  world.renderer.render(world.scene, world.camera);
+  world.announce("box", ["cubo vermelho"]);
+  return world;
+}
+
+function addDesk(scene) {
   const wood = new THREE.Mesh(
     new THREE.BoxGeometry(1.24, 0.05, 0.72),
     new THREE.MeshLambertMaterial({ color: WOOD }),
@@ -199,28 +260,27 @@ function addDesk(scene) {
   jaw.position.set(0, 0.3, -0.28);
   clamp.add(plate, arm, jaw);
   scene.add(clamp);
-
   return { wood, metal, clamp };
 }
 
-function paintUi(host) {
+function paintDeskUi(host) {
   const cams = document.createElement("div");
   cams.className = "n3-cams";
   const camBtns = {
-    clamp: btn(cams, "close-up of clamp"),
-    under: btn(cams, "from underneath"),
-    whole: btn(cams, "whole desk"),
+    clamp: btn(cams, "grampo de perto"),
+    under: btn(cams, "por baixo"),
+    whole: btn(cams, "mesa inteira"),
   };
   const partBar = document.createElement("div");
   partBar.className = "n3-parts";
   const partBtns = {
-    wood: partBtn(partBar, "Wood top", "#8b5a2b"),
-    metal: partBtn(partBar, "Metal frame", "#8a9098"),
-    clamp: partBtn(partBar, "Clamp", "#4a86d4"),
+    wood: partBtn(partBar, "Tampo", "#8b5a2b"),
+    metal: partBtn(partBar, "Estrutura", "#8a9098"),
+    clamp: partBtn(partBar, "Grampo", "#4a86d4"),
   };
   const hint = document.createElement("div");
   hint.className = "n3-hint";
-  hint.textContent = "arraste pra girar · scroll pra zoom";
+  hint.textContent = "arraste para girar · Ctrl+scroll para zoom";
   host.append(cams, partBar, hint);
   return { cams: camBtns, parts: partBtns };
 }
@@ -241,5 +301,22 @@ function partBtn(parent, label, color) {
   return el;
 }
 
-window.ncli3d = { desk, mount };
-if (document.getElementById("ncli3d")) desk();
+function boot() {
+  if (!THREE) {
+    parent.postMessage({ type: "ncli-3d", op: "ready", kind: "error", buttons: [], engine: "", triangles: 0 }, "*");
+    return;
+  }
+  window.ncli3d = { desk, box };
+  const src = sceneSource();
+  const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  const el = document.createElement("script");
+  el.src = url;
+  el.onload = () => URL.revokeObjectURL(url);
+  el.onerror = () => {
+    URL.revokeObjectURL(url);
+    desk();
+  };
+  document.head.appendChild(el);
+}
+
+boot();
