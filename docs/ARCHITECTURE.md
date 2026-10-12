@@ -6,7 +6,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 
 | Path | Contract |
 | --- | --- |
-| `src/index.ts` | `bootNcli()` then print the startup summary |
+| `src/index.ts` | bunx/`bin.ncli` entry: `bootNcli()` then print the startup summary |
 | `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize |
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` open, pick harness/compressor |
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |

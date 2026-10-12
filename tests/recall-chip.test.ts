@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { bootNcli } from "../src/boot";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, waitUntil } from "./helpers";
+import { makeHub, shotsDir, waitUntil } from "./helpers";
 
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
-const SHOTS = "/opt/cursor/artifacts/screenshots";
+const SHOTS = shotsDir();
 
 test("app.js paints recall chips and highlights the drawer row", () => {
   expect(appJs).toContain("function recallChipHtml");
