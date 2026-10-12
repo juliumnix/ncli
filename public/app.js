@@ -1630,6 +1630,7 @@ function drawModal() {
   if (detail.html) {
     modal.innerHTML = detail.html;
     if (view === "review") bindGuidedReview(modal);
+    bindShip(modal);
     return;
   }
   const f = detail.spark || detail.fork;
@@ -1680,6 +1681,51 @@ function drawModal() {
     <form class="mi" id="sparkForm">
       <input name="t" placeholder="Fala com esse spark… (volta pro chat sozinho quando terminar)" autocomplete="off" />
     </form>`;
+  bindShip(modal);
+}
+
+const shipping = new Set();
+
+function bindShip(root) {
+  const ship = state.sparkDetail && state.sparkDetail.ship;
+  const spark = state.sparkDetail && (state.sparkDetail.spark || state.sparkDetail.fork);
+  if (!ship || ship.kind === "idle" || !spark) return;
+  const mh = (root || modal).querySelector(".mh");
+  if (!mh || mh.querySelector(".ship-go")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ship-go";
+  btn.textContent = ship.label;
+  if (shipping.has(spark.id)) {
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+  }
+  btn.addEventListener("click", () => {
+    if (btn.disabled || shipping.has(spark.id)) return;
+    shipSpark(spark.id, btn);
+  });
+  const close = mh.querySelector(".x");
+  mh.insertBefore(btn, close);
+}
+
+async function shipSpark(id, btn) {
+  if (shipping.has(id)) return;
+  shipping.add(id);
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+  }
+  try {
+    const res = await fetch(`/api/sparks/${encodeURIComponent(id)}/ship`, { method: "POST" });
+    if (!res.ok) return;
+    await openSpark(id);
+  } finally {
+    shipping.delete(id);
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+    }
+  }
 }
 
 function applyEvent(ev) {
