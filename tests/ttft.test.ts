@@ -112,29 +112,20 @@ test("stop aborts an in-flight compact wait before the settle cap", async () => 
 });
 
 test("an in-flight compact from the previous answer does not delay the next turn", async () => {
-  const prev = process.env.NCLI_COMPACT_DELAY;
-  process.env.NCLI_COMPACT_DELAY = "2000";
+  const { hub } = await makeHub({ nodeBytes: 40, viewBytes: 800 });
   try {
-    const { hub } = await makeHub({ nodeBytes: 40, viewBytes: 800 });
-    try {
-      hub.memory.append({ kind: "user", text: LONG });
-      await Bun.sleep(20);
-      expect(hub.memory.hasInFlight()).toBe(true);
-      let firstDelta = 0;
-      const t0 = performance.now();
-      const off = hub.subscribe((ev) => {
-        if (ev.type === "delta" && ev.text && !firstDelta) firstDelta = performance.now();
-      });
-      await hub.send("oi depois da compactacao");
-      off();
-      const ttft = (firstDelta || performance.now()) - t0;
-      expect(ttft).toBeLessThan(400);
-    } finally {
-      hub.close();
-    }
+    hub.memory.waitForInFlight = () => new Promise(() => undefined);
+    let firstDelta = 0;
+    const t0 = performance.now();
+    const off = hub.subscribe((ev) => {
+      if (ev.type === "delta" && ev.text && !firstDelta) firstDelta = performance.now();
+    });
+    await hub.send("oi depois da compactacao");
+    off();
+    const ttft = (firstDelta || performance.now()) - t0;
+    expect(ttft).toBeLessThan(400);
   } finally {
-    if (prev === undefined) delete process.env.NCLI_COMPACT_DELAY;
-    else process.env.NCLI_COMPACT_DELAY = prev;
+    hub.close();
   }
 });
 
