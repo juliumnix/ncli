@@ -49,5 +49,5 @@ export interface ViewPlugin {
 export interface ViewCreateCtx {
   dataDir: string;
   repo: string;
-  fetchPr?: (pr: string) => Promise<unknown>;
+  fetchPr?: (pr: string, spec?: { owner?: string; repo?: string }) => Promise<unknown>;
 }

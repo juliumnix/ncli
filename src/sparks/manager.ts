@@ -11,7 +11,7 @@ import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
 import { toolActivityLine } from "../memory/turn-log";
 import { addWorktree, archiveWorktree, realGit, type ArchiveResult, type GitRunner, type WorktreeHandle } from "./worktree";
-import { nowIso } from "../util";
+import { nowIso, sameReviewParams } from "../util";
 import type { Bus } from "../bus/bus";
 import { LiveTurn } from "../live/turn";
 import { joinText } from "../live/join-text";
@@ -102,19 +102,34 @@ export class SparkManager {
     return this.runtimes.get(id);
   }
 
+  findOpen(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
+    return [...this.runtimes.values()].find((r) => {
+      if (r.spark.view !== viewId) return false;
+      if (viewId === "review") {
+        return sameReviewParams(r.spark.params, params);
+      }
+      return new URLSearchParams(r.spark.params).toString() === new URLSearchParams(params).toString();
+    });
+  }
+
   async open(viewId: string, params: Record<string, string>): Promise<SparkRuntime> {
     const plugin = this.views.get(viewId);
     if (!plugin) throw new Error(`view desconhecida: ${viewId}`);
     const pack = this.views.packageOf(viewId);
     if (pack) assertRunnable(pack.manifest, availableHarnesses({ harness: this.cfg.harness }));
+    const parsed = plugin.parseLink?.(params) ?? params;
+    const existing = this.findOpen(viewId, parsed);
+    if (existing) {
+      this.hooks.onEvent({ type: "spark", session: existing.spark.id, payload: existing.spark });
+      return existing;
+    }
     const seq = (this.seqByView.get(viewId) ?? 0) + 1;
     this.seqByView.set(viewId, seq);
     const id = `${viewId}-${seq}`;
-    const parsed = plugin.parseLink?.(params) ?? params;
     const created = await plugin.createSpark(parsed, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
-      fetchPr: (pr) => this.gh.view(pr),
+      fetchPr: (pr, spec) => this.gh.view(pr, spec),
     });
     const spark: Spark = {
       id,
@@ -188,7 +203,7 @@ export class SparkManager {
     const result = await plugin?.applyAction?.(rt.spark, action, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
-      fetchPr: (pr) => this.gh.view(pr),
+      fetchPr: (pr, spec) => this.gh.view(pr, spec),
     });
     if (result?.ui !== undefined) rt.spark.ui = result.ui;
     if (result?.flowStep) rt.spark.flowStep = result.flowStep;
@@ -243,7 +258,10 @@ export class SparkManager {
     const pr = rt.spark.params.pr;
     if (!pr) return;
     try {
-      const info = await this.gh.view(pr);
+      const info = await this.gh.view(pr, {
+        owner: rt.spark.params.owner,
+        repo: rt.spark.params.repo,
+      });
       if (rt.spark.ui && typeof rt.spark.ui === "object") {
         (rt.spark.ui as { prState?: string; head?: string }).prState = info.state;
         if (info.headOid) (rt.spark.ui as { head?: string }).head = info.headOid;
