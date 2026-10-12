@@ -40,6 +40,7 @@ test("the package bin boots HTTP the way bunx would", async () => {
       NCLI_DATA: dataDir,
       NCLI_PORT: String(port),
       NCLI_REPO: repo,
+      NCLI_NO_OPEN: "1",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -51,7 +52,7 @@ test("the package bin boots HTTP the way bunx would", async () => {
   })();
   try {
     await waitUntil(
-      () => out.includes("NCLI") && out.includes(`http://127.0.0.1:${port}`),
+      () => out.includes(`NCLI rodando em http://localhost:${port}`) && /\bclis\b/.test(out),
       8000,
       "boot banner",
     );
