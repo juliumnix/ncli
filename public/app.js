@@ -328,17 +328,23 @@ function bind3dPause() {
   }
 }
 
+function live3dFrame(ev) {
+  for (const iframe of document.querySelectorAll("iframe.live-3d")) {
+    if (iframe.contentWindow === ev.source) return iframe;
+  }
+  return null;
+}
+
 window.addEventListener("message", (ev) => {
+  const iframe = live3dFrame(ev);
+  if (!iframe) return;
   const d = ev.data;
   if (!d || d.type !== "ncli-3d") return;
   if (d.op === "ready") {
-    for (const iframe of document.querySelectorAll("iframe.live-3d")) {
-      if (iframe.contentWindow !== ev.source) continue;
-      iframe.dataset.ncli3dKind = d.kind || "";
-      iframe.dataset.ncli3dBtns = (d.buttons || []).join("|");
-      iframe.dataset.ncli3dEngine = d.engine || "";
-      iframe.dataset.ncli3dTris = String(d.triangles ?? 0);
-    }
+    iframe.dataset.ncli3dKind = d.kind || "";
+    iframe.dataset.ncli3dBtns = (d.buttons || []).join("|");
+    iframe.dataset.ncli3dEngine = d.engine || "";
+    iframe.dataset.ncli3dTris = String(d.triangles ?? 0);
     return;
   }
   if (d.op === "wheel" && chat) {

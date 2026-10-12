@@ -133,6 +133,7 @@ function mountWorld() {
   new ResizeObserver(resize).observe(host);
   window.addEventListener("resize", resize);
   window.addEventListener("message", (ev) => {
+    if (ev.source !== parent) return;
     const d = ev.data;
     if (!d || d.type !== "ncli-3d") return;
     if (d.op === "pause") paused = true;
