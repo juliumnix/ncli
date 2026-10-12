@@ -117,23 +117,31 @@ export async function launchChrome(port: number): Promise<ChromeDriver> {
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
-  const version = await waitJson<{ webSocketDebuggerUrl: string }>(`http://127.0.0.1:${port}/json/version`, 8000);
-  const ws = new WebSocket(version.webSocketDebuggerUrl);
-  await new Promise<void>((resolve, reject) => {
-    ws.addEventListener("open", () => resolve());
-    ws.addEventListener("error", () => reject(new Error("chrome websocket failed")));
-  });
-  const session = new CdpSession(ws);
-  return {
-    session,
-    close() {
-      session.close();
-      proc.kill();
-      try {
-        rmSync(profile, { recursive: true, force: true });
-      } catch {}
-    },
+  let session: CdpSession | undefined;
+  const close = () => {
+    try {
+      session?.close();
+    } catch {}
+    try {
+      proc.kill("SIGKILL");
+    } catch {}
+    try {
+      rmSync(profile, { recursive: true, force: true });
+    } catch {}
   };
+  try {
+    const version = await waitJson<{ webSocketDebuggerUrl: string }>(`http://127.0.0.1:${port}/json/version`, 8000);
+    const ws = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener("open", () => resolve());
+      ws.addEventListener("error", () => reject(new Error("chrome websocket failed")));
+    });
+    session = new CdpSession(ws);
+    return { session, close };
+  } catch (err) {
+    close();
+    throw err;
+  }
 }
 
 async function waitJson<T>(url: string, ms: number): Promise<T> {

@@ -744,8 +744,23 @@ function measureComposer() {
 
 function reviewPasteHint(text) {
   const t = String(text || "").trim();
-  const m = t.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i);
-  return m ? { pr: m[1] } : null;
+  if (!t) return null;
+  const m = t.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/i);
+  return m ? { owner: m[1], repo: m[2], pr: m[3] } : null;
+}
+
+function isLonePrUrl(text) {
+  return /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i.test(
+    String(text || "").trim(),
+  );
+}
+
+function sameReviewParams(a, b) {
+  if (!a || !b) return false;
+  if (String(a.pr || "") !== String(b.pr || "")) return false;
+  if (a.owner && b.owner && a.owner !== b.owner) return false;
+  if (a.repo && b.repo && a.repo !== b.repo) return false;
+  return true;
 }
 
 function renderPasteHint() {
@@ -765,7 +780,7 @@ function renderPasteHint() {
 
 function openPendingReview(spark) {
   if (!pendingReviewOpen || !spark || spark.view !== "review") return false;
-  if (String(spark.params && spark.params.pr) !== String(pendingReviewOpen)) return false;
+  if (!sameReviewParams(spark.params, pendingReviewOpen)) return false;
   pendingReviewOpen = null;
   void openSpark(spark.id);
   return true;
@@ -1926,7 +1941,7 @@ async function sendUser(text, mode) {
   if (!t) return;
   const running = state.turn && state.turn.status === "running";
   const slash = t === "/help" || t === "/?" || t.startsWith("/ncli");
-  const pasteReview = reviewPasteHint(t);
+  const pasteReview = isLonePrUrl(t);
   const body = { text: t };
   if (running) body.mode = mode || "steer";
   if (!running && !slash && !pasteReview) {
@@ -1961,7 +1976,7 @@ async function sendUser(text, mode) {
     renderQueue();
   }
   if (pendingReviewOpen) {
-    const spark = state.sparks.find((s) => s.view === "review" && String(s.params && s.params.pr) === String(pendingReviewOpen));
+    const spark = state.sparks.find((s) => s.view === "review" && sameReviewParams(s.params, pendingReviewOpen));
     if (spark) openPendingReview(spark);
   }
 }
@@ -1973,7 +1988,7 @@ $("form").addEventListener("submit", (e) => {
   const hint = reviewPasteHint(text);
   input.value = "";
   renderPasteHint();
-  if (hint) pendingReviewOpen = hint.pr;
+  if (hint) pendingReviewOpen = hint;
   void sendUser(text, e.shiftKey ? "queue" : undefined);
 });
 
@@ -1986,7 +2001,7 @@ $("queueBtn")?.addEventListener("click", () => {
   const hint = reviewPasteHint(text);
   input.value = "";
   renderPasteHint();
-  if (hint) pendingReviewOpen = hint.pr;
+  if (hint) pendingReviewOpen = hint;
   void sendUser(text, "queue");
 });
 

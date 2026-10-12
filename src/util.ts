@@ -47,16 +47,20 @@ export function assertNever(x: never, msg = "unexpected"): never {
 }
 
 const VIEW_LINK_RE = /view:\/\/([a-z0-9_-]+)(?:\?([^\s)<"'，,]+))?/gi;
-const GH_PR_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/gi;
-const LONE_GH_PR_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i;
+const GH_PR_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/gi;
+const LONE_GH_PR_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i;
 
 export function parseViewLink(text: string): { id: string; params: Record<string, string> }[] {
   const out: { id: string; params: Record<string, string> }[] = [];
-  const seen = new Set<string>();
   const push = (id: string, params: Record<string, string>) => {
-    const key = `${id}?${new URLSearchParams(params).toString()}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    const existing = out.find((x) => sameViewLink(x, { id, params }));
+    if (existing) {
+      if (id === "review") {
+        if (!existing.params.owner && params.owner) existing.params.owner = params.owner;
+        if (!existing.params.repo && params.repo) existing.params.repo = params.repo;
+      }
+      return;
+    }
     out.push({ id, params });
   };
   for (const m of text.matchAll(VIEW_LINK_RE)) {
@@ -69,15 +73,43 @@ export function parseViewLink(text: string): { id: string; params: Record<string
     push(id, params);
   }
   for (const m of text.matchAll(GH_PR_RE)) {
-    push("review", { pr: m[1] });
+    push("review", { pr: m[3], owner: m[1], repo: m[2] });
   }
   return out;
 }
 
-export function reviewPasteHint(text: string): { pr: string } | null {
+export function sameReviewParams(a: Record<string, string>, b: Record<string, string>): boolean {
+  if ((a.pr || "") !== (b.pr || "")) return false;
+  if (a.owner && b.owner && a.owner !== b.owner) return false;
+  if (a.repo && b.repo && a.repo !== b.repo) return false;
+  return true;
+}
+
+function sameViewLink(
+  a: { id: string; params: Record<string, string> },
+  b: { id: string; params: Record<string, string> },
+): boolean {
+  if (a.id !== b.id) return false;
+  if (a.id === "review") return sameReviewParams(a.params, b.params);
+  return new URLSearchParams(a.params).toString() === new URLSearchParams(b.params).toString();
+}
+
+export function reviewPasteHint(text: string): { pr: string; owner: string; repo: string } | null {
   const t = text.trim();
-  const m = t.match(LONE_GH_PR_RE);
-  return m ? { pr: m[1] } : null;
+  if (!t) return null;
+  const re = new RegExp(GH_PR_RE.source, "i");
+  const m = t.match(re);
+  return m ? { owner: m[1], repo: m[2], pr: m[3] } : null;
+}
+
+export function isLonePrUrl(text: string): boolean {
+  return LONE_GH_PR_RE.test(text.trim());
+}
+
+export function missingPrTalk(params: Record<string, string>): string {
+  const pr = params.pr || "?";
+  const where = params.owner && params.repo ? ` ${params.owner}/${params.repo}` : "";
+  return `Não achei o pull request #${pr}${where}. O hub segue no ar.`;
 }
 
 export function escapeHtml(s: string): string {
