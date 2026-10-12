@@ -137,6 +137,24 @@ test("--since keeps only later lines", () => {
   expect(preview.skipped).toBe(2);
 });
 
+test("empty hub offers claude import when sessions exist", async () => {
+  const { hub } = await makeHub({ importClaude: CLAUDE });
+  expect(hub.snapshot().import?.source).toBe("claude");
+  expect(hub.snapshot().import?.sessions).toBe(1);
+  expect(hub.snapshot().import?.newCount).toBe(4);
+});
+
+test("empty hub stays quiet when claude has no sessions", async () => {
+  const { hub } = await makeHub();
+  expect(hub.snapshot().import).toBe(null);
+});
+
+test("demo seed does not auto-offer import", async () => {
+  const { hub } = await makeHub({ demo: true, importClaude: CLAUDE });
+  expect(hub.memory.T).toBeGreaterThan(0);
+  expect(hub.snapshot().import).toBe(null);
+});
+
 test("hub slash previews and apply writes the log then pumps", async () => {
   const { hub } = await makeHub({
     importClaude: CLAUDE,
