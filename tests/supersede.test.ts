@@ -96,6 +96,7 @@ test("supersede MCP writes a note and zoom follows it after reload", async () =>
     expect(again.ok).toBe(true);
     if (!again.ok) return;
     expect(again.lines[0]).toBe(`SUPERSEDED by #${neu.i} (user moved the ship date)`);
+    await hub.memory.settle();
     expect(assemble(hub.memory).view).toContain("ship Friday");
     expect(assemble(hub.memory).view).toContain("ship Monday");
   } finally {
