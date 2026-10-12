@@ -1,0 +1,111 @@
+{
+  "at": "2026-10-12T01:38:16.951Z",
+  "seed": 1,
+  "n": 300,
+  "compressor": "baseline-before",
+  "viewBytes": 2500,
+  "nodeBytes": 280,
+  "needles": [
+    {
+      "id": "simple",
+      "type": "simple",
+      "inLog": true,
+      "inView": true,
+      "hops": 6,
+      "reachedLeaf": true,
+      "levelHits": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": true,
+        "4": true,
+        "5": true,
+        "6": true,
+        "7": true,
+        "8": true
+      }
+    },
+    {
+      "id": "superseded",
+      "type": "superseded",
+      "inLog": true,
+      "inView": false,
+      "hops": 6,
+      "reachedLeaf": true,
+      "levelHits": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": false,
+        "4": false,
+        "5": false,
+        "6": false,
+        "7": false,
+        "8": false
+      }
+    },
+    {
+      "id": "space",
+      "type": "space",
+      "inLog": true,
+      "inView": true,
+      "hops": 5,
+      "reachedLeaf": true,
+      "levelHits": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": true,
+        "4": true,
+        "5": true,
+        "6": true,
+        "7": false,
+        "8": false
+      }
+    },
+    {
+      "id": "echo",
+      "type": "echo",
+      "inLog": false,
+      "inView": false,
+      "hops": null,
+      "reachedLeaf": false,
+      "levelHits": {}
+    },
+    {
+      "id": "sibling",
+      "type": "sibling",
+      "inLog": true,
+      "inView": true,
+      "hops": 5,
+      "reachedLeaf": true,
+      "levelHits": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": true,
+        "4": true,
+        "5": true,
+        "6": true,
+        "7": false,
+        "8": false
+      }
+    }
+  ],
+  "recallAtLevel": {
+    "0": 1,
+    "1": 1,
+    "2": 1,
+    "3": 0.6666666666666666,
+    "4": 0.6666666666666666,
+    "5": 0.6666666666666666,
+    "6": 0.6666666666666666,
+    "7": 0.3333333333333333,
+    "8": 0.3333333333333333
+  },
+  "viewPresence": 0.5,
+  "reachability": 1,
+  "invented": 0,
+  "compactCalls": 71,
+  "settled": true
+}
