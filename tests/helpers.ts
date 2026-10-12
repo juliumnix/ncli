@@ -55,11 +55,11 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   return { hub, repo, dataDir, harness };
 }
 
-export async function waitUntil(fn: () => boolean | Promise<boolean>, ms = 8000): Promise<void> {
+export async function waitUntil(fn: () => boolean | Promise<boolean>, ms = 8000, what = "timeout"): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < ms) {
     if (await fn()) return;
     await Bun.sleep(30);
   }
-  throw new Error("timeout");
+  throw new Error(what);
 }
