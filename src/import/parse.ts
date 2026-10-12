@@ -68,7 +68,7 @@ export function parseSessionFile(source: ImportSource, file: string): ImportLine
       if (id) sessionMeta = id;
       continue;
     }
-    const parsed = parseRow(source, rec, sessionMeta, fallbackAt);
+    const parsed = parseRow(source, rec, sessionMeta, fallbackAt, file);
     if (parsed) lines.push(parsed);
   }
   return lines;
@@ -79,14 +79,15 @@ function parseRow(
   rec: Record<string, unknown>,
   session: string,
   fallbackAt: string,
+  file: string,
 ): ImportLine | undefined {
   switch (source) {
     case "claude":
-      return parseClaude(rec, session, fallbackAt);
+      return parseClaude(rec, session, fallbackAt, file);
     case "codex":
-      return parseCodex(rec, session, fallbackAt);
+      return parseCodex(rec, session, fallbackAt, file);
     case "cursor":
-      return parseCursor(rec, session, fallbackAt);
+      return parseCursor(rec, session, fallbackAt, file);
     default: {
       const _n: never = source;
       throw new Error(`fonte desconhecida: ${_n}`);
@@ -94,7 +95,7 @@ function parseRow(
   }
 }
 
-function parseClaude(rec: Record<string, unknown>, session: string, fallbackAt: string): ImportLine | undefined {
+function parseClaude(rec: Record<string, unknown>, session: string, fallbackAt: string, file: string): ImportLine | undefined {
   if (rec.isSidechain === true) return undefined;
   const type = String(rec.type ?? "");
   if (type !== "user" && type !== "assistant") return undefined;
@@ -102,19 +103,21 @@ function parseClaude(rec: Record<string, unknown>, session: string, fallbackAt: 
   const text = textOf(message?.content ?? rec.content);
   const at = isoOf(rec.timestamp) ?? fallbackAt;
   const sid = typeof rec.sessionId === "string" && rec.sessionId ? rec.sessionId : session;
-  if (type === "user") return lineOf("claude", sid, at, "user", text);
-  return lineOf("claude", sid, at, "talk", text, "claude");
+  const cwd = cwdOf(rec, file);
+  if (type === "user") return lineOf("claude", sid, at, "user", text, undefined, cwd);
+  return lineOf("claude", sid, at, "talk", text, "claude", cwd);
 }
 
-function parseCodex(rec: Record<string, unknown>, session: string, fallbackAt: string): ImportLine | undefined {
+function parseCodex(rec: Record<string, unknown>, session: string, fallbackAt: string, file: string): ImportLine | undefined {
   const type = String(rec.type ?? "");
   const payload = asRecord(rec.payload) ?? rec;
   const at = isoOf(rec.timestamp) ?? fallbackAt;
+  const cwd = cwdOf(payload, file) ?? cwdOf(rec, file);
   if (type === "event_msg") {
     const kind = String(payload.type ?? "");
     const text = textOf(payload.message ?? payload.text ?? payload.content);
-    if (kind === "user_message") return lineOf("codex", session, at, "user", text);
-    if (kind === "agent_message") return lineOf("codex", session, at, "talk", text, "codex");
+    if (kind === "user_message") return lineOf("codex", session, at, "user", text, undefined, cwd);
+    if (kind === "agent_message") return lineOf("codex", session, at, "talk", text, "codex", cwd);
     return undefined;
   }
   if (type === "response_item") {
@@ -122,20 +125,21 @@ function parseCodex(rec: Record<string, unknown>, session: string, fallbackAt: s
     if (item !== "message") return undefined;
     const role = String(payload.role ?? "");
     const text = textOf(payload.content ?? payload.message ?? payload.text);
-    if (role === "user") return lineOf("codex", session, at, "user", text);
-    if (role === "assistant") return lineOf("codex", session, at, "talk", text, "codex");
+    if (role === "user") return lineOf("codex", session, at, "user", text, undefined, cwd);
+    if (role === "assistant") return lineOf("codex", session, at, "talk", text, "codex", cwd);
     return undefined;
   }
   return undefined;
 }
 
-function parseCursor(rec: Record<string, unknown>, session: string, fallbackAt: string): ImportLine | undefined {
+function parseCursor(rec: Record<string, unknown>, session: string, fallbackAt: string, file: string): ImportLine | undefined {
   const role = String(rec.role ?? rec.type ?? "");
   const message = asRecord(rec.message);
   const text = textOf(message?.content ?? rec.content ?? rec.text);
   const at = isoOf(rec.timestamp ?? rec.createdAt ?? rec.at) ?? fallbackAt;
-  if (role === "user") return lineOf("cursor", session, at, "user", text);
-  if (role === "assistant") return lineOf("cursor", session, at, "talk", text, "cursor");
+  const cwd = cwdOf(rec, file);
+  if (role === "user") return lineOf("cursor", session, at, "user", text, undefined, cwd);
+  if (role === "assistant") return lineOf("cursor", session, at, "talk", text, "cursor", cwd);
   return undefined;
 }
 
@@ -183,5 +187,15 @@ function sessionIdOf(file: string): string {
   const parts = file.split("/").filter(Boolean);
   const name = parts.at(-1) ?? file;
   return name.replace(/\.jsonl$/i, "");
+}
+
+function cwdOf(rec: Record<string, unknown>, file: string): string | undefined {
+  if (typeof rec.cwd === "string" && rec.cwd.trim()) return rec.cwd.trim();
+  const parts = file.split("/").filter(Boolean);
+  const i = parts.lastIndexOf("projects");
+  const slug = i >= 0 ? parts[i + 1] : undefined;
+  if (!slug || slug.includes(".")) return undefined;
+  if (slug.startsWith("-")) return `/${slug.slice(1).replace(/-/g, "/")}`;
+  return undefined;
 }
 

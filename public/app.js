@@ -1056,7 +1056,8 @@ function renderContext() {
     const k = Math.round((ctx.compact?.tokensToday || 0) / 100) / 10;
     const b = Math.round((ctx.compact?.budget || ctx.budget || 0) / 1000);
     const model = ctx.compact?.model || "haiku";
-    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}`;
+    const space = ctx.space ? ` · ${ctx.space}` : "";
+    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}${space}`;
   } else if (head && state.debug) {
     const d = state.debug;
     head.textContent = `${d.bytes}/${d.budget} bytes · ${d.T ?? "?"} msgs · ${(d.levels || []).join(" ")}`;

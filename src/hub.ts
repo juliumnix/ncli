@@ -6,9 +6,9 @@ import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Messag
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
+import { isSpaceId, spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
-import { assemble } from "./memory/assemble";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
@@ -46,6 +46,7 @@ import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 
 export class Hub {
   readonly memory: Memory;
+  readonly spaces: SpaceRegistry;
   readonly views: ViewRegistry;
   readonly sparks: SparkManager;
   readonly queue: TurnQueue;
@@ -80,14 +81,16 @@ export class Hub {
       this.compact = { running: ev.running, lastNodes: ev.nodes, tokensToday: ev.tokensToday, budget: ev.budget, model: ev.model };
       this.emit({ type: "compact", compact: this.compact });
     });
-    this.memory = new Memory({
-      dir: join(cfg.dataDir, "main"),
+    this.spaces = new SpaceRegistry({
+      dataDir: cfg.dataDir,
       nodeBytes: cfg.nodeBytes,
       viewBytes: cfg.viewBytes,
       compressor: this.compressor,
+      cwd: cfg.repo,
       pumpBatch: cfg.compactBatch,
     });
-    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName));
+    this.memory = this.spaces.current();
+    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId));
     this.queue = new TurnQueue(cfg.dataDir);
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
@@ -235,7 +238,7 @@ export class Hub {
       forks: this.sparks.list(),
       views: this.views.list(),
       debug: this.memory.debug(),
-      context: contextSnapshot(this.memory, this.compact, this.cfg.userName),
+      context: contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId),
       waiting: this.sparks.waitingOnUser(),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,
@@ -392,17 +395,18 @@ export class Hub {
       source,
       since,
       (line) => {
-        const msg = this.memory.append({
+        const mem = this.memoryForImport(line.cwd);
+        const msg = mem.append({
           kind: line.kind,
           text: line.text,
           seat: line.seat,
           date: line.at,
           hops: `import:${line.source}`,
         });
-        this.emit({ type: "message", session: "main", message: msg });
+        if (mem === this.memory) this.emit({ type: "message", session: "main", message: msg });
         return msg;
       },
-      (line) => alreadyInLog(this.memory.log, line),
+      (line) => alreadyInLog(this.memoryForImport(line.cwd).log, line),
     );
     this.lastImport = this.importer.preview(source, since);
     this.emit({ type: "import", preview: this.lastImport });
@@ -444,7 +448,7 @@ export class Hub {
   private async turn(userText: string, retried = false): Promise<void> {
     void this.memory.pump();
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
-    const ctx = assemble(this.memory);
+    const ctx = this.spaces.assemble(this.cfg.repo);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;
     queueMicrotask(() => writeFileSync(join(this.cfg.dataDir, "last-view.txt"), viewSnap, "utf8"));
@@ -578,7 +582,7 @@ export class Hub {
   }
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
-    const mem = this.sparks.get(from)?.memory ?? this.memory;
+    const mem = this.memoryForTool(from, args.space);
     switch (name) {
       case "zoom": {
         const r = mem.zoom(Number(args.id), Number(args.n));
@@ -705,6 +709,20 @@ export class Hub {
       budget: d.budget,
       levels: d.levels,
     });
+  }
+
+  private memoryForImport(cwd?: string): Memory {
+    if (!cwd) return this.spaces.inbox();
+    return this.spaces.of(spaceFor(cwd));
+  }
+
+  private memoryForTool(from: string, space: unknown): Memory {
+    if (typeof space === "string" && space) {
+      const spark = space.startsWith("spark:") ? this.sparks.get(space.slice(6)) : undefined;
+      if (spark) return spark.memory;
+      return this.spaces.of(isSpaceId(space) ? space : spaceFor(space));
+    }
+    return this.sparks.get(from)?.memory ?? this.memory;
   }
 
   close(): void {
