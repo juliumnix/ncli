@@ -23,7 +23,12 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
 }
 
 test("parseNumbered does not pad a short reply with a sibling line", () => {
-  expect(parseNumbered("1. only-one", 2)).toEqual(["only-one"]);
+  expect(parseNumbered("1. only-one", 2)).toEqual(["only-one", ""]);
+});
+
+test("parseNumbered indexes by the printed number, not by line position", () => {
+  expect(parseNumbered("1. a\n3. c", 3)).toEqual(["a", "", "c"]);
+  expect(parseNumbered("3. c\n1. a", 3)).toEqual(["a", "", "c"]);
 });
 
 test("a short batch does not give the second job the first job's text", async () => {
@@ -38,7 +43,7 @@ test("a short batch does not give the second job the first job's text", async ()
   expect(settled.some((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value !== "only-one"))).toBe(true);
 });
 
-test("a spent daily budget leaves the node unbuilt instead of writing a cut line", async () => {
+test("a spent daily budget does not call the runner and Memory cuts after N deferrals", async () => {
   const dir = tmpDir("nobudget");
   writeFileSync(join(dir, "compact-budget.json"), JSON.stringify({ day: new Date().toISOString().slice(0, 10), tokens: 30, calls: 1 }));
   let calls = 0;
@@ -53,11 +58,18 @@ test("a spent daily budget leaves the node unbuilt instead of writing a cut line
     dir: join(dir, "mem"),
     nodeBytes: 140,
     viewBytes: 4000,
+    deferCutAfter: 2,
+    deferBackoffMs: 15,
     compressor: compact,
   });
   mem.append({ kind: "user", text: LONG });
-  await Promise.race([mem.settle(400), Bun.sleep(400)]);
+  await mem.pump();
   expect(calls).toBe(0);
-  expect(mem.nodeOf(0, 0)).toBeUndefined();
   expect(existsSync(join(dir, "compact-cache.jsonl"))).toBe(false);
+  await Bun.sleep(80);
+  await mem.pump();
+  expect(calls).toBe(0);
+  const node = mem.nodeOf(0, 0);
+  expect(node).toBeDefined();
+  expect(node!.size).toBeLessThanOrEqual(140);
 });

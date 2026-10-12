@@ -93,6 +93,13 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
       logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 1, skipped: 0 });
       return cut(hit, input.nodeBytes);
     }
+    const source = input.kind === "merge"
+      ? `${input.left ?? ""}\n${input.right ?? ""}`
+      : input.source;
+    if (estimateTokens(source) <= cfg.compactSkipTokens) {
+      logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 0, skipped: 1 });
+      return cut(flattenLine(source), input.nodeBytes);
+    }
     const budget = loadBudget(cfg);
     if (budget.tokens >= cfg.compactBudgetTokens) throw new CompactDeferred();
     return new Promise((resolve, reject) => {
@@ -193,11 +200,16 @@ async function runBatch(
 }
 
 export function parseNumbered(reply: string, n: number): string[] {
-  const lines = reply
-    .split("\n")
-    .map((l) => l.replace(/^\s*\d+[.)]\s*/, "").trim())
-    .filter(Boolean);
-  return lines.slice(0, n);
+  const byNum = new Map<number, string>();
+  for (const raw of reply.split("\n")) {
+    const m = raw.match(/^\s*(\d+)[.)]\s*(.*)$/);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    if (idx < 1 || idx > n || byNum.has(idx)) continue;
+    const text = m[2].trim();
+    if (text) byNum.set(idx, text);
+  }
+  return Array.from({ length: n }, (_, i) => byNum.get(i + 1) ?? "");
 }
 
 export function parseCursorPrint(stdout: string): string {

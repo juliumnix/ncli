@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Memory, mockCompressor, type Compressor } from "../../src/memory/store";
 import { generateTranscript } from "./generator";
-import type { EvalReport, Needle, NeedleReport } from "./types";
+import type { EvalAggregate, EvalReport, MetricStats, Needle, NeedleReport } from "./types";
 
 export interface EvalOpts {
   n?: number;
@@ -14,7 +14,7 @@ export interface EvalOpts {
   label?: string;
 }
 
-const TOKEN_RE = /[A-Z][A-Z0-9_]{7,}|\b\d{3,}\b|\/[\w./-]+/g;
+const TOKEN_RE = /[A-Z][A-Z0-9_]{7,}|\b\d{3,}\b|\/[\w./-]+|[a-z]+(?:[ -][a-z0-9]+){1,3}/g;
 
 function hopTo(mem: Memory, id: number): { hops: number; reached: boolean } {
   const cover = mem.view.find((p) => p.start <= id && id < p.start + p.n);
@@ -63,6 +63,12 @@ function inventedCount(mem: Memory): number {
   return bad;
 }
 
+function leafText(mem: Memory, id: number): string {
+  if (id < 0) return "";
+  const r = mem.zoom(id, 1);
+  return r.ok ? r.lines.join("\n") : "";
+}
+
 export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
   const n = opts.n ?? 300;
   const seed = opts.seed ?? 1;
@@ -91,6 +97,7 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
     const inLog = mem.log.some((m) => needle.tokens.some((tok) => m.text.includes(tok)));
     const inView = needle.tokens.some((tok) => view.includes(tok));
     const hop = inLog ? hopTo(mem, needle.messageIndex) : { hops: null as number | null, reached: false };
+    const leaf = leafText(mem, needle.messageIndex);
     return {
       id: needle.id,
       type: needle.type,
@@ -98,6 +105,8 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
       inView,
       hops: hop.hops,
       reachedLeaf: hop.reached,
+      answerInLeaf: needle.answer.length > 0 && leaf.includes(needle.answer),
+      answerInView: needle.answer.length > 0 && view.includes(needle.answer),
       levelHits: inLog ? levelHits(mem, needle) : {},
     };
   });
@@ -130,15 +139,52 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
   };
 }
 
+export async function runMemoryEvalSeeds(opts: EvalOpts & { seeds: number[] }): Promise<EvalAggregate> {
+  const reports: EvalReport[] = [];
+  for (const seed of opts.seeds) {
+    reports.push(await runMemoryEval({
+      ...opts,
+      seed,
+      dir: join(opts.dir, `s${seed}`),
+    }));
+  }
+  return {
+    seeds: opts.seeds,
+    n: opts.n ?? 300,
+    compressor: opts.label ?? "mock",
+    viewPresence: stats(reports.map((r) => r.viewPresence)),
+    reachability: stats(reports.map((r) => r.reachability)),
+    invented: stats(reports.map((r) => r.invented)),
+    compactCalls: stats(reports.map((r) => r.compactCalls)),
+    reports,
+  };
+}
+
+export function stats(values: number[]): MetricStats {
+  if (!values.length) return { mean: 0, stddev: 0 };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+  return { mean, stddev: Math.sqrt(variance) };
+}
+
 export function formatEvalTable(report: EvalReport): string {
   const rows = [
     `memory:eval n=${report.n} seed=${report.seed} compressor=${report.compressor} settled=${report.settled}`,
     `view ${report.viewBytes}B · node ${report.nodeBytes}B · compactCalls ${report.compactCalls} · invented ${report.invented}`,
     `viewPresence ${(report.viewPresence * 100).toFixed(1)}% · reachability ${(report.reachability * 100).toFixed(1)}%`,
     `recall@level ${Object.entries(report.recallAtLevel).map(([l, v]) => `l${l}=${(v * 100).toFixed(0)}%`).join(" ")}`,
-    ...report.needles.map((n) => `  ${n.id} log=${n.inLog} view=${n.inView} leaf=${n.reachedLeaf} hops=${n.hops ?? "-"}`),
+    ...report.needles.map((n) => `  ${n.id} log=${n.inLog} view=${n.inView} leaf=${n.reachedLeaf} answer=${n.answerInLeaf} hops=${n.hops ?? "-"}`),
   ];
   return rows.join("\n");
+}
+
+export function formatEvalAggregate(agg: EvalAggregate): string {
+  const pct = (s: MetricStats) => `${(s.mean * 100).toFixed(1)}% ± ${(s.stddev * 100).toFixed(1)}`;
+  return [
+    `memory:eval n=${agg.n} seeds=${agg.seeds.join(",")} compressor=${agg.compressor}`,
+    `viewPresence ${pct(agg.viewPresence)} · reachability ${pct(agg.reachability)}`,
+    `invented ${agg.invented.mean.toFixed(2)} ± ${agg.invented.stddev.toFixed(2)} · compactCalls ${agg.compactCalls.mean.toFixed(1)} ± ${agg.compactCalls.stddev.toFixed(1)}`,
+  ].join("\n");
 }
 
 export function writeEvalReport(report: EvalReport, dir: string, name: string): string {
@@ -146,4 +192,12 @@ export function writeEvalReport(report: EvalReport, dir: string, name: string): 
   const path = join(dir, name);
   writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return path;
+}
+
+export function fakeCursorRunner(prompt: string): string {
+  const blocks = [...prompt.matchAll(/<input>\n([\s\S]*?)\n<\/input>/g)].map((m) => m[1] ?? "");
+  return blocks.map((src, i) => {
+    const kept = (src.match(TOKEN_RE) ?? []).slice(0, 8).join(" ");
+    return `${i + 1}. ${kept || src.slice(0, 80)}`;
+  }).join("\n");
 }

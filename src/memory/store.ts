@@ -1,7 +1,7 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
-import { flattenLine, isPowerOfTwo, nowIso, utf8Bytes } from "../util";
+import { cutUtf8, flattenLine, isPowerOfTwo, nowIso, utf8Bytes } from "../util";
 import { CompactDeferred } from "./compact-deferred";
 import { pairDue } from "./merge-order";
 
@@ -11,6 +11,8 @@ export interface MemoryOptions {
   viewBytes: number;
   compressor: Compressor;
   pumpBatch?: number;
+  deferCutAfter?: number;
+  deferBackoffMs?: number;
 }
 
 export type Compressor = (input: CompactInput) => Promise<string>;
@@ -38,12 +40,19 @@ interface Slot {
   i: number;
 }
 
+interface DeferRec {
+  fails: number;
+  until: number;
+}
+
 export class Memory {
   readonly dir: string;
   readonly nodeBytes: number;
   readonly viewBytes: number;
   readonly compressor: Compressor;
   readonly pumpBatch: number;
+  readonly deferCutAfter: number;
+  readonly deferBackoffMs: number;
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
   view: ViewPart[] = [];
@@ -51,10 +60,11 @@ export class Memory {
   private busy = new Set<string>();
   private readyQ: Slot[] = [];
   private queued = new Set<string>();
-  private cooled = new Set<string>();
+  private deferred = new Map<string, DeferRec>();
   private waiters: Array<() => void> = [];
   private pumping: Promise<void> | null = null;
   private muteChange = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: MemoryOptions) {
     this.dir = opts.dir;
@@ -62,6 +72,8 @@ export class Memory {
     this.viewBytes = opts.viewBytes;
     this.compressor = opts.compressor;
     this.pumpBatch = opts.pumpBatch ?? 6;
+    this.deferCutAfter = opts.deferCutAfter ?? 3;
+    this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
     mkdirSync(this.dir, { recursive: true });
     this.load();
   }
@@ -162,13 +174,50 @@ export class Memory {
         resolve(this.allBuilt());
       }, timeoutMs);
       const on = () => {
-        if (!this.allBuilt()) return;
+        if (!this.allBuilt()) {
+          this.waiters.push(on);
+          return;
+        }
         clearTimeout(t);
         this.waiters = this.waiters.filter((w) => w !== on);
         resolve(true);
       };
       this.waiters.push(on);
       if (this.allBuilt()) on();
+    });
+  }
+
+  hasInFlight(): boolean {
+    if (this.busy.size > 0) return true;
+    return this.readyQ.some((slot) => {
+      const key = Memory.key(slot.l, slot.i);
+      return !this.heldOff(key) && !this.nodes.has(key) && !this.busy.has(key) && this.ready(slot.l, slot.i);
+    });
+  }
+
+  waitForInFlight(opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<boolean> {
+    const timeoutMs = opts.timeoutMs ?? 400;
+    const signal = opts.signal;
+    if (signal?.aborted || !this.hasInFlight()) return Promise.resolve(this.allBuilt());
+    return new Promise((resolve) => {
+      const finish = (ok: boolean) => {
+        clearTimeout(t);
+        this.waiters = this.waiters.filter((w) => w !== on);
+        signal?.removeEventListener("abort", onAbort);
+        resolve(ok);
+      };
+      const t = setTimeout(() => finish(this.allBuilt()), timeoutMs);
+      const onAbort = () => finish(false);
+      const on = () => {
+        if (this.hasInFlight()) {
+          this.waiters.push(on);
+          return;
+        }
+        finish(this.allBuilt());
+      };
+      this.waiters.push(on);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (!this.hasInFlight() || signal?.aborted) finish(this.allBuilt());
     });
   }
 
@@ -241,7 +290,7 @@ export class Memory {
     return {
       lines: this.viewLines(),
       bytes: this.viewBytesUsed(),
-      budget: this.viewBytes,
+      budget: this.viewHigh,
       levels: this.levels(),
       T: this.T,
     };
@@ -263,10 +312,9 @@ export class Memory {
   async pump(): Promise<void> {
     if (this.pumping) {
       return this.pumping.then(() => {
-        if (this.nextBuildable()) return this.pump();
+        if (this.hasInFlight()) return this.pump();
       });
     }
-    this.cooled.clear();
     this.pumping = this.pumpLoop().finally(() => {
       this.pumping = null;
     });
@@ -290,19 +338,57 @@ export class Memory {
           } finally {
             this.busy.delete(key);
           }
-          if (defer) {
-            this.cooled.add(key);
-            this.enqueue(next.l, next.i);
-          }
+          if (defer) this.onDeferred(next.l, next.i);
         }),
       );
       if (this.viewBytesUsed() > this.viewHigh) this.fit();
     }
-    this.flushWaiters();
+    this.notifyWaiters();
+    this.scheduleRetry();
   }
 
-  private nextBuildable(): Slot | null {
-    return this.nextBuildableBatch(1)[0] ?? null;
+  private onDeferred(l: number, i: number): void {
+    const key = Memory.key(l, i);
+    const prev = this.deferred.get(key);
+    const fails = (prev?.fails ?? 0) + 1;
+    if (fails >= this.deferCutAfter) {
+      this.deferred.delete(key);
+      this.putNode(l, i, this.cutSource(l, i));
+      return;
+    }
+    const wait = Math.min(30_000, this.deferBackoffMs * 2 ** (fails - 1));
+    this.deferred.set(key, { fails, until: Date.now() + wait });
+    this.enqueue(l, i);
+  }
+
+  private cutSource(l: number, i: number): string {
+    if (l === 0) {
+      const m = this.log[i];
+      return cutUtf8(flattenLine(`${m.kind}: ${m.text}`), this.nodeBytes);
+    }
+    const left = this.nodeOf(l - 1, 2 * i)?.text ?? "";
+    const right = this.nodeOf(l - 1, 2 * i + 1)?.text ?? "";
+    return cutUtf8(flattenLine(`${left} ${right}`), this.nodeBytes);
+  }
+
+  private heldOff(key: string): boolean {
+    const rec = this.deferred.get(key);
+    return Boolean(rec && rec.until > Date.now());
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer || this.hasInFlight()) return;
+    let next = Number.POSITIVE_INFINITY;
+    for (const rec of this.deferred.values()) {
+      if (rec.until < next) next = rec.until;
+    }
+    if (!Number.isFinite(next)) return;
+    const wait = Math.max(1, next - Date.now());
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.pump();
+    }, wait);
+    this.retryTimer.unref?.();
   }
 
   private nextBuildableBatch(max: number): Slot[] {
@@ -313,7 +399,7 @@ export class Memory {
       if (!slot) break;
       const key = Memory.key(slot.l, slot.i);
       this.queued.delete(key);
-      if (this.cooled.has(key)) {
+      if (this.heldOff(key)) {
         hold.push(slot);
         continue;
       }
@@ -374,7 +460,7 @@ export class Memory {
     const node: TreeNode = { l, i, text: flat, size: utf8Bytes(flat) };
     this.nodes.set(Memory.key(l, i), node);
     persistLine(join(this.dir, "tree.jsonl"), node);
-    this.cooled.delete(Memory.key(l, i));
+    this.deferred.delete(Memory.key(l, i));
     this.refreshViewParts();
     this.enqueue(l + 1, Math.floor(i / 2));
     this.saveView();
@@ -439,7 +525,7 @@ export class Memory {
       this.notify();
     }
     this.saveView();
-    this.flushWaiters();
+    this.notifyWaiters();
   }
 
   rebuildView(): void {
@@ -459,8 +545,7 @@ export class Memory {
     this.onChange?.();
   }
 
-  private flushWaiters(): void {
-    if (!this.allBuilt()) return;
+  private notifyWaiters(): void {
     const ws = this.waiters.splice(0);
     for (const w of ws) w();
   }
@@ -544,7 +629,10 @@ export class Memory {
   }
 
   private saveView(): void {
-    writeFileSync(join(this.dir, "view.json"), JSON.stringify({ parts: this.view }));
+    const path = join(this.dir, "view.json");
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ parts: this.view }));
+    renameSync(tmp, path);
   }
 }
 

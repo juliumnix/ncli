@@ -65,6 +65,7 @@ export class SparkManager {
         viewBytes: this.cfg.viewBytes,
         compressor: this.hooks.compressor,
         pumpBatch: this.cfg.compactBatch,
+        deferCutAfter: this.cfg.compactTries,
       });
       const worktree = meta.worktree && meta.branch && meta.repo
         ? { path: join(meta.repo, ".ncli", "wt", name), branch: meta.branch, repo: meta.repo }
@@ -144,6 +145,7 @@ export class SparkManager {
       viewBytes: this.cfg.viewBytes,
       compressor: this.hooks.compressor,
       pumpBatch: this.cfg.compactBatch,
+      deferCutAfter: this.cfg.compactTries,
     });
     const rt: SparkRuntime = {
       spark,

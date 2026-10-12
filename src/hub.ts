@@ -86,6 +86,7 @@ export class Hub {
       viewBytes: cfg.viewBytes,
       compressor: this.compressor,
       pumpBatch: cfg.compactBatch,
+      deferCutAfter: cfg.compactTries,
     });
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName));
     this.queue = new TurnQueue(cfg.dataDir);
@@ -444,15 +445,11 @@ export class Hub {
   private async turn(userText: string, retried = false): Promise<void> {
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
     void this.memory.pump();
-    const ready = await this.memory.settle(this.cfg.compactSettleMs ?? 8000);
-    if (!ready) {
-      const msg = this.memory.append({
-        kind: "note",
-        text: "memória ainda compactando · a view pode omitir as últimas linhas",
-        seat: seatFromId(this.harness.id),
-      });
-      this.emit({ type: "message", session: "main", message: msg });
-    }
+    const cap = Math.min(Math.max(this.cfg.compactSettleMs, 0), 500);
+    await this.memory.waitForInFlight({
+      timeoutMs: this.memory.hasInFlight() ? cap : 0,
+      signal: this.abort?.signal,
+    });
     const ctx = assemble(this.memory);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;

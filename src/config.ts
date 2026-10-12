@@ -89,7 +89,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),
     compactBudgetTokens: num("NCLI_COMPACT_BUDGET", 250000),
     compactMaxInputTokens: num("NCLI_COMPACT_MAX_INPUT", 60_000),
-    compactSettleMs: num("NCLI_COMPACT_SETTLE", 8000),
+    compactSettleMs: num("NCLI_COMPACT_SETTLE", 400),
     toolCap: num("NCLI_CAP", 8000),
     repo: process.env.NCLI_REPO ?? process.cwd(),
     ghMode: ghEnv,

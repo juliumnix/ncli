@@ -32,6 +32,8 @@ export interface NeedleReport {
   inView: boolean;
   hops: number | null;
   reachedLeaf: boolean;
+  answerInLeaf: boolean;
+  answerInView: boolean;
   levelHits: Record<string, boolean>;
 }
 
@@ -49,4 +51,20 @@ export interface EvalReport {
   invented: number;
   compactCalls: number;
   settled: boolean;
+}
+
+export interface MetricStats {
+  mean: number;
+  stddev: number;
+}
+
+export interface EvalAggregate {
+  seeds: number[];
+  n: number;
+  compressor: string;
+  viewPresence: MetricStats;
+  reachability: MetricStats;
+  invented: MetricStats;
+  compactCalls: MetricStats;
+  reports: EvalReport[];
 }
