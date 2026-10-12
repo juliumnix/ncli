@@ -182,3 +182,22 @@ test("cursor default projects root ignores jsonl outside agent-transcripts", () 
   writeFileSync(join(root, "workspace", "noise.jsonl"), `{"type":"user","text":"ruído"}\n`);
   expect(listSessionFiles(root, "cursor")).toEqual([]);
 });
+
+test("/help posts the command list and does not start a turn", async () => {
+  const { hub } = await makeHub();
+  try {
+    await hub.send("/help");
+    await hub.send("/?");
+    await hub.send("/ncli");
+    const notes = hub.memory.log.filter((m) => m.kind === "note").map((m) => m.text);
+    expect(notes).toHaveLength(3);
+    expect(notes[0]).toContain("/help");
+    expect(notes[0]).toContain("/ncli import");
+    expect(notes[1]).toBe(notes[0]);
+    expect(notes[2]).toBe(notes[0]);
+    expect(hub.snapshot().turning).toBe(false);
+    expect(hub.memory.log.some((m) => m.kind === "talk")).toBe(false);
+  } finally {
+    hub.close();
+  }
+});
