@@ -11,12 +11,16 @@ export type ShipPlan = {
 
 export type OpenPr = (opts: { cwd: string; title: string; head: string }) => Promise<{ url: string }>;
 
+export type FindPr = (opts: { cwd: string; head: string }) => Promise<{ url: string } | null>;
+
 export type ShipResult = {
   ok: boolean;
   plan: ShipPlan;
   url?: string;
   error?: string;
 };
+
+const inflight = new Map<string, Promise<ShipResult>>();
 
 export function planShip(status: WorktreeStatus, title: string): ShipPlan {
   const clean = title.trim() || "ncli";
@@ -30,6 +34,22 @@ export async function runShip(opts: {
   title: string;
   git: GitRunner;
   openPr: OpenPr;
+  findPr?: FindPr;
+}): Promise<ShipResult> {
+  const key = opts.handle.path;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const work = runShipOnce(opts).finally(() => inflight.delete(key));
+  inflight.set(key, work);
+  return work;
+}
+
+async function runShipOnce(opts: {
+  handle: WorktreeHandle;
+  title: string;
+  git: GitRunner;
+  openPr: OpenPr;
+  findPr?: FindPr;
 }): Promise<ShipResult> {
   const status = await inspectWorktree(opts.handle, opts.git);
   const plan = planShip(status, opts.title);
@@ -47,6 +67,8 @@ export async function runShip(opts: {
   const push = await opts.git(["push", "-u", "origin", head], cwd);
   if (push.code !== 0) return { ok: false, plan, error: push.stderr.trim() || "push" };
   try {
+    const existing = await opts.findPr?.({ cwd, head });
+    if (existing?.url) return { ok: true, plan: { ...plan, kind: "idle", label: "enviado" }, url: existing.url };
     const pr = await opts.openPr({ cwd, title: plan.title, head });
     return { ok: true, plan, url: pr.url };
   } catch (err) {

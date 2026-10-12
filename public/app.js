@@ -1684,6 +1684,8 @@ function drawModal() {
   bindShip(modal);
 }
 
+const shipping = new Set();
+
 function bindShip(root) {
   const ship = state.sparkDetail && state.sparkDetail.ship;
   const spark = state.sparkDetail && (state.sparkDetail.spark || state.sparkDetail.fork);
@@ -1694,15 +1696,36 @@ function bindShip(root) {
   btn.type = "button";
   btn.className = "ship-go";
   btn.textContent = ship.label;
-  btn.addEventListener("click", () => shipSpark(spark.id));
+  if (shipping.has(spark.id)) {
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+  }
+  btn.addEventListener("click", () => {
+    if (btn.disabled || shipping.has(spark.id)) return;
+    shipSpark(spark.id, btn);
+  });
   const close = mh.querySelector(".x");
   mh.insertBefore(btn, close);
 }
 
-async function shipSpark(id) {
-  const res = await fetch(`/api/sparks/${encodeURIComponent(id)}/ship`, { method: "POST" });
-  if (!res.ok) return;
-  await openSpark(id);
+async function shipSpark(id, btn) {
+  if (shipping.has(id)) return;
+  shipping.add(id);
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+  }
+  try {
+    const res = await fetch(`/api/sparks/${encodeURIComponent(id)}/ship`, { method: "POST" });
+    if (!res.ok) return;
+    await openSpark(id);
+  } finally {
+    shipping.delete(id);
+    if (btn) {
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+    }
+  }
 }
 
 function applyEvent(ev) {

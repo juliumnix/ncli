@@ -22,7 +22,7 @@ import { LiveTurn } from "./live/turn";
 import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
 import { SparkManager, mergeMessage } from "./sparks/manager";
-import { AutoGh, createPr, FixtureGh, RealGh, type GhClient } from "./gh/pr";
+import { AutoGh, createPr, FixtureGh, RealGh, viewPrForHead, type GhClient } from "./gh/pr";
 import { ghOpenTalk, isLonePrUrl, nowIso, parseViewLink } from "./util";
 import { seedDemo } from "./demo";
 import type { GitRunner } from "./sparks/worktree";
@@ -121,6 +121,7 @@ export class Hub {
       harness: this.harness,
       git,
       openPr: createPr,
+      findPr: viewPrForHead,
       bus: this.bus,
       inject: (session, worktree) => this.injectSpawn(session, this.harness.id, worktree),
       onEvent: (ev) => {
