@@ -226,6 +226,11 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
 }
 .welcome p { margin: 0; font-size: 16px; color: var(--fg); }
 .welcome .welcome-hint { color: var(--muted); font-size: 13px; }
+.welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.welcome-go {
+  appearance: none; border: 0; background: var(--accent); color: var(--on-accent);
+  border-radius: 999px; padding: 6px 12px; font: 12px/1.2 inherit; cursor: pointer;
+}
 .day { text-align: center; font-size: 11px; color: var(--fg-3); margin: 8px 0 0; }
 .m, .u, .note, .ret {
   content-visibility: auto;

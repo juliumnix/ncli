@@ -209,7 +209,7 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
-    this.offerClaudeImport();
+    this.offerFirstImport();
     void this.memory.pump();
     this.emitDebug();
     this.emitQueue();
@@ -401,11 +401,15 @@ export class Hub {
     return preview;
   }
 
-  private offerClaudeImport(): void {
+  private offerFirstImport(): void {
     if (this.memory.T !== 0) return;
-    const preview = this.importer.preview("claude");
-    if (preview.sessions === 0) return;
-    this.lastImport = preview;
+    let best: ImportPreview | null = null;
+    for (const source of ["claude", "codex", "cursor"] as const) {
+      const preview = this.importer.preview(source);
+      if (preview.sessions === 0) continue;
+      if (!best || preview.newCount > best.newCount) best = preview;
+    }
+    if (best) this.lastImport = best;
   }
 
   applyImport(source: ImportPreview["source"], since?: string): ReturnType<Importer["apply"]> {
