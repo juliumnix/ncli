@@ -62,7 +62,7 @@ export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: s
     session: "main",
     rows: contextRows(mem, userName),
     bytes: mem.viewBytesUsed(),
-    budget: mem.viewBytes,
+    budget: mem.viewHigh,
     pending: mem.pendingCount(),
     T: mem.T,
     compact,

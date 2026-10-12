@@ -34,7 +34,8 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
 
 test("parseNumbered and parseCursorPrint recover a cheap one-line batch", () => {
   expect(parseNumbered("1. first fact\n2. second fact", 2)).toEqual(["first fact", "second fact"]);
-  expect(parseNumbered("1. only", 2)).toEqual(["only"]);
+  expect(parseNumbered("1. only", 2)).toEqual(["only", ""]);
+  expect(parseNumbered("1. a\n3. c", 3)).toEqual(["a", "", "c"]);
   expect(parseCursorPrint(JSON.stringify({ result: "one line memory" }))).toBe("one line memory");
   expect(parseCursorPrint("plain line")).toBe("plain line");
 });
@@ -166,6 +167,20 @@ test("queueing a compact job does not block; the runner runs later", async () =>
 test("estimateTokens is cheap and positive", () => {
   expect(estimateTokens("abcd")).toBeGreaterThan(0);
   expect(estimateTokens("")).toBe(1);
+});
+
+test("a source under the skip token threshold never hits the runner", async () => {
+  const dir = tmpDir("cskip-tokens");
+  let calls = 0;
+  const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 80 }), async () => {
+    calls += 1;
+    return "1. should not run";
+  });
+  const source = "user decided a short fact about billing ".repeat(4);
+  expect(estimateTokens(source)).toBeLessThanOrEqual(80);
+  const line = await compact({ kind: "leaf", source, contextLines: [], nodeBytes: 140 });
+  expect(calls).toBe(0);
+  expect(line.length).toBeGreaterThan(0);
 });
 
 test("splitJobsByTokens keeps every cursor-agent prompt under the 100k surcharge line", async () => {

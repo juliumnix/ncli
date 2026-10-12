@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { greedyView, pairDue, pushStates, pushView, type CoverSpan } from "../src/memory/merge-order";
+import { incrementalView, pairDue, pushStates, pushView, type CoverSpan } from "../src/memory/merge-order";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { tmpDir } from "./helpers";
 
@@ -34,15 +34,19 @@ test("at T=10 last-due prefers 8-9 and first-due prefers 0-7", () => {
   expect(firstDue(10, 2, 0)).toBeGreaterThan(firstDue(10, 0, 8));
 });
 
-test("push matches last-due greedy for every T through 20000", () => {
+test("incremental last-due matches pushView; first-due matches 481 times through T=20000", () => {
+  const targetAt = (T: number) => pushView(T).length;
+  const last = incrementalView(20_000, pairDue, targetAt);
+  const first = incrementalView(20_000, firstDue, targetAt);
+  let lastHits = 0;
   let firstHits = 0;
-  for (let T = 0; T <= 20_000; T++) {
+  for (let T = 1; T <= 20_000; T++) {
     const push = pushView(T);
-    const last = greedyView(T, pairDue, push.length);
-    expect(last).toEqual(push);
-    if (same(push, greedyView(T, firstDue, push.length))) firstHits += 1;
+    if (same(last[T - 1] ?? [], push)) lastHits += 1;
+    if (same(first[T - 1] ?? [], push)) firstHits += 1;
   }
-  expect(firstHits).toBe(2901);
+  expect(lastHits).toBe(20_000);
+  expect(firstHits).toBe(481);
 });
 
 test("Memory.fit at T=10 merges 8-9, not 0-7", async () => {

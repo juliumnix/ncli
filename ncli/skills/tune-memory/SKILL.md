@@ -8,7 +8,7 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 ## Files
 
 - `src/config.ts` — `NCLI_VIEW`, `NCLI_NODE`, `NCLI_COMPACT_*`
-- `src/memory/store.ts` — tree + `pump()` + `settle()` before the user turn
+- `src/memory/store.ts` — tree + `pump()` + `waitForInFlight()` before the user turn
 - `src/memory/cursor-compact.ts` — batch, hash cache, skip, daily budget
 - `src/memory/sdk-compact.ts` — `@cursor/sdk` only (not `cursor-agent acp`)
 - `~/.config/ncli/secrets.env` — `NCLI_CURSOR_API_KEY` (chmod 600)
@@ -18,16 +18,16 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `NCLI_VIEW` | 2500 | cover budget in bytes |
+| `NCLI_VIEW` | 2500 | cover merge-back target in bytes. Drawer shows `2 ×` this |
 | `NCLI_NODE` | 280 | summary line target |
 | `NCLI_COMPACT` | auto | `cursor` / `claude` / `mock` |
 | `NCLI_COMPACT_BATCH` | 6 | nodes per Cursor SDK call |
-| `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens |
+| `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens and cut locally |
 | `NCLI_CURSOR_API_KEY` | file | compaction SDK only; `~/.config/ncli/secrets.env` |
 | `NCLI_COMPACT_BUDGET` | 250000 | daily compaction tokens |
-| `NCLI_COMPACT_SETTLE` | 8000 | milliseconds `Hub.turn` waits for the cover |
+| `NCLI_COMPACT_SETTLE` | 400 | max wait when a compact job is in flight. Capped at 500ms. Deferred nodes do not block |
 
-Restart after env changes. `Hub.turn` waits on `memory.settle()` so the view has no raw pending excerpt. Compaction still runs in `pump()`, not inside the model call.
+Restart after env changes. `Hub.turn` uses the cover that is ready now. It waits at most `NCLI_COMPACT_SETTLE` (capped at 500ms) only while a build is in flight. Compaction still runs in `pump()`, not inside the model call.
 
 ## Check
 

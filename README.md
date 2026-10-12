@@ -37,7 +37,7 @@ Optional env:
 | `NCLI_DATA` | `./data` | log + tree + sparks |
 | `NCLI_PORT` | `47231` | HTTP port |
 | `NCLI_REPO` | cwd | repo used for `git worktree add` |
-| `NCLI_VIEW` | `2500` | view budget in bytes (demo-low) |
+| `NCLI_VIEW` | `2500` | cover merge-back target in bytes. The drawer ceiling is `2 × NCLI_VIEW` |
 | `NCLI_NODE` | `280` | summary line target |
 | `NCLI_GH` | `auto` | `real` uses `gh`; `mock` uses `fixtures/gh` |
 | `NCLI_DEMO` | unset | `1` seeds the v4 demo on an empty log |
@@ -57,9 +57,9 @@ Optional env:
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `claude-haiku-5-5` | catalog id for `@cursor/sdk` compaction. No effort suffix. Low effort / no thinking come from `model.params` after `Cursor.models.list()` |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
-| `NCLI_COMPACT_SKIP` | `80` | leftover knob; NCLI no longer head-cuts a node to skip the SDK |
+| `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
-| `NCLI_COMPACT_SETTLE` | `8000` | milliseconds a turn waits for the view to finish compacting |
+| `NCLI_COMPACT_SETTLE` | `400` | max milliseconds a turn waits when a compact job is actually in flight. Deferred or cooled nodes do not block |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
@@ -145,7 +145,7 @@ bun test tests/hop.test.ts
 
 `demo:hop` uses the mock compressor. It does not call Claude or Cursor. To try the real Claude path, set `NCLI_HARNESS=claude` and send a question that needs an old fact. Claude Code gets `zoom` / `date` / `recall` / `ncli.render` / `ask` through `--mcp-config` pointing at the HTTP MCP already served by `bun start` on `/mcp`.
 
-The drawer (☰) shows the current view, byte budget, and level mix (`16× 8× …`).
+The drawer (☰) shows the current view, the sawtooth ceiling (`2 × NCLI_VIEW`), and the level mix (`16× 8× …`).
 
 ## Sparks
 

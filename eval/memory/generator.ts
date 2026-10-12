@@ -19,6 +19,8 @@ const FILLER = [
   "ajuste menor no README",
 ];
 
+const PAD = " padding about billing lint chores and the sprint status of this repo.".repeat(6);
+
 export function generateTranscript(seed: number, n: number): Transcript {
   const rand = mulberry32(seed);
   const lines: TranscriptLine[] = [];
@@ -34,68 +36,68 @@ export function generateTranscript(seed: number, n: number): Transcript {
 
   for (let i = 0; i < n; i++) {
     const kind = i % 3 === 0 ? "user" : "talk";
-    lines.push({ kind, text: `synthetic filler ${i} ${FILLER[i % FILLER.length]}` });
+    lines.push({ kind, text: `synthetic filler ${i} ${FILLER[i % FILLER.length]}${PAD}` });
   }
 
   lines[simpleAt] = {
     kind: "user",
-    text: "we decided FACT_ALPHA_ID_88421 lives at /tmp/ncli/alpha.json",
+    text: `we decided the alpha file lives at /tmp/ncli/alpha.json (id 88421).${PAD}`,
   };
   needles.push({
     id: "simple",
     type: "simple",
-    tokens: ["FACT_ALPHA_ID_88421", "/tmp/ncli/alpha.json"],
+    tokens: ["alpha file", "/tmp/ncli/alpha.json", "88421"],
     messageIndex: simpleAt,
-    question: "What is FACT_ALPHA_ID_88421 and where does it live?",
-    answer: "FACT_ALPHA_ID_88421 /tmp/ncli/alpha.json",
+    question: "Where does the alpha file live?",
+    answer: "/tmp/ncli/alpha.json",
   });
 
-  lines[oldAt] = { kind: "user", text: "the rate is RATE_WAS=10 for now" };
-  lines[newAt] = { kind: "user", text: "correction: the rate is RATE_NOW=7, ignore RATE_WAS=10" };
+  lines[oldAt] = { kind: "user", text: `the rate is ten for now.${PAD}` };
+  lines[newAt] = { kind: "user", text: `correction: the rate is now 7, ignore the earlier ten.${PAD}` };
   needles.push({
     id: "superseded",
     type: "superseded",
-    tokens: ["RATE_NOW=7"],
+    tokens: ["rate is now 7"],
     messageIndex: newAt,
     supersededBy: newAt,
     question: "What is the current rate?",
-    answer: "RATE_NOW=7",
+    answer: "rate is now 7",
   });
 
   lines[spaceAt] = {
     kind: "user",
-    text: "in the other workspace the secret is OTHER_SPACE_TOKEN",
+    text: `in the other workspace the secret is other-space-token.${PAD}`,
     space: "proj:other",
   };
   needles.push({
     id: "space",
     type: "space",
-    tokens: ["OTHER_SPACE_TOKEN"],
+    tokens: ["other-space-token"],
     messageIndex: spaceAt,
     space: "proj:other",
     question: "What is the other-workspace secret?",
-    answer: "OTHER_SPACE_TOKEN",
+    answer: "other-space-token",
   });
 
   needles.push({
     id: "echo",
     type: "echo",
-    tokens: ["ECHO_ONLY_TOKEN", "/var/ncli/echo.log"],
+    tokens: ["echo-only token", "/var/ncli/echo.log"],
     messageIndex: -1,
     inEcho: true,
     question: "What did the tool echo?",
-    answer: "ECHO_ONLY_TOKEN /var/ncli/echo.log",
+    answer: "echo-only token /var/ncli/echo.log",
   });
 
-  lines[siblingAt] = { kind: "user", text: "we hit BUG_SIBLING_OPEN in discount.ts:40" };
-  lines[siblingAt + 1] = { kind: "talk", text: "fixed it: BUG_SIBLING_FIXED by moving the tax check" };
+  lines[siblingAt] = { kind: "user", text: `we hit a sibling bug in discount.ts:40.${PAD}` };
+  lines[siblingAt + 1] = { kind: "talk", text: `fixed it: sibling bug closed by moving the tax check.${PAD}` };
   needles.push({
     id: "sibling",
     type: "sibling",
-    tokens: ["BUG_SIBLING_OPEN", "BUG_SIBLING_FIXED"],
+    tokens: ["sibling bug", "discount.ts:40"],
     messageIndex: siblingAt,
-    question: "What happened to BUG_SIBLING_OPEN?",
-    answer: "BUG_SIBLING_FIXED",
+    question: "What happened to the sibling bug?",
+    answer: "sibling bug closed",
   });
 
   return { seed, n, lines, needles };
