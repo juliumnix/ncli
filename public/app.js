@@ -828,7 +828,7 @@ function workedOf(turn) {
 function stepHtml(s) {
   if (s.kind === "thinking") return thinkBlock(s.seat, s.model, s.text, s.status === "running");
   if (s.kind === "text") {
-    return `<div class="m replay">${avatar(s.seat)}<div class="bb">
+    return `<div class="m stream">${avatar(s.seat)}<div class="bb">
       <div class="nm ${s.seat === "claude" ? "ncl" : s.seat === "codex" ? "ncx" : "ncu"}">${escapeHtml(agentLabel(s.seat, s.model))}</div>
       <div class="md">${bodyHtml(s.text, s.status === "running")}</div>
     </div></div>`;
@@ -1133,8 +1133,7 @@ function renderContext() {
     const k = Math.round((ctx.compact?.tokensToday || 0) / 100) / 10;
     const b = Math.round((ctx.compact?.budget || ctx.budget || 0) / 1000);
     const model = ctx.compact?.model || "haiku";
-    const space = ctx.space ? ` · ${ctx.space}` : "";
-    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}${space}`;
+    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}`;
   } else if (head && state.debug) {
     const d = state.debug;
     head.textContent = `${d.bytes}/${d.budget} bytes · ${d.T ?? "?"} msgs · ${(d.levels || []).join(" ")}`;
