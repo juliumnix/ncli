@@ -8,3 +8,4 @@ agent-tools
 uploads
 artifacts/*.png
 artifacts/perf/
+eval/memory/results/
