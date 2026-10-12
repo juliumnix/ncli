@@ -24,7 +24,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/views/registry.ts` | load `views/*.ts` (loose) and `views/<id>/` packages; watch = hot reload |
 | `src/views/types.ts` | `ViewPlugin` / `createSpark` / `applyAction` / `render` / `result` |
 | `src/views/manifest.ts` | `ViewManifest` schema, exclusive skills, `FlowStep`, `SparkResult` |
-| `src/views/pack.ts` | `ncli view add <path|git-url>` / `ncli view pack` |
+| `src/views/pack.ts` | `ncli view add <path|git-url>` / `view update` / `view pack` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
 | `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json` with `--model` only when `NCLI_CODEX_MODEL` is set). The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
@@ -57,7 +57,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **Import** — `/ncli import claude|codex|cursor` is preview by default. `--apply` or `POST /api/import` appends `user`/`talk` into the project space for that `cwd`, or inbox when `cwd` is missing, then `pump()`. An empty log with Claude sessions on disk fills `lastImport` at start so the composer bar can offer apply. Claude project-folder slugs are not paths. Dedupe is `data/import-seen.json`. Roots: official session dirs, or `NCLI_IMPORT_*`. Read-only on those trees.
 - **Review loop** — line comments batch through `POST /api/sparks/:id/act` → `ask`. Findings triage (aberto / resolvido / irrelevante) lives on the spark and as a `ncli ui` note. Re-review keeps the last `head`. A MERGED PR archives the worktree on open, act, or close — no poller.
 
-Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `remove`. Skills: `bun run ncli skills`.
+Shipped views: `review` and `refino` (packages), `team` (example company package), `live` (loose preview). Scaffold: `bun run ncli new view foo` / `view pack` / `view add` / `view update` / `remove`. Skills: `bun run ncli skills`. Private git installs use the caller's `git`/`gh` credentials and write `.ncli-source.json` (url, ref, pin).
 
 ## Spark packages
 
@@ -65,4 +65,4 @@ The main chat is the orchestrator. A `view://` line or a `github.com/.../pull/N`
 
 When the flow reaches `result`, `ViewPlugin.result` builds `{ summary, artifacts, decisions, links }`. That object is stored on the spark and appended to the main log as one merge line. The main agent can start several sparks and keep using memory, compaction, bus, and live cards.
 
-A package is shareable. `manifest.json` is schema-validated. Paths must be package-relative. `ncli view pack <id>` writes `<name>-<version>/` plus `PACK.json`. `ncli view add <path|git-url>` copies into `views/<name>/` and checks that a required harness exists on this host. Optional `mcp` is injected only on that spark's spawn. Authoring: `ncli/skills/add-view/SKILL.md`.
+A package is shareable. `manifest.json` is schema-validated. Paths must be package-relative. `ncli view pack <id>` writes `<name>-<version>/` plus `PACK.json`. `ncli view add <path|git-url>` copies into `views/<name>/` and checks that a required harness exists on this host. A git URL (including a private company repo) clones with the user `git`/`gh` login, pins the commit in `.ncli-source.json`, and updates with `ncli view update`. Optional `mcp` is injected only on that spark's spawn. Authoring: `ncli/skills/add-view/SKILL.md`.

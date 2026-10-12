@@ -1,9 +1,0 @@
-[
-  {
-    "number": 12,
-    "title": "discount",
-    "author": { "login": "ana" },
-    "url": "https://github.com/acme/app/pull/12",
-    "isDraft": false
-  }
-]

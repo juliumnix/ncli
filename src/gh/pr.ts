@@ -39,25 +39,12 @@ export function ghViewArgs(pr: string, spec?: GhPrSpec): string[] {
   return ["pr", "view", pr, "--json", PR_JSON_FIELDS, ...ghRepoFlags(spec)];
 }
 
-export type TeamPrRow = {
-  number: number;
-  title: string;
-  url?: string;
-  isDraft?: boolean;
-  author?: string | { login?: string; name?: string };
-};
-
 export interface GhClient {
   view(pr: string, spec?: GhPrSpec): Promise<PrInfo>;
-  list?(spec?: GhPrSpec): Promise<TeamPrRow[]>;
 }
 
 export class RealGh implements GhClient {
   constructor(private readonly cwd: string) {}
-  async list(spec?: GhPrSpec): Promise<TeamPrRow[]> {
-    const json = await gh(["pr", "list", "--limit", "30", "--json", "number,title,author,url,isDraft", ...ghRepoFlags(spec)], this.cwd);
-    return JSON.parse(json) as TeamPrRow[];
-  }
   async view(pr: string, spec?: GhPrSpec): Promise<PrInfo> {
     const json = await gh(ghViewArgs(pr, spec), this.cwd);
     const meta = JSON.parse(json) as {
@@ -99,11 +86,6 @@ export class RealGh implements GhClient {
 
 export class FixtureGh implements GhClient {
   constructor(private readonly dir: string) {}
-  async list(_spec?: GhPrSpec): Promise<TeamPrRow[]> {
-    const file = join(this.dir, "team-prs.json");
-    if (!existsSync(file)) return [];
-    return JSON.parse(readFileSync(file, "utf8")) as TeamPrRow[];
-  }
   async view(pr: string, _spec?: GhPrSpec): Promise<PrInfo> {
     const jsonPath = join(this.dir, `pr-${pr}.json`);
     const diffPath = join(this.dir, `pr-${pr}.diff`);
@@ -124,14 +106,6 @@ export class AutoGh implements GhClient {
       return await this.real.view(pr, spec);
     } catch {
       return this.fixtures.view(pr, spec);
-    }
-  }
-  async list(spec?: GhPrSpec): Promise<TeamPrRow[]> {
-    try {
-      if (!this.real.list) throw new Error("sem list");
-      return await this.real.list(spec);
-    } catch {
-      return this.fixtures.list?.(spec) ?? [];
     }
   }
 }

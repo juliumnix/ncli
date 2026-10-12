@@ -50,5 +50,4 @@ export interface ViewCreateCtx {
   dataDir: string;
   repo: string;
   fetchPr?: (pr: string, spec?: { owner?: string; repo?: string }) => Promise<unknown>;
-  listPrs?: (spec?: { owner?: string; repo?: string }) => Promise<unknown>;
 }

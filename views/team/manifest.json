@@ -1,7 +1,7 @@
 {
   "name": "team",
   "version": "1.0.0",
-  "description": "Open team PRs on this repo, including private ones.",
+  "description": "Example company view. Install real ones with ncli view add <private git url>.",
   "requires": {
     "harnesses": ["claude", "mock"]
   },
