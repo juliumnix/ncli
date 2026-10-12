@@ -32,13 +32,11 @@ test("zoom of a replaced message names the successor and keeps the original text
   );
   expect(mem.renderView()).toContain(`SUPERSEDED by #${neu.i} (user corrected the rate)`);
   const lines = mem.viewLines();
-  const bodyOnly = mem.view.reduce(
-    (s, p) => s + utf8Bytes(`${p.start}+${p.n}|${p.text}`),
-    0,
-  );
-  expect(mem.viewBytesUsed()).toBe(lines.reduce((s, line) => s + utf8Bytes(line), 0));
-  expect(mem.viewBytesUsed()).toBeGreaterThan(bodyOnly);
-  expect(lines.some((line) => line.startsWith("SUPERSEDED by"))).toBe(true);
+  const bodies = mem.view.reduce((s, p) => s + p.size, 0);
+  const header = `SUPERSEDED by #${neu.i} (user corrected the rate)`;
+  expect(lines.some((line) => line.startsWith(header))).toBe(true);
+  expect(mem.viewBytesUsed()).toBe(bodies + utf8Bytes(`${header}\n`));
+  expect(mem.viewBytesUsed()).toBeGreaterThan(bodies);
   expect(mem.log[old.i]?.text).toBe("member discount is 10 percent");
   expect(mem.log[old.i]?.supersedes).toBeUndefined();
 

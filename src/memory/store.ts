@@ -174,7 +174,10 @@ export class Memory {
 
   viewBytesUsed(): number {
     const facts = factsOf(this.log);
-    return this.view.reduce((s, p) => s + utf8Bytes(this.renderPart(p, facts)), 0);
+    return this.view.reduce((s, p) => {
+      const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
+      return s + p.size + (header ? utf8Bytes(`${header}\n`) : 0);
+    }, 0);
   }
 
   allBuilt(): boolean {
@@ -524,29 +527,22 @@ export class Memory {
     const n = 2 ** l;
     const node = this.nodeOf(l, i);
     const text = node?.text ?? PENDING_TEXT;
-    const p: ViewPart = {
+    return {
       l,
       i,
       start: i * n,
       n,
       text,
-      size: 0,
+      size: utf8Bytes(text),
       built: Boolean(node),
     };
-    p.size = utf8Bytes(this.renderPart(p, factsOf(this.log)));
-    return p;
   }
 
   private refreshViewParts(): void {
-    const facts = factsOf(this.log);
     this.view = this.view.map((p) => {
       const node = this.nodeOf(p.l, p.i);
-      const next = {
-        ...p,
-        text: node?.text ?? PENDING_TEXT,
-        built: Boolean(node),
-      };
-      return { ...next, size: utf8Bytes(this.renderPart(next, facts)) };
+      if (!node) return { ...p, text: PENDING_TEXT, size: utf8Bytes(PENDING_TEXT), built: false };
+      return { ...p, text: node.text, size: node.size, built: true };
     });
   }
 
