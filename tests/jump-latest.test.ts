@@ -107,27 +107,38 @@ test("chrome: composer ring is Tab-only, not mouse click", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver.session.evaluate(`Boolean(document.getElementById("form") && document.getElementById("input"))`),
+      () => driver.session.evaluate(`(() => {
+        const form = document.getElementById("form");
+        const input = document.getElementById("input");
+        if (!form || !input) return false;
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+        return form.classList.contains("from-key");
+      })()`),
       8000,
-      "composer",
+      "tab handler",
     );
-    const mouse = await driver.session.evaluate<{ fromKey: boolean; ring: boolean }>(`(() => {
+    const mouse = await driver.session.evaluate<{ fromKey: boolean; shadow: string }>(`(() => {
       const form = document.getElementById("form");
       const input = document.getElementById("input");
-      form.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       input.focus();
-      const shadow = getComputedStyle(form).boxShadow;
-      const accent = getComputedStyle(form).getPropertyValue("--accent").trim() ||
-        getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-      return { fromKey: form.classList.contains("from-key"), shadow, accent };
+      return { fromKey: form.classList.contains("from-key"), shadow: getComputedStyle(form).boxShadow };
     })()`);
     expect(mouse.fromKey).toBe(false);
     expect(mouse.shadow.includes("rgb(110, 164, 255)")).toBe(false);
+    await waitUntil(
+      () => driver.session.evaluate(`(() => {
+        const form = document.getElementById("form");
+        const input = document.getElementById("input");
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+        input.focus();
+        return form.classList.contains("from-key") && getComputedStyle(form).boxShadow.includes("rgb(110, 164, 255)");
+      })()`),
+      8000,
+      "composer ring",
+    );
     const keyed = await driver.session.evaluate<{ fromKey: boolean; shadow: string }>(`(() => {
       const form = document.getElementById("form");
-      const input = document.getElementById("input");
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-      input.focus();
       return { fromKey: form.classList.contains("from-key"), shadow: getComputedStyle(form).boxShadow };
     })()`);
     expect(keyed.fromKey).toBe(true);
