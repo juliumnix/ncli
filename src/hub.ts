@@ -6,7 +6,7 @@ import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Messag
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
-import { isSpaceId, spaceFor, SpaceRegistry } from "./memory/spaces";
+import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
 import { toolActivityLine } from "./memory/turn-log";
@@ -719,12 +719,14 @@ export class Hub {
   }
 
   private memoryForTool(from: string, space: unknown): Memory {
-    if (typeof space === "string" && space) {
-      const spark = space.startsWith("spark:") ? this.sparks.get(space.slice(6)) : undefined;
-      if (spark) return spark.memory;
-      return this.spaces.of(isSpaceId(space) ? space : spaceFor(space));
-    }
-    return this.sparks.get(from)?.memory ?? this.memory;
+    const sparkRt = this.sparks.get(from);
+    const own = sparkRt?.memory ?? this.memory;
+    if (typeof space !== "string" || !space) return own;
+    if (space === "global") return this.spaces.global();
+    if (space === "current" || space === "main" || space === this.spaces.currentId) return own;
+    const ownSpark = sparkRt ? `spark:${from}` : undefined;
+    if (ownSpark && (space === ownSpark || space === from)) return own;
+    return own;
   }
 
   close(): void {

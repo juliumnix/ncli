@@ -189,13 +189,8 @@ function sessionIdOf(file: string): string {
   return name.replace(/\.jsonl$/i, "");
 }
 
-function cwdOf(rec: Record<string, unknown>, file: string): string | undefined {
+function cwdOf(rec: Record<string, unknown>, _file: string): string | undefined {
   if (typeof rec.cwd === "string" && rec.cwd.trim()) return rec.cwd.trim();
-  const parts = file.split("/").filter(Boolean);
-  const i = parts.lastIndexOf("projects");
-  const slug = i >= 0 ? parts[i + 1] : undefined;
-  if (!slug || slug.includes(".")) return undefined;
-  if (slug.startsWith("-")) return `/${slug.slice(1).replace(/-/g, "/")}`;
   return undefined;
 }
 
