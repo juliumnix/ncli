@@ -222,6 +222,86 @@ test("chrome: a finished turn while scrolled up keeps the jump button", async ()
   }
 }, 30000);
 
+test("chrome: a second turn does not treat work-disc replay as the live stream", async () => {
+  if (!chromePath()) throw new Error("chrome not found");
+  const harness = new MockHarness(() => ({ text: LONG }));
+  const { hub } = await makeHub({ demo: true, harness });
+  for (let i = 0; i < 8; i++) {
+    hub.memory.append({ kind: "talk", text: LONG, seat: "claude" });
+  }
+  hub.cfg.port = 18200 + Math.floor(Math.random() * 400);
+  const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
+  const driver = await launchChrome(9400 + Math.floor(Math.random() * 400));
+  try {
+    await driver.session.attachPage("about:blank");
+    await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
+    await waitChatReady(driver);
+
+    const send1 = hub.send("primeiro turno longo");
+    const afterFirst = await driver.session.evaluate<{
+      workDisc: number;
+      replay: number;
+      streamInSteps: number;
+    }>(`(async () => {
+      const log = document.getElementById("log");
+      for (let i = 0; i < 160; i++) {
+        await new Promise((r) => setTimeout(r, 40));
+        if (!document.querySelector(".live.quiet") && log.querySelector(".work-disc")) break;
+      }
+      for (let i = 0; i < 20; i++) await new Promise((r) => requestAnimationFrame(() => r(true)));
+      return {
+        workDisc: log.querySelectorAll(".work-disc").length,
+        replay: log.querySelectorAll(".live-steps .m.replay").length,
+        streamInSteps: log.querySelectorAll(".live-steps .m.stream").length,
+      };
+    })()`);
+    await send1;
+    expect(afterFirst.workDisc).toBeGreaterThan(0);
+    expect(afterFirst.replay).toBeGreaterThan(0);
+    expect(afterFirst.streamInSteps).toBe(0);
+
+    await driver.session.evaluate(`(() => {
+      const chat = document.getElementById("chat");
+      chat.scrollTop = 0;
+      chat.dispatchEvent(new Event("scroll"));
+    })()`);
+
+    const send2 = hub.send("segundo turno longo");
+    const duringSecond = await driver.session.evaluate<{
+      pickedInSteps: boolean;
+      pickedIsLive: boolean;
+      streamInSteps: number;
+      jumpText: string;
+      jumpHidden: boolean;
+    }>(`(async () => {
+      const log = document.getElementById("log");
+      const jump = document.getElementById("jumpLatest");
+      for (let i = 0; i < 160; i++) {
+        if (document.querySelector(".live.quiet")) break;
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      for (let i = 0; i < 12; i++) await new Promise((r) => requestAnimationFrame(() => r(true)));
+      const picked = log.querySelector(".live.quiet, .m.stream");
+      return {
+        pickedInSteps: Boolean(picked && picked.closest(".live-steps")),
+        pickedIsLive: Boolean(picked && picked.classList.contains("live")),
+        streamInSteps: log.querySelectorAll(".live-steps .m.stream").length,
+        jumpText: jump ? jump.textContent : "",
+        jumpHidden: jump ? jump.hidden : true,
+      };
+    })()`);
+    await send2;
+    expect(duringSecond.pickedInSteps).toBe(false);
+    expect(duringSecond.pickedIsLive).toBe(true);
+    expect(duringSecond.streamInSteps).toBe(0);
+    expect(duringSecond.jumpHidden).toBe(false);
+    expect(duringSecond.jumpText).toBe("↓ resposta em curso");
+  } finally {
+    driver.close();
+    booted.stop();
+  }
+}, 40000);
+
 async function waitChatReady(driver: { session: { evaluate: (expr: string) => Promise<unknown> } }): Promise<void> {
   await driver.session.evaluate(`new Promise((resolve) => {
     const ready = () => {
