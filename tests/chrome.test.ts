@@ -59,6 +59,7 @@ test("userHelp lists /help and import and skips scaffold", () => {
   const text = userHelp();
   expect(text).toContain("/help");
   expect(text).toContain("/ncli import");
+  expect(text).toContain("pull request");
   expect(text).not.toContain("new view");
 });
 

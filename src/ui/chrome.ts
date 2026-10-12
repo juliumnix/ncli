@@ -41,6 +41,7 @@ export function userHelp(): string {
   return [
     "`/help` mostra esta lista",
     "`/?` faz o mesmo",
+    "Cola o URL de um pull request do GitHub pra abrir o review",
     "`/ncli import claude` traz o histórico desse CLI",
     "`/ncli import codex` traz o histórico desse CLI",
     "`/ncli import cursor` traz o histórico desse CLI",
