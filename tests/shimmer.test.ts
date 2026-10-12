@@ -12,6 +12,8 @@ test("shimmer label and shape follow the ncli kind", () => {
   expect(liveLabel("url")).toBe("carregando página…");
   expect(liveLabel("ui")).toBe("montando o card…");
   expect(liveShape("ui")).toBe("card");
+  expect(liveLabel("3d")).toBe("montando a cena…");
+  expect(liveShape("3d")).toBe("scene");
 });
 
 test("shimmer html is a placeholder, not a live iframe", () => {

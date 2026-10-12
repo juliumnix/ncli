@@ -1,4 +1,4 @@
-export const LIVE_KINDS = ["mermaid", "html", "react", "url", "ui"] as const;
+export const LIVE_KINDS = ["mermaid", "html", "react", "url", "ui", "3d"] as const;
 export type LiveKind = (typeof LIVE_KINDS)[number];
 
 export function isLiveKind(v: string): v is LiveKind {
@@ -12,7 +12,7 @@ export interface LiveBlock {
 
 export type LiveSeg = { type: "text"; text: string } | { type: "live"; block: LiveBlock };
 
-const FENCE = /```ncli[ \t]+(mermaid|html|react|url|ui)[ \t]*\n([\s\S]*?)```/g;
+const FENCE = /```ncli[ \t]+(mermaid|html|react|url|ui|3d)[ \t]*\n([\s\S]*?)```/g;
 
 export function parseLive(text: string): LiveSeg[] {
   const segs: LiveSeg[] = [];

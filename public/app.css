@@ -1233,6 +1233,13 @@ code, .md pre, .tool, .diff, .rv-diff, .rv-raw, #debugView { font-family: var(--
 .ctx-who.agent b { color: var(--fg); }
 body.drawer-open .dock { left: calc(420px + (100vw - 420px) / 2); width: min(720px, calc(100vw - 420px - 48px)); }
 .live-ph, .ui-card, .live-frame { border-color: var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.live-frame.live-3d {
+  height: 420px;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  margin: 12px 0;
+}
 .composer input:focus-visible, .mi input:focus-visible, .minput input:focus-visible { box-shadow: none; }
 .composer.from-key:focus-within { border-color: var(--accent); box-shadow: var(--shadow-float), var(--focus-ring); }
 
