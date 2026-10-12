@@ -25,17 +25,28 @@ export interface PrInfo {
   diff: string;
 }
 
+export type GhPrSpec = { owner?: string; repo?: string };
+
+const PR_JSON_FIELDS =
+  "number,title,body,url,baseRefName,headRefName,headRefOid,state,additions,deletions,files,author";
+
+export function ghRepoFlags(spec?: GhPrSpec): string[] {
+  if (!spec?.owner || !spec?.repo) return [];
+  return ["--repo", `${spec.owner}/${spec.repo}`];
+}
+
+export function ghViewArgs(pr: string, spec?: GhPrSpec): string[] {
+  return ["pr", "view", pr, "--json", PR_JSON_FIELDS, ...ghRepoFlags(spec)];
+}
+
 export interface GhClient {
-  view(pr: string): Promise<PrInfo>;
+  view(pr: string, spec?: GhPrSpec): Promise<PrInfo>;
 }
 
 export class RealGh implements GhClient {
   constructor(private readonly cwd: string) {}
-  async view(pr: string): Promise<PrInfo> {
-    const json = await gh([
-      "pr", "view", pr, "--json",
-      "number,title,body,url,baseRefName,headRefName,headRefOid,state,additions,deletions,files,author",
-    ], this.cwd);
+  async view(pr: string, spec?: GhPrSpec): Promise<PrInfo> {
+    const json = await gh(ghViewArgs(pr, spec), this.cwd);
     const meta = JSON.parse(json) as {
       number: number;
       title: string;
@@ -50,7 +61,7 @@ export class RealGh implements GhClient {
       author?: string | { login?: string; name?: string };
       files?: Array<{ path: string; additions: number; deletions: number }>;
     };
-    const diff = await gh(["pr", "diff", pr], this.cwd);
+    const diff = await gh(["pr", "diff", pr, ...ghRepoFlags(spec)], this.cwd);
     return {
       number: meta.number,
       title: meta.title,
@@ -75,7 +86,7 @@ export class RealGh implements GhClient {
 
 export class FixtureGh implements GhClient {
   constructor(private readonly dir: string) {}
-  async view(pr: string): Promise<PrInfo> {
+  async view(pr: string, _spec?: GhPrSpec): Promise<PrInfo> {
     const jsonPath = join(this.dir, `pr-${pr}.json`);
     const diffPath = join(this.dir, `pr-${pr}.diff`);
     if (!existsSync(jsonPath)) throw new Error(`sem fixture gh pra PR ${pr}`);
@@ -90,11 +101,11 @@ export class AutoGh implements GhClient {
     private readonly real: GhClient,
     private readonly fixtures: GhClient,
   ) {}
-  async view(pr: string): Promise<PrInfo> {
+  async view(pr: string, spec?: GhPrSpec): Promise<PrInfo> {
     try {
-      return await this.real.view(pr);
+      return await this.real.view(pr, spec);
     } catch {
-      return this.fixtures.view(pr);
+      return this.fixtures.view(pr, spec);
     }
   }
 }
