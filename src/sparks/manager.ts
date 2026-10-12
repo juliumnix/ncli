@@ -296,7 +296,7 @@ export class SparkManager {
       const tools: string[] = [];
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       for await (const ev of this.hooks.harness.run({
-        prompt: `${inbox}${ctx.view}\n\n${userText}`,
+        prompt: `${ctx.view}\n\n${inbox}${userText}`,
         system: ctx.system,
         cwd: rt.worktree?.path ?? this.cfg.repo,
         session: rt.spark.id,

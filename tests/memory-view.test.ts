@@ -4,7 +4,7 @@ import { Memory } from "../src/memory/store";
 import { toolActivityLine } from "../src/memory/turn-log";
 import { makeHub, tmpDir } from "./helpers";
 
-test("a pending view line shows truncated raw text once, not a duplicated id+n prefix", () => {
+test("a pending view line is the recipe placeholder, never a raw excerpt", () => {
   const mem = new Memory({
     dir: tmpDir("view-pending"),
     nodeBytes: 40,
@@ -12,15 +12,9 @@ test("a pending view line shows truncated raw text once, not a duplicated id+n p
     compressor: async () => new Promise(() => undefined),
   });
   mem.append({ kind: "talk", text: "MCP ncli sem conexão, ask/wait indisponíveis" });
-  const line = mem.viewLines()[0] ?? "";
-  expect(line).toBe("0+1|talk: MCP ncli sem conexão, ask/wait indisponíveis");
-  expect(line).not.toContain("0+1|0+1|");
-  expect(line).not.toContain("not summarized yet");
+  expect(mem.viewLines()[0]).toBe("0+1|(not summarized yet: zoom it)");
   mem.append({ kind: "talk", text: `tail ${"x".repeat(400)}` });
-  const long = mem.viewLines()[1] ?? "";
-  expect(long.startsWith("1+1|talk: tail ")).toBe(true);
-  expect(long).not.toContain("not summarized yet");
-  expect(long.length).toBeLessThan(260);
+  expect(mem.viewLines()[1]).toBe("1+1|(not summarized yet: zoom it)");
 });
 
 test("pump starts a batch of pending leaves together", async () => {
@@ -82,7 +76,7 @@ test("memory refuses live timeline steps", () => {
   expect(mem.T).toBe(0);
 });
 
-test("a later status line keeps its own date and the prompt says live tools beat memory", () => {
+test("a later status line keeps its own date and the prompt says live tools beat memory", async () => {
   const mem = new Memory({
     dir: tmpDir("view-stale"),
     nodeBytes: 200,
@@ -93,6 +87,7 @@ test("a later status line keeps its own date and the prompt says live tools beat
   mem.append({ kind: "talk", text: "MCP ncli de volta, ask/wait ok", date: "2026-10-09T18:00:00.000Z" });
   expect(mem.dateOf(0)).toBe("2026-10-08T12:00:00.000Z");
   expect(mem.dateOf(1)).toBe("2026-10-09T18:00:00.000Z");
+  await mem.settle();
   const ctx = assemble(mem);
   expect(ctx.system).toContain("Live state beats memory");
   expect(ctx.system).toContain("date(id)");
