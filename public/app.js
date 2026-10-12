@@ -502,6 +502,15 @@ function avatar(seat) {
 }
 
 function renderChat() {
+  if (chromeNow().showWelcome) {
+    if (!log.querySelector(".welcome")) {
+      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta ou /help</p></div>`;
+    }
+    measureComposer();
+    paintScrollHints();
+    renderChrome();
+    return;
+  }
   const parts = [];
   const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
   const showDays = days.size > 1;
@@ -787,29 +796,61 @@ function compactLabel(compact) {
     : `compact ${k}k/${b}k`;
 }
 
+function sessionChrome(input) {
+  const extraSeat = input.mainHarness !== "claude" && input.mainHarness !== "mock";
+  const sparked = input.sparkCount > 0;
+  return {
+    showSwitcher: input.limited || sparked || extraSeat,
+    showCompact: input.compactRunning || input.compactTokens > 0,
+    showSparks: sparked,
+    showViews: sparked,
+    showWelcome: input.messageCount === 0,
+  };
+}
+
+function chromeNow() {
+  const seats = (state.usage && state.usage.seats) || [];
+  return sessionChrome({
+    messageCount: state.messages.length,
+    sparkCount: state.sparks.length,
+    compactTokens: state.compact ? state.compact.tokensToday || 0 : 0,
+    compactRunning: Boolean(state.compact && state.compact.running),
+    limited: seats.some((s) => s.status === "limited"),
+    mainHarness: (state.main && state.main.harness) || "claude",
+  });
+}
+
 function renderChrome() {
+  const chrome = chromeNow();
   const sw = $("agentSwitch");
   if (sw) {
     const main = state.main || { harness: "claude" };
     const seat = main.harness === "mock" ? "claude" : main.harness;
-    const opts = [
-      ["claude", "Claude"],
-      ["codex", "Codex"],
-      ["cursor", "Cursor"],
-    ].map(([value, label]) => (
-      `<button type="button" class="switch-opt${main.harness === value ? " on" : ""}" data-harness="${value}">${escapeHtml(label)}</button>`
-    )).join("");
-    sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
-      ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
-    </button>
-    <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
+    if (!chrome.showSwitcher) {
+      state.switchOpen = false;
+      sw.innerHTML = `<div class="seat-label">${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span></div>`;
+    } else {
+      const opts = [
+        ["claude", "Claude"],
+        ["codex", "Codex"],
+        ["cursor", "Cursor"],
+      ].map(([value, label]) => (
+        `<button type="button" class="switch-opt${main.harness === value ? " on" : ""}" data-harness="${value}">${escapeHtml(label)}</button>`
+      )).join("");
+      sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
+        ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
+      </button>
+      <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
+    }
   }
   const c = $("compactInd");
   if (c) {
-    const text = compactLabel(state.compact);
+    const text = chrome.showCompact ? compactLabel(state.compact) : "";
     c.hidden = !text;
     c.textContent = text;
   }
+  const views = $("viewBlock");
+  if (views) views.hidden = !chrome.showViews;
   const limit = $("limitInd");
   if (limit) {
     const hit = (state.usage && state.usage.seats || []).find((s) => s.status === "limited");
@@ -833,7 +874,7 @@ function renderChrome() {
   if (input) {
     input.placeholder = state.turn && state.turn.status === "running"
       ? "Ajustar o turno… Enter entra · fila ao lado"
-      : "Escreve…";
+      : "Pergunta ou /help";
   }
 }
 
@@ -965,6 +1006,10 @@ function openNextNeedsYou() {
 }
 
 function renderShortcuts() {
+  if (!chromeNow().showSparks) {
+    shortcuts.innerHTML = "";
+    return;
+  }
   const rows = inboxRowsOf(state.sparks);
   const nextIds = new Set(rows.map((r) => r.spark.id));
   const leaving = [...shortcuts.querySelectorAll("[data-spark]")].filter((el) => !nextIds.has(el.dataset.spark));
@@ -1735,7 +1780,7 @@ async function sendUser(text, mode) {
   const t = String(text || "").trim();
   if (!t) return;
   const running = state.turn && state.turn.status === "running";
-  const slash = t.startsWith("/ncli");
+  const slash = t === "/help" || t === "/?" || t.startsWith("/ncli");
   const body = { text: t };
   if (running) body.mode = mode || "steer";
   if (!running && !slash) {
