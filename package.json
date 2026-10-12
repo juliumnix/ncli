@@ -19,6 +19,7 @@
     "sync-pstack": "bun run scripts/sync-pstack.ts",
     "sync-emil": "bun run scripts/sync-emil.ts",
     "perf": "bun run scripts/perf.ts",
+    "onboard:perf": "bun run scripts/onboard-perf.ts",
     "memory:eval": "bun run scripts/memory-eval.ts"
   },
   "type": "module",
