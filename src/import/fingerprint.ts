@@ -15,9 +15,10 @@ export function lineOf(
   kind: ImportLine["kind"],
   text: string,
   seat?: ImportLine["seat"],
+  cwd?: string,
 ): ImportLine | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
-  const base = { source, session, at, kind, text: trimmed, seat };
+  const base = { source, session, at, kind, text: trimmed, seat, cwd };
   return { ...base, fingerprint: fingerprintOf(base) };
 }
