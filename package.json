@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "NCLI — personal local hub that drives coding-agent CLIs",
   "private": true,
+  "bin": {
+    "ncli": "src/index.ts"
+  },
   "scripts": {
     "dev": "NCLI_HARNESS=mock NCLI_DEMO=1 bun run src/index.ts",
     "start": "bun run src/index.ts",
