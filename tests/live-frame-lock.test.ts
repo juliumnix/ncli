@@ -17,7 +17,8 @@ test("html ui and 3d lock navigation and RTC before agent code", () => {
   expect(LIVE_DOC_CSP).toContain("navigate-to 'none'");
   expect(appJs).toContain("function compartmentHtml");
   expect(appJs).toContain("NCLI_LIVE_ORIGIN");
-  expect(appJs).toContain("function sanitizeLiveSource");
+  expect(appJs).toContain("function sanitizeLiveMarkup");
+  expect(appJs).toContain("data-live-kind");
   expect(appJs).toContain("function bindLiveUrlAsks");
   expect(appJs).toContain("form-action 'none'");
   expect(appJs).toContain("navigate-to 'none'");

@@ -266,7 +266,7 @@ function httpHref(raw) {
   return /^https?:\/\/[^\s]+$/i.test(text) ? text : "";
 }
 
-function sanitizeLiveSource(source) {
+function sanitizeLiveMarkup(source) {
   return String(source || "")
     .replace(/<meta\b[^>]*>/gi, (tag) => (/refresh|url\s*=/i.test(tag) ? "" : tag))
     .replace(/<base\b[^>]*>/gi, "")
@@ -283,7 +283,7 @@ function wrapLiveScript(source) {
 }
 
 function compartmentHtml(body, extraHead) {
-  const clean = sanitizeLiveSource(body);
+  const clean = sanitizeLiveMarkup(body);
   const scripts = [];
   const markup = clean.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_m, src) => {
     if (String(src).trim()) scripts.push(src);
@@ -361,14 +361,14 @@ function wrapUiSource(source) {
 
 const liveFrameHome = new WeakMap();
 
-function isLiveUrlFrame(iframe) {
-  return (iframe.getAttribute("title") || "") === "live url";
+function isConfirmedUrlFrame(iframe) {
+  return iframe.getAttribute("data-live-kind") === "url";
 }
 
 function liveFrameFromEvent(ev) {
   const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
   for (const iframe of document.querySelectorAll("iframe.live-frame")) {
-    if (isLiveUrlFrame(iframe)) continue;
+    if (isConfirmedUrlFrame(iframe)) continue;
     const home = liveFrameHome.get(iframe);
     if (name && iframe.name === name) return iframe;
     if (ev.source && iframe.contentWindow === ev.source) return iframe;
@@ -378,7 +378,7 @@ function liveFrameFromEvent(ev) {
 }
 
 function adoptLiveFrame(iframe, win) {
-  if (isLiveUrlFrame(iframe)) return null;
+  if (isConfirmedUrlFrame(iframe)) return null;
   let home = liveFrameHome.get(iframe);
   if (!home) {
     home = {
@@ -402,14 +402,18 @@ function killLiveFrame(iframe) {
   iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body></body></html>';
 }
 
+function killAllLiveFrames() {
+  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
+    if (!isConfirmedUrlFrame(iframe)) killLiveFrame(iframe);
+  }
+}
+
 function killLiveFrames(frame) {
   if (frame) {
     killLiveFrame(frame);
     return;
   }
-  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
-    if (!isLiveUrlFrame(iframe)) killLiveFrame(iframe);
-  }
+  killAllLiveFrames();
 }
 
 function liveFrameAway(iframe) {
@@ -426,7 +430,7 @@ function liveFrameAway(iframe) {
 }
 
 function guardLiveFrame(iframe) {
-  if (isLiveUrlFrame(iframe)) return;
+  if (isConfirmedUrlFrame(iframe)) return;
   const home = adoptLiveFrame(iframe, iframe.contentWindow);
   if (!home || home.guarded) return;
   home.guarded = true;
@@ -454,7 +458,7 @@ function bindLiveUrlAsks(root) {
       const wrap = btn.closest(".live-url-ask");
       if (!href || !wrap) return;
       wrap.classList.remove("live-url-ask");
-      wrap.innerHTML = `<iframe class="live-frame" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
+      wrap.innerHTML = `<iframe class="live-frame" data-live-kind="url" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
     });
   }
 }
