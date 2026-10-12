@@ -16,6 +16,7 @@ let chatPrimed = false;
 let scrollRaf = 0;
 let overlayGen = 0;
 let drawerGen = 0;
+let pendingReviewOpen = null;
 let programmaticScroll = false;
 let lastScrollTop = 0;
 let userUp = false;
@@ -739,6 +740,35 @@ function measureComposer() {
   const bottom = Number.parseFloat(getComputedStyle(el).bottom) || 28;
   const space = Math.max(box.height + bottom + 16, 96);
   document.documentElement.style.setProperty("--composer-space", `${space}px`);
+}
+
+function reviewPasteHint(text) {
+  const t = String(text || "").trim();
+  const m = t.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i);
+  return m ? { pr: m[1] } : null;
+}
+
+function renderPasteHint() {
+  const bar = $("phint");
+  if (!bar) return;
+  const hint = reviewPasteHint(input && input.value);
+  if (!hint) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    measureComposer();
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = `<div class="qitem" data-pr-hint="${escapeHtml(hint.pr)}"><span>review</span><b>Enter abre o spark #${escapeHtml(hint.pr)}</b></div>`;
+  measureComposer();
+}
+
+function openPendingReview(spark) {
+  if (!pendingReviewOpen || !spark || spark.view !== "review") return false;
+  if (String(spark.params && spark.params.pr) !== String(pendingReviewOpen)) return false;
+  pendingReviewOpen = null;
+  void openSpark(spark.id);
+  return true;
 }
 
 function busWho(m) {
@@ -1648,6 +1678,7 @@ function applyEvent(ev) {
       if (i >= 0) state.sparks[i] = spark;
       else state.sparks.push(spark);
       maybeNotifySpark(prev, spark);
+      openPendingReview(spark);
       renderShortcuts();
       if (state.turn && state.turn.status === "running") scheduleFullPaint();
       else renderChat();
@@ -1895,9 +1926,10 @@ async function sendUser(text, mode) {
   if (!t) return;
   const running = state.turn && state.turn.status === "running";
   const slash = t === "/help" || t === "/?" || t.startsWith("/ncli");
+  const pasteReview = reviewPasteHint(t);
   const body = { text: t };
   if (running) body.mode = mode || "steer";
-  if (!running && !slash) {
+  if (!running && !slash && !pasteReview) {
     const pending = {
       kind: "user",
       text: t,
@@ -1928,20 +1960,33 @@ async function sendUser(text, mode) {
     state.queue = data.queue;
     renderQueue();
   }
+  if (pendingReviewOpen) {
+    const spark = state.sparks.find((s) => s.view === "review" && String(s.params && s.params.pr) === String(pendingReviewOpen));
+    if (spark) openPendingReview(spark);
+  }
 }
 
 $("form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
+  const hint = reviewPasteHint(text);
   input.value = "";
+  renderPasteHint();
+  if (hint) pendingReviewOpen = hint.pr;
   void sendUser(text, e.shiftKey ? "queue" : undefined);
 });
+
+input?.addEventListener("input", renderPasteHint);
+input?.addEventListener("paste", () => requestAnimationFrame(renderPasteHint));
 
 $("queueBtn")?.addEventListener("click", () => {
   const text = input.value.trim();
   if (!text) return;
+  const hint = reviewPasteHint(text);
   input.value = "";
+  renderPasteHint();
+  if (hint) pendingReviewOpen = hint.pr;
   void sendUser(text, "queue");
 });
 

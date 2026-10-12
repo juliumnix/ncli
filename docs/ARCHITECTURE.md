@@ -8,7 +8,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | --- | --- |
 | `src/index.ts` | bunx/`bin.ncli` entry: `bootNcli()` then print the startup summary |
 | `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize |
-| `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` open, pick harness/compressor |
+| `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` and GitHub PR URL open, pick harness/compressor |
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
 | `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
 | `src/memory/store.ts` | log + OptChat tree; `pump()` builds nodes in the background; `settle()` waits for the visible cover only |
@@ -61,7 +61,7 @@ Shipped views: `review` and `refino` (packages), `live` (loose preview). Scaffol
 
 ## Spark packages
 
-The main chat is the orchestrator. A `view://` line starts a spark — a running instance of a view. Each package declares its own agents, a deterministic flow (`spark` → … → `result`), exclusive skills, and a visualization. The hub gives the spark its own memory directory, optional worktree, skill `--add-dir`, and AGENTS.md. Main-session skills (`ncli-bus`, `add-view`, pstack) stay off that spawn.
+The main chat is the orchestrator. A `view://` line or a `github.com/.../pull/N` URL starts a spark — a running instance of a view. Each package declares its own agents, a deterministic flow (`spark` → … → `result`), exclusive skills, and a visualization. The hub gives the spark its own memory directory, optional worktree, skill `--add-dir`, and AGENTS.md. Main-session skills (`ncli-bus`, `add-view`, pstack) stay off that spawn.
 
 When the flow reaches `result`, `ViewPlugin.result` builds `{ summary, artifacts, decisions, links }`. That object is stored on the spark and appended to the main log as one merge line. The main agent can start several sparks and keep using memory, compaction, bus, and live cards.
 

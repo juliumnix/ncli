@@ -46,19 +46,38 @@ export function assertNever(x: never, msg = "unexpected"): never {
   throw new Error(`${msg}: ${String(x)}`);
 }
 
+const VIEW_LINK_RE = /view:\/\/([a-z0-9_-]+)(?:\?([^\s)<"'，,]+))?/gi;
+const GH_PR_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/gi;
+const LONE_GH_PR_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)(?:\/[^\s?#]*)?(?:[?#]\S*)?$/i;
+
 export function parseViewLink(text: string): { id: string; params: Record<string, string> }[] {
   const out: { id: string; params: Record<string, string> }[] = [];
-  const re = /view:\/\/([a-z0-9_-]+)(?:\?([^\s)<"'，,]+))?/gi;
-  for (const m of text.matchAll(re)) {
+  const seen = new Set<string>();
+  const push = (id: string, params: Record<string, string>) => {
+    const key = `${id}?${new URLSearchParams(params).toString()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ id, params });
+  };
+  for (const m of text.matchAll(VIEW_LINK_RE)) {
     const id = m[1].toLowerCase();
     const params: Record<string, string> = {};
     if (m[2]) {
       const qs = new URLSearchParams(m[2]);
       for (const [k, v] of qs) params[k] = v;
     }
-    out.push({ id, params });
+    push(id, params);
+  }
+  for (const m of text.matchAll(GH_PR_RE)) {
+    push("review", { pr: m[1] });
   }
   return out;
+}
+
+export function reviewPasteHint(text: string): { pr: string } | null {
+  const t = text.trim();
+  const m = t.match(LONE_GH_PR_RE);
+  return m ? { pr: m[1] } : null;
 }
 
 export function escapeHtml(s: string): string {

@@ -16,7 +16,9 @@ The process prints the UI URL, the main agent and model, the MCP URL, detected C
 
 From a clone, `bun install` then `bun start` is the same process. `bun run ncli` stays the view scaffold.
 
-Open the UI URL (default http://127.0.0.1:47231). For a mock harness and a short demo conversation, without Claude Code:
+Open the UI URL (default http://127.0.0.1:47231). Paste a GitHub pull request URL into the composer to open a review spark.
+
+For a mock harness and a short demo conversation, without Claude Code:
 
 ```bash
 NCLI_HARNESS=mock NCLI_DEMO=1 bun start
