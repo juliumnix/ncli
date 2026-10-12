@@ -14,6 +14,8 @@ export interface SpaceRegistryOptions {
   compressor: Compressor;
   cwd: string;
   pumpBatch?: number;
+  deferCutAfter?: number;
+  compressTimeoutMs?: number;
 }
 
 export function spaceFor(cwd: string): SpaceId {
@@ -76,6 +78,8 @@ export class SpaceRegistry {
       viewBytes: this.opts.viewBytes,
       compressor: this.opts.compressor,
       pumpBatch: this.opts.pumpBatch,
+      deferCutAfter: this.opts.deferCutAfter,
+      compressTimeoutMs: this.opts.compressTimeoutMs,
     });
   }
 }

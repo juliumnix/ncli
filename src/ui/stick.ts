@@ -2,6 +2,18 @@ export interface Stick {
   follow: boolean;
 }
 
+export type ScrollOrigin = "programmatic" | "user";
+
+export interface ChatScroll {
+  follow: boolean;
+  origin: ScrollOrigin;
+  userUp: boolean;
+  prevTop: number;
+  nextTop: number;
+  leftover: number;
+  slop?: number;
+}
+
 export const STICK_SLOP = 64;
 
 export function nearBottom(
@@ -13,12 +25,41 @@ export function nearBottom(
   return scrollHeight - scrollTop - clientHeight <= slop;
 }
 
-export function applyUserScroll(stick: Stick, near: boolean): Stick {
-  return { follow: near };
+export function onChatScroll(s: ChatScroll): Stick {
+  switch (s.origin) {
+    case "programmatic":
+      return { follow: s.follow };
+    case "user":
+      if (s.userUp || s.nextTop < s.prevTop) return { follow: false };
+      if (s.leftover <= (s.slop ?? STICK_SLOP)) return { follow: true };
+      return { follow: s.follow };
+    default: {
+      const _n: never = s.origin;
+      return { follow: _n };
+    }
+  }
 }
 
 export function shouldPin(stick: Stick): boolean {
   return stick.follow;
+}
+
+export function shouldMarkUserUp(scrollTop: number): boolean {
+  return scrollTop > 0;
+}
+
+export function startFollow(): { follow: true; userUp: false } {
+  return { follow: true, userUp: false };
+}
+
+export function followFrame(cur: number, target: number, k = 0.22): { next: number; done: boolean } {
+  const next = cur + (target - cur) * k;
+  if (Math.abs(target - next) < 0.6) return { next: target, done: true };
+  return { next, done: false };
+}
+
+export function floorTop(scrollHeight: number, clientHeight: number): number {
+  return Math.max(0, scrollHeight - clientHeight);
 }
 
 export function composerClearance(composerHeight: number, bottomOffset = 28, gap = 16): number {

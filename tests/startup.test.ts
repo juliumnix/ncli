@@ -64,6 +64,8 @@ test("loadConfig keeps Haiku 5.5 as the cheap compact default and a 60k input ca
   const cfg = loadConfig({ dataDir: tmpDir("cfg") });
   expect(cfg.compactModel).toBe("claude-haiku-5-5");
   expect(cfg.compactMaxInputTokens).toBe(60_000);
+  expect(cfg.compactSettleMs).toBe(0);
+  expect(cfg.compactTimeoutMs).toBe(30_000);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
 });

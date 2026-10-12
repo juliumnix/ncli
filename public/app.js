@@ -10,11 +10,16 @@ const viewList = $("viewList");
 
 const stick = { follow: true };
 const STICK_SLOP = 64;
+const UI_T = { bg: "#0f0f11", card: "#151518", line: "#2b2b31", fg: "#eeeef0", muted: "#a8a8b3", accent: "#6ea4ff" };
 const seenMsgs = new Set();
 let chatPrimed = false;
 let scrollRaf = 0;
 let overlayGen = 0;
 let drawerGen = 0;
+let programmaticScroll = false;
+let lastScrollTop = 0;
+let userUp = false;
+let touchY = 0;
 
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -38,10 +43,65 @@ function waitMotion(el) {
   });
 }
 
+function setChatTop(top) {
+  if (!chat) return;
+  programmaticScroll = true;
+  chat.scrollTop = top;
+  programmaticScroll = false;
+  lastScrollTop = chat.scrollTop;
+}
+
+function snapToFloor() {
+  if (!chat) return;
+  if (scrollRaf) {
+    cancelAnimationFrame(scrollRaf);
+    scrollRaf = 0;
+  }
+  userUp = false;
+  stick.follow = true;
+  setChatTop(Math.max(0, chat.scrollHeight - chat.clientHeight));
+}
+
+function bindChatFloor() {
+  if (!chat || !log || typeof ResizeObserver === "undefined") return;
+  const ro = new ResizeObserver(() => {
+    if (stick.follow) snapToFloor();
+    paintScrollHints();
+  });
+  ro.observe(log);
+  ro.observe(chat);
+}
+
+function markUserUp() {
+  if (chat && chat.scrollTop > 0) userUp = true;
+}
+
+function dropStreamNode() {
+  if (!log) return;
+  for (const n of [...log.querySelectorAll(".m.stream")]) n.remove();
+}
+
+function pinNewAnswer() {
+  if (!chat || !stick.follow) return;
+  const last = [...log.querySelectorAll(".u")].at(-1);
+  if (!last) {
+    followScroll();
+    return;
+  }
+  setChatTop(Math.max(0, last.offsetTop - 72));
+}
+
 function followScroll() {
   if (!chat || !stick.follow) return;
   if (reducedMotion()) {
-    chat.scrollTop = chat.scrollHeight;
+    const live = log.querySelector(".live.quiet, .m.stream");
+    if (live) {
+      const box = chat.getBoundingClientRect();
+      const r = live.getBoundingClientRect();
+      if (r.bottom > box.bottom - 24) setChatTop(chat.scrollTop + r.bottom - box.bottom + 24);
+      return;
+    }
+    snapToFloor();
     return;
   }
   if (scrollRaf) return;
@@ -54,11 +114,11 @@ function followScroll() {
     const cur = chat.scrollTop;
     const next = cur + (target - cur) * 0.22;
     if (Math.abs(target - next) < 0.6) {
-      chat.scrollTop = target;
+      setChatTop(target);
       scrollRaf = 0;
       return;
     }
-    chat.scrollTop = next;
+    setChatTop(next);
     scrollRaf = requestAnimationFrame(step);
   };
   scrollRaf = requestAnimationFrame(step);
@@ -247,13 +307,13 @@ function wrapUiSource(source) {
 }
 
 function liveDocCss() {
-  return `:root{--bg:#0e0e0f;--card:#161618;--line:#262628;--fg:#ececec;--muted:#8a8a8a;--accent:#c2603d}
+  return `:root{--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
 html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
 a{color:var(--accent)}`;
 }
 
 function uiThemeCss() {
-  return `:root{--bg:#0e0e0f;--card:#161618;--line:#262628;--fg:#ececec;--muted:#8a8a8a;--accent:#c2603d}
+  return `:root{--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif;overflow:hidden}
 body{padding:16px 16px 18px}
 *{box-sizing:border-box}
@@ -261,7 +321,7 @@ h1,h2,h3{font-size:15px;font-weight:600;margin:0 0 10px}
 .muted,.hint{color:var(--muted)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
 .tabs button{appearance:none;border:0;background:transparent;color:var(--muted);padding:6px 10px;border-radius:999px;font:12px/1.2 inherit;cursor:pointer}
-.tabs button.on{color:var(--fg);background:#2a2422;box-shadow:inset 0 -2px 0 var(--accent)}
+.tabs button.on{color:var(--fg);background:var(--card);box-shadow:inset 0 -2px 0 var(--accent)}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:0 0 14px}
 .metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .metric b{display:block;font-size:18px}
@@ -447,14 +507,14 @@ function mermaidSvg(source) {
   const boxes = ids.map((id, i) => {
     const x = 20 + i * 120;
     const label = escapeHtml(nodes.get(id) || id);
-    return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="#161618" stroke="#262628"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif" fill="#ececec">${label}</text>`;
+    return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="${UI_T.card}" stroke="${UI_T.line}"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif" fill="${UI_T.fg}">${label}</text>`;
   }).join("");
   const arrows = edges.map(([a, b]) => {
     const x1 = 20 + ids.indexOf(a) * 120 + 100;
     const x2 = 20 + ids.indexOf(b) * 120;
-    return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="#c2603d" marker-end="url(#ncli-arrow)"/>`;
+    return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="${UI_T.accent}" marker-end="url(#ncli-arrow)"/>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c2603d"/></marker></defs>${arrows}${boxes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${UI_T.accent}"/></marker></defs>${arrows}${boxes}</svg>`;
 }
 
 function jsxLite(source) {
@@ -546,7 +606,9 @@ function renderChat() {
       continue;
     }
     if (m.kind === "note") {
-      parts.push(`<div class="note" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
+      if (/^tools:\s/i.test(m.text)) continue;
+      const warn = /limite|quota/i.test(m.text);
+      parts.push(`<div class="note${warn ? " warn" : ""}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
       continue;
     }
     const seat = m.seat || "claude";
@@ -578,8 +640,8 @@ function renderChat() {
   reattachUi();
   markEnter();
   measureComposer();
-  if (stick.follow) followScroll();
-  else chat.scrollTop = keep;
+  if (stick.follow) snapToFloor();
+  else setChatTop(keep);
   paintScrollHints();
   renderChrome();
 }
@@ -606,7 +668,9 @@ function scheduleFullPaint() {
 function paintLive() {
   const turn = state.turn;
   if (!turn || turn.status !== "running") {
+    dropStreamNode();
     renderChat();
+    paintScrollHints();
     return;
   }
   const html = liveTurnHtml(turn);
@@ -637,16 +701,29 @@ function paintScrollHints() {
   if (!chat) return;
   const top = chat.scrollTop;
   const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+  const view = chat.clientHeight;
   chat.classList.toggle("can-up", top > 8);
   chat.classList.toggle("can-down", max - top > 8);
   const jump = $("jumpLatest");
   if (!jump) return;
-  const show = !stick.follow && max > 8;
+  const streaming = Boolean(state.turn && state.turn.status === "running");
+  const live = log.querySelector(".live.quiet, .m.stream");
+  let streamOff = false;
+  if (streaming && live) {
+    const r = live.getBoundingClientRect();
+    const box = chat.getBoundingClientRect();
+    streamOff = r.bottom > box.bottom - 8 || r.top > box.bottom;
+  }
+  const far = max - top > view;
+  const show = (!stick.follow && far) || streamOff;
   jump.hidden = !show;
   jump.classList.toggle("show", show);
+  jump.classList.toggle("live", streamOff);
+  jump.textContent = streamOff && !stick.follow ? "↓ resposta em curso" : "↓ agora";
 }
 
 function jumpToLatest() {
+  userUp = false;
   stick.follow = true;
   followScroll();
   paintScrollHints();
@@ -1193,7 +1270,7 @@ function treeSvg(rows) {
   const boxes = nodes.map((n) => {
     const label = escapeHtml((n.row.summary || "").slice(0, 42));
     return `<g>
-      <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="16" fill="#161618" stroke="#262628"/>
+      <rect x="${n.x}" y="${n.y}" width="${w - n.x - 12}" height="28" rx="16" fill="${UI_T.card}" stroke="${UI_T.line}"/>
       <rect x="${n.x}" y="${n.y}" width="36" height="28" rx="6" fill="${badgeTone(n.row.n)}"/>
       <text x="${n.x + 18}" y="${n.y + 18}" text-anchor="middle" fill="#fff" font-size="10" font-family="ui-monospace,monospace">x${n.row.n}</text>
       <text x="${n.x + 44}" y="${n.y + 18}" fill="#d0d0d0" font-size="10" font-family="ui-monospace,monospace">${label}</text>
@@ -1203,7 +1280,7 @@ function treeSvg(rows) {
 }
 
 function badgeTone(n) {
-  const stops = [[0, [61, 51, 48]], [2, [107, 74, 66]], [4, [154, 86, 72]], [6, [194, 96, 61]], [8, [143, 74, 54]]];
+  const stops = [[0, [43, 43, 49]], [2, [54, 54, 61]], [4, [74, 74, 83]], [6, [107, 107, 117]], [8, [142, 142, 153]]];
   const lv = Math.log2(Math.max(1, n));
   let lo = stops[0];
   let hi = stops[stops.length - 1];
@@ -1506,6 +1583,7 @@ function applyEvent(ev) {
         renderChrome();
         if (ev.turn && ev.turn.status !== "running") {
           state.stream = "";
+          dropStreamNode();
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
             state.lastTurn = ev.turn;
           }
@@ -1803,6 +1881,7 @@ async function sendUser(text, mode) {
       steps: [],
     };
     renderChat();
+    pinNewAnswer();
   }
   const res = await fetch("/api/message", {
     method: "POST",
@@ -1903,11 +1982,52 @@ $("menuBtn").addEventListener("click", () => {
 });
 $("scrim").addEventListener("click", () => setDrawer(false));
 
+chat.addEventListener("wheel", (e) => {
+  if (e.deltaY < 0) markUserUp();
+}, { passive: true });
+chat.addEventListener("touchstart", (e) => {
+  touchY = e.touches[0]?.clientY || 0;
+}, { passive: true });
+chat.addEventListener("touchmove", (e) => {
+  const y = e.touches[0]?.clientY || 0;
+  if (y > touchY + 2) markUserUp();
+  touchY = y;
+}, { passive: true });
+document.addEventListener("keydown", (e) => {
+  if (e.target === input) return;
+  if (e.key === "PageUp" || e.key === "ArrowUp" || e.key === "Home") markUserUp();
+});
 chat.addEventListener("scroll", () => {
-  stick.follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
+  const top = chat.scrollTop;
+  const leftover = chat.scrollHeight - top - chat.clientHeight;
+  if (programmaticScroll) {
+    lastScrollTop = top;
+    paintScrollHints();
+    return;
+  }
+  if (userUp || top < lastScrollTop) {
+    stick.follow = false;
+    userUp = false;
+  } else if (leftover <= STICK_SLOP) {
+    stick.follow = true;
+  }
+  lastScrollTop = top;
   paintScrollHints();
 }, { passive: true });
+bindChatFloor();
+bindComposerModality();
 $("jumpLatest")?.addEventListener("click", jumpToLatest);
+
+function bindComposerModality() {
+  const form = $("form");
+  if (!form) return;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") form.classList.add("from-key");
+  });
+  document.addEventListener("pointerdown", () => {
+    form.classList.remove("from-key");
+  });
+}
 window.addEventListener("resize", () => {
   measureComposer();
   if (stick.follow) followScroll();
@@ -1943,6 +2063,12 @@ async function boot() {
   renderChat();
   renderShortcuts();
   renderContext();
+  if (stick.follow) {
+    snapToFloor();
+    requestAnimationFrame(() => {
+      if (stick.follow) snapToFloor();
+    });
+  }
   const q = new URLSearchParams(location.search);
   const open = q.get("open");
   const tab = q.get("tab");
