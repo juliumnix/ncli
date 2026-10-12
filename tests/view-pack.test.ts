@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { assemble } from "../src/memory/assemble";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { prepareSpawn } from "../src/mcp/inject";
-import { removeView } from "../src/skills/scaffold";
+import { removeView, runNcli } from "../src/skills/scaffold";
 import { addView, packView, parseViewSource, readViewOrigin, updateView, userGitEnv } from "../src/views/pack";
 import { assertRunnable, formatSparkResult, validateManifest } from "../src/views/manifest";
 import { ViewRegistry } from "../src/views/registry";
@@ -365,4 +365,35 @@ test("ncli view add from a private local git repo pins, updates, and removes", (
 
   removeView("echo", { viewsDir, acpDir: tmpDir("acme-acp") });
   expect(existsSync(updated)).toBe(false);
+});
+
+test("updateView and addView refuse ../ and do not rm outside viewsDir", () => {
+  const root = tmpDir("escape-root");
+  const viewsDir = join(root, "views");
+  const victim = join(root, "cli-victim");
+  mkdirSync(viewsDir, { recursive: true });
+  mkdirSync(victim);
+  writeFileSync(join(victim, "KEEP"), "alive");
+  const src = writeEcho(tmpDir("escape-src"));
+  gitCommit(src);
+  writeFileSync(join(victim, ".ncli-source.json"), JSON.stringify({ kind: "git", url: `file://${src}` }));
+
+  expect(() => updateView("../cli-victim", viewsDir, undefined, ["mock"])).toThrow(/id inválido/);
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
+
+  expect(() => runNcli(["view", "update", "../cli-victim"], { viewsDir, acpDir: tmpDir("escape-acp") })).toThrow(
+    /id inválido/,
+  );
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
+
+  expect(() => addView(join(viewsDir, "..", "cli-victim"), viewsDir, ["mock"])).toThrow(
+    /id inválido|diretório|manifest/,
+  );
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
+
+  const pack = writeEcho(join(root, "packsrc"));
+  const installed = addView(join(viewsDir, "..", "packsrc", "echo"), viewsDir, ["mock"]);
+  expect(installed.startsWith(viewsDir + "/")).toBe(true);
+  expect(existsSync(join(pack, "manifest.json"))).toBe(true);
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
 });

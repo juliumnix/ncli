@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { assertRunnable, loadManifest, validateManifest, type ViewManifest } from "./manifest";
 
 export const VIEW_SOURCE_FILE = ".ncli-source.json";
@@ -52,6 +52,33 @@ export function writeViewOrigin(dest: string, origin: ViewOrigin): void {
   writeFileSync(join(dest, VIEW_SOURCE_FILE), JSON.stringify(origin, null, 2), "utf8");
 }
 
+export function parseId(raw: string): string {
+  const id = raw.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9]*$/.test(id)) {
+    throw new Error(`id inválido: ${raw} (use [a-z][a-z0-9]*, sem hífen)`);
+  }
+  return id;
+}
+
+export function viewSlot(viewsDir: string, idRaw: string): string {
+  const id = parseId(idRaw);
+  const root = resolve(viewsDir);
+  const dest = resolve(root, id);
+  if (!dest.startsWith(root + sep)) {
+    throw new Error(`id inválido: ${idRaw}`);
+  }
+  return dest;
+}
+
+export function rmViewDir(viewsDir: string, dest: string): void {
+  const root = resolve(viewsDir);
+  const abs = resolve(dest);
+  if (!abs.startsWith(root + sep)) {
+    throw new Error(`view fora de ${root}`);
+  }
+  if (existsSync(abs)) rmSync(abs, { recursive: true, force: true });
+}
+
 export function addView(
   src: string,
   viewsDir: string,
@@ -73,13 +100,13 @@ export function updateView(
   available?: Iterable<string>,
   opts?: GitCloneOpts,
 ): string {
-  const dest = join(viewsDir, id);
+  const dest = viewSlot(viewsDir, id);
   const origin = readViewOrigin(dest);
   if (origin?.kind !== "git") throw new Error(`${id} não veio de git; ncli view add <git-url>`);
   const next = ref || origin.ref ? `${origin.url}#${ref || origin.ref}` : origin.url;
   const staged = stageSource(next, opts);
   try {
-    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+    rmViewDir(viewsDir, dest);
     return installStaged(staged, viewsDir, available);
   } finally {
     staged.cleanup?.();
@@ -87,7 +114,7 @@ export function updateView(
 }
 
 export function packView(id: string, viewsDir: string, outDir: string): string {
-  const src = join(viewsDir, id);
+  const src = viewSlot(viewsDir, id);
   const manifest = loadManifest(src);
   mkdirSync(outDir, { recursive: true });
   const dest = join(outDir, `${manifest.name}-${manifest.version}`);
@@ -120,7 +147,7 @@ function installStaged(
   const packDir = findPackDir(staged.dir);
   const manifest = loadManifest(packDir);
   if (available) assertRunnable(manifest, available);
-  const dest = join(viewsDir, manifest.name);
+  const dest = viewSlot(viewsDir, manifest.name);
   if (existsSync(dest)) throw new Error(`${dest} já existe`);
   mkdirSync(viewsDir, { recursive: true });
   cpSync(packDir, dest, { recursive: true });
