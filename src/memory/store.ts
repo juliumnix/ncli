@@ -1,7 +1,9 @@
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, nowIso, utf8Bytes } from "../util";
+import { CompactDeferred } from "./cursor-compact";
+import { pairDue } from "./merge-order";
 
 export interface MemoryOptions {
   dir: string;
@@ -27,6 +29,7 @@ export type ZoomResult =
   | { ok: false; error: string };
 
 const KEYWORD = /[A-Z][A-Z0-9_]{7,}/g;
+const PENDING_TEXT = "(not summarized yet: zoom it)";
 
 const MEMORY_KINDS = new Set<MsgKind>(["user", "talk", "note", "seat", "merge", "bus"]);
 
@@ -367,15 +370,14 @@ export class Memory {
     let size = this.viewBytesUsed();
     while (size > this.viewBytes) {
       let bestAt = -1;
-      let bestDue = -1;
+      let bestDue = Number.NEGATIVE_INFINITY;
       for (let k = 0; k < this.view.length - 1; k++) {
         const a = this.view[k];
         const b = this.view[k + 1];
         if (a.l !== b.l || a.i % 2 !== 0 || b.i !== a.i + 1) continue;
         const parent = this.nodeOf(a.l + 1, Math.floor(a.i / 2));
         if (!parent) continue;
-        const start = a.i * 2 ** a.l;
-        const due = (T - start) / 2 ** (a.l + 2);
+        const due = dueOf(T, a.l, a.i);
         if (due > bestDue) {
           bestDue = due;
           bestAt = k;
@@ -445,6 +447,12 @@ function capText(text: string, cap: number): string {
   if (text.length <= cap) return text;
   const keep = Math.floor(cap / 2) - 20;
   return `${text.slice(0, keep)}\n…[${text.length - keep * 2} chars cut]…\n${text.slice(-keep)}`;
+}
+
+export function dueOf(T: number, l: number, i: number): number {
+  const n = 2 ** l;
+  const last = (i + 2) * n - 1;
+  return (T - last) / n;
 }
 
 function persistLine(path: string, obj: unknown): void {
