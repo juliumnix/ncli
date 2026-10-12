@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { listSessionFiles, parseSessionStream } from "./parse";
+import type { FileCursor } from "./checkpoint";
 import type { ImportLine } from "./types";
 import { IMPORT_YIELD_MS, type ImportWorkerIn, type ImportWorkerOut } from "./protocol";
 
@@ -29,26 +30,51 @@ function loadSeen(path: string): Set<string> {
   return seen;
 }
 
+function cursorOf(cursors: FileCursor[], path: string): FileCursor | undefined {
+  return cursors.find((c) => c.path === path);
+}
+
 async function run(job: Extract<ImportWorkerIn, { type: "run" }>): Promise<void> {
   const seen = loadSeen(job.seenFile);
   const files = listSessionFiles(job.root, job.source);
   const sinceMs = job.since ? Date.parse(job.since) : undefined;
-  send({ type: "progress", source: job.source, done: 0, total: files.length });
+  const total = files.length;
+  send({ type: "progress", source: job.source, done: 0, total });
   let applied = 0;
   let seenCount = 0;
   let skipped = 0;
+  let filesSkipped = 0;
+  let filesScanned = 0;
   let batch: ImportLine[] = [];
   let batchBytes = 0;
-  const flush = async (): Promise<void> => {
-    if (!batch.length) return;
-    send({ type: "batch", lines: batch });
+  let batchFile = "";
+  const flush = async (fileDone: boolean): Promise<void> => {
+    const file = batchFile;
+    if (!batch.length) {
+      if (fileDone && file) send({ type: "cursor", file, fileDone: true, done: 0, total });
+      return;
+    }
+    const lastFingerprint = batch.at(-1)?.fingerprint;
+    send({ type: "batch", lines: batch, file, fileDone });
+    send({ type: "cursor", file, lastFingerprint, fileDone, done: 0, total });
     batch = [];
     batchBytes = 0;
     await waitPull();
     await Bun.sleep(0);
   };
   for (let i = 0; i < files.length; i++) {
-    for await (const line of parseSessionStream(job.source, files[i]!)) {
+    const file = files[i]!;
+    const cur = cursorOf(job.cursors, file);
+    if (cur?.status === "done") {
+      filesSkipped += 1;
+      send({ type: "progress", source: job.source, done: i + 1, total });
+      continue;
+    }
+    filesScanned += 1;
+    batchFile = file;
+    let after = cur?.lastFingerprint;
+    let skipUntil = Boolean(after);
+    for await (const line of parseSessionStream(job.source, file)) {
       if (sinceMs !== undefined) {
         const at = Date.parse(line.at);
         if (!Number.isFinite(at) || at < sinceMs) {
@@ -56,22 +82,27 @@ async function run(job: Extract<ImportWorkerIn, { type: "run" }>): Promise<void>
           continue;
         }
       }
+      if (skipUntil) {
+        if (line.fingerprint === after) skipUntil = false;
+        seenCount += 1;
+        continue;
+      }
       if (seen.has(line.fingerprint)) {
         seenCount += 1;
         continue;
       }
       seen.add(line.fingerprint);
       const n = line.text.length + 80;
-      if (batch.length >= job.batch || batchBytes + n > job.memCap) await flush();
+      if (batch.length >= job.batch || batchBytes + n > job.memCap) await flush(false);
       batch.push(line);
       batchBytes += n;
       applied += 1;
     }
-    send({ type: "progress", source: job.source, done: i + 1, total: files.length });
+    await flush(true);
+    send({ type: "progress", source: job.source, done: i + 1, total });
     await Bun.sleep(IMPORT_YIELD_MS);
   }
-  await flush();
-  send({ type: "done", applied, seenCount, skipped, sessions: files.length });
+  send({ type: "done", applied, seenCount, skipped, sessions: files.length, filesSkipped, filesScanned });
 }
 
 onmessage = (ev: MessageEvent<ImportWorkerIn>) => {

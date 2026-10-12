@@ -31,9 +31,10 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   importCodex?: string;
   importCursor?: string;
   repo?: string;
+  dataDir?: string;
   gh?: GhClient;
 } = {}): Promise<{ hub: Hub; repo: string; dataDir: string; harness: H }> {
-  const dataDir = tmpDir("ncli-data");
+  const dataDir = opts.dataDir ?? tmpDir("ncli-data");
   const repo = opts.repo ?? await initTempRepo();
   const importEmpty = tmpDir("ncli-import-empty");
   const harness = (opts.harness ?? new MockHarness()) as H;

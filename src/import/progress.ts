@@ -22,3 +22,15 @@ export function formatImportChip(source: ImportSource, progress?: ImportProgress
   const pct = importPct(progress.done, progress.total);
   return pct === null ? "trazendo…" : `trazendo… ${pct}%`;
 }
+
+export function importTalkNote(progress?: ImportProgress): string {
+  const pct = progress ? importPct(progress.done, progress.total) : null;
+  if (pct === null) return "Ainda estou trazendo o histórico. A resposta pode mudar quando terminar.";
+  return `Ainda estou trazendo o histórico (${pct}%). A resposta pode mudar quando terminar.`;
+}
+
+export function withImportTalkNote(text: string, progress?: ImportProgress): string {
+  const note = importTalkNote(progress);
+  if (text.includes("trazendo o histórico")) return text;
+  return `${text.trim()}\n\n${note}`;
+}

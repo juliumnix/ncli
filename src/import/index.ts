@@ -7,7 +7,16 @@ import type { ImportApply, ImportLine, ImportPreview, ImportRoots, ImportSource 
 
 export type { ImportApply, ImportArgv, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
 export type { ImportProgress } from "./progress";
-export { formatImportChip, importPct } from "./progress";
+export { formatImportChip, importPct, importTalkNote, withImportTalkNote } from "./progress";
+export { importKnownLines } from "./known";
+export {
+  applyCursor,
+  clearCheckpoint,
+  isResumeOpen,
+  loadCheckpoint,
+  mergeCheckpoint,
+  saveCheckpoint,
+} from "./checkpoint";
 export { isImportSource, parseImportArgv } from "./args";
 export { defaultImportRoots, rootFor } from "./roots";
 export { listSessionFiles, parseSessionFile, parseSessionLines, parseSessionStream, textOf } from "./parse";
@@ -16,10 +25,12 @@ export { IMPORT_BATCH_BYTES, IMPORT_BATCH_LINES, IMPORT_YIELD_MS } from "./proto
 export { fingerprintOf, lineOf } from "./fingerprint";
 
 export class Importer {
+  readonly dir: string;
   readonly roots: ImportRoots;
   readonly ledger: ImportLedger;
 
   constructor(dir: string, roots: ImportRoots = defaultImportRoots()) {
+    this.dir = dir;
     this.roots = roots;
     this.ledger = new ImportLedger(dir);
   }

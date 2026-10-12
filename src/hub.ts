@@ -36,16 +36,26 @@ import { prepareSpawn } from "./mcp/inject";
 import { sparkSkillPrompt } from "./views/manifest";
 import { TurnQueue, type QueueMode } from "./queue/turn-queue";
 import {
+  applyCursor,
+  clearCheckpoint,
   defaultImportRoots,
   formatApply,
   formatPreview,
   Importer,
   importPct,
+  isResumeOpen,
   listSessionFiles,
+  loadCheckpoint,
+  mergeCheckpoint,
   parseImportArgv,
   rootFor,
+  saveCheckpoint,
+  importKnownLines,
+  importTalkNote,
+  withImportTalkNote,
   type ImportLine,
   type ImportPreview,
+  type ImportProgress,
   type ImportSource,
 } from "./import";
 import { runImportJob } from "./import/job";
@@ -62,6 +72,8 @@ export class Hub {
   lastImport: ImportPreview | null = null;
   importOffers: { source: ImportSource; sessions: number }[] = [];
   private importing = false;
+  private importProgress: ImportProgress | null = null;
+  private importAbort: AbortController | null = null;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -223,6 +235,7 @@ export class Hub {
     this.emitQueue();
     this.emitUsage();
     if (!this.turning) void this.drainSession("main");
+    void this.resumeImport();
   }
 
   subscribe(fn: (ev: HubEvent) => void): () => void {
@@ -442,9 +455,18 @@ export class Hub {
     since?: string,
     opts: { surface?: boolean } = {},
   ): Promise<Awaited<ReturnType<Importer["apply"]>>> {
-    const surface = Boolean(opts.surface) && this.memory.T === 0;
+    const saved = loadCheckpoint(this.importer.dir);
+    const files = listSessionFiles(rootFor(source, this.importer.roots), source);
+    const surface = saved?.source === source
+      ? saved.surface
+      : Boolean(opts.surface) && this.memory.T === 0;
+    let checkpoint = mergeCheckpoint(saved?.source === source ? saved : null, source, files, { since, surface });
+    saveCheckpoint(this.importer.dir, checkpoint);
     this.importing = true;
+    this.importProgress = { source, done: checkpoint.done, total: checkpoint.total };
     this.memory.paused = true;
+    this.importAbort?.abort();
+    this.importAbort = new AbortController();
     const touched = new Set<Memory>();
     try {
       const result = await runImportJob({
@@ -452,7 +474,10 @@ export class Hub {
         roots: this.importer.roots,
         since,
         seenFile: this.importer.ledger.path,
+        cursors: checkpoint.files,
+        signal: this.importAbort.signal,
         onProgress: (progress) => {
+          this.importProgress = progress;
           this.emit({
             type: "import-progress",
             source: progress.source,
@@ -461,11 +486,16 @@ export class Hub {
             pct: importPct(progress.done, progress.total),
           });
         },
+        onCursor: (file, lastFingerprint, fileDone) => {
+          checkpoint = applyCursor(checkpoint, file, lastFingerprint, fileDone);
+          saveCheckpoint(this.importer.dir, checkpoint);
+        },
         onBatch: async (lines) => {
           for (const mem of this.ingestImportBatch(lines, surface)) {
             mem.paused = true;
             touched.add(mem);
           }
+          this.importer.ledger.flush();
           await Bun.sleep(0);
         },
       });
@@ -475,17 +505,44 @@ export class Hub {
         newCount: 0,
       };
       this.importer.ledger.flush();
+      clearCheckpoint(this.importer.dir);
+      this.importProgress = null;
       for (const mem of touched) mem.publish();
       this.memory.publish();
       this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
       this.emitDebug();
       return result;
+    } catch (err) {
+      saveCheckpoint(this.importer.dir, checkpoint);
+      if (err instanceof Error && err.message === "import stopped") {
+        return {
+          preview: {
+            source,
+            root: rootFor(source, this.importer.roots),
+            sessions: files.length,
+            lines: [],
+            newCount: 0,
+            seenCount: this.importer.ledger.size(),
+            skipped: 0,
+            since,
+          },
+          applied: 0,
+        };
+      }
+      throw err;
     } finally {
       this.importing = false;
       this.memory.paused = false;
       for (const mem of touched) mem.paused = false;
+      this.importAbort = null;
       this.pumpWhenIdle();
     }
+  }
+
+  private resumeImport(): void {
+    const cp = loadCheckpoint(this.importer.dir);
+    if (!isResumeOpen(cp) || !cp) return;
+    void this.applyImport(cp.source, cp.since, { surface: cp.surface });
   }
 
   private ingestImportBatch(lines: ImportLine[], surface: boolean): Memory[] {
@@ -572,9 +629,15 @@ export class Hub {
     let talk = "";
     const tools: string[] = [];
     const inbox = this.bus.drainPrompt("main");
+    const soFar = this.importing ? importKnownLines(this.memory.log) : "";
+    const importHint = this.importing && soFar
+      ? `${withImportTalkNote("O que já chegou do histórico:", this.importProgress ?? undefined)}\n${soFar}\n\n`
+      : this.importing
+        ? `${importTalkNote(this.importProgress ?? undefined)}\n\n`
+        : "";
     try {
       for await (const ev of this.harness.run({
-        prompt: `${ctx.view}\n\n${inbox}${userText}`,
+        prompt: `${ctx.view}\n\n${inbox}${importHint}${userText}`,
         system: ctx.system,
         cwd: this.cfg.repo,
         session: "main",
@@ -615,7 +678,7 @@ export class Hub {
         const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
         const msg = this.memory.append({
           kind: "talk",
-          text: talk,
+          text: this.importing ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
           seat,
           model: this.live.turn.model,
           recall: citations.length ? citations : undefined,
@@ -916,6 +979,7 @@ export class Hub {
   }
 
   close(): void {
+    this.importAbort?.abort();
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.usage.close();
     this.views.close();
