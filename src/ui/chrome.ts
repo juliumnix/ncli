@@ -13,11 +13,14 @@ const TRIO_SEATS: TrioSeatId[] = ["claude", "codex", "cursor"];
 export function agentTrio(clis: CliPresence, mainHarness: string): TrioSeat[] {
   const main: TrioSeatId =
     mainHarness === "codex" || mainHarness === "cursor" ? mainHarness : "claude";
-  return TRIO_SEATS.map((seat) => ({
-    seat,
-    present: Boolean(clis[seat]),
-    main: seat === main,
-  }));
+  return TRIO_SEATS.map((seat) => {
+    const present = Boolean(clis[seat]);
+    return {
+      seat,
+      present,
+      main: seat === main && present,
+    };
+  });
 }
 
 export function detectClis(cfg: { claudeBin: string; codexBin: string; cursorBin: string }): CliPresence {
