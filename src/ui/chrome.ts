@@ -23,12 +23,19 @@ export function agentTrio(clis: CliPresence, mainHarness: string): TrioSeat[] {
   });
 }
 
+let clisKey = "";
+let clisCache: CliPresence | null = null;
+
 export function detectClis(cfg: { claudeBin: string; codexBin: string; cursorBin: string }): CliPresence {
-  return {
+  const key = `${cfg.claudeBin}\0${cfg.codexBin}\0${cfg.cursorBin}`;
+  if (clisCache && clisKey === key) return clisCache;
+  clisCache = {
     claude: Boolean(Bun.which(cfg.claudeBin)),
     codex: Boolean(Bun.which(cfg.codexBin)),
     cursor: Boolean(Bun.which(cfg.cursorBin)),
   };
+  clisKey = key;
+  return clisCache;
 }
 
 export type ChromeInput = {

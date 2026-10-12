@@ -41,8 +41,11 @@ import {
   formatApply,
   formatPreview,
   Importer,
+  listSessionFiles,
   parseImportArgv,
+  rootFor,
   type ImportPreview,
+  type ImportSource,
 } from "./import";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 
@@ -55,6 +58,7 @@ export class Hub {
   readonly usage: UsageBoard;
   readonly importer: Importer;
   lastImport: ImportPreview | null = null;
+  importOffers: { source: ImportSource; sessions: number }[] = [];
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -211,7 +215,6 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
-    this.offerFirstImport();
     void this.memory.pump();
     this.emitDebug();
     this.emitQueue();
@@ -256,6 +259,7 @@ export class Hub {
       queue: this.queue.list(),
       usage: this.usageSnap(),
       import: this.lastImport,
+      importOffers: this.importOffers,
       clis: detectClis(this.cfg),
     };
   }
@@ -290,7 +294,7 @@ export class Hub {
     this.abort = new AbortController();
     this.beginLive();
     try {
-      await this.openLinks(trimmed);
+      if (parseViewLink(trimmed).length) await this.openLinks(trimmed);
       await this.turn(trimmed);
     } finally {
       this.turning = false;
@@ -403,23 +407,37 @@ export class Hub {
     return preview;
   }
 
-  private offerFirstImport(): void {
+  offerFirstImport(): void {
     if (this.memory.T !== 0) return;
-    let best: ImportPreview | null = null;
+    const offers: { source: ImportSource; sessions: number }[] = [];
+    let bestSource: ImportSource | null = null;
+    let bestSessions = 0;
     for (const source of ["claude", "codex", "cursor"] as const) {
-      const preview = this.importer.preview(source);
-      if (preview.sessions === 0) continue;
-      if (!best || preview.newCount > best.newCount) best = preview;
+      const sessions = listSessionFiles(rootFor(source, this.importer.roots), source).length;
+      if (!sessions) continue;
+      offers.push({ source, sessions });
+      if (sessions > bestSessions) {
+        bestSessions = sessions;
+        bestSource = source;
+      }
     }
-    if (best) this.lastImport = best;
+    this.importOffers = offers;
+    if (!bestSource) return;
+    this.lastImport = this.importer.preview(bestSource);
+    this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
   }
 
-  applyImport(source: ImportPreview["source"], since?: string): ReturnType<Importer["apply"]> {
+  applyImport(
+    source: ImportPreview["source"],
+    since?: string,
+    opts: { surface?: boolean } = {},
+  ): ReturnType<Importer["apply"]> {
+    const surface = Boolean(opts.surface) && this.memory.T === 0;
     const result = this.importer.apply(
       source,
       since,
       (line) => {
-        const mem = this.memoryForImport(line.cwd);
+        const mem = surface ? this.memory : this.memoryForImport(line.cwd);
         const msg = mem.append({
           kind: line.kind,
           text: line.text,
@@ -430,10 +448,15 @@ export class Hub {
         if (mem === this.memory) this.emit({ type: "message", session: "main", message: msg });
         return msg;
       },
-      (line) => alreadyInLog(this.memoryForImport(line.cwd).log, line),
+      (line) => alreadyInLog((surface ? this.memory : this.memoryForImport(line.cwd)).log, line),
     );
-    this.lastImport = this.importer.preview(source, since);
-    this.emit({ type: "import", preview: this.lastImport });
+    this.lastImport = {
+      ...result.preview,
+      lines: [],
+      newCount: 0,
+      seenCount: result.preview.seenCount + result.applied,
+    };
+    this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
     void this.memory.pump();
     this.emitDebug();
     return result;

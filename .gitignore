@@ -8,4 +8,6 @@ agent-tools
 uploads
 artifacts/*.png
 artifacts/perf/
+artifacts/onboard/
+.audit/
 eval/memory/results/

@@ -11,11 +11,24 @@ const SHOTS = shotsDir();
 
 test("empty hub offers the richest CLI history and welcome has one-click import", async () => {
   expect(appJs).toContain("data-welcome-import");
-  expect(appJs).toContain("trazer Claude");
+  expect(appJs).toContain("trazer ${label[src] || src}");
   const { hub } = await makeHub({ importClaude: CLAUDE });
   try {
     expect(hub.lastImport?.source).toBe("claude");
     expect(hub.lastImport?.sessions).toBeGreaterThan(0);
+    expect(hub.importOffers).toEqual([{ source: "claude", sessions: hub.lastImport!.sessions }]);
+  } finally {
+    hub.close();
+  }
+});
+
+test("empty-session apply surfaces Claude history in this chat when cwd is another repo", async () => {
+  const { hub } = await makeHub({ importClaude: CLAUDE });
+  try {
+    const result = hub.applyImport("claude", undefined, { surface: true });
+    expect(result.applied).toBeGreaterThan(0);
+    expect(hub.memory.log.some((m) => m.text.includes("FACT_MEMBER_DISCOUNT_BEFORE_TAX"))).toBe(true);
+    expect(hub.lastImport?.newCount).toBe(0);
   } finally {
     hub.close();
   }
@@ -58,10 +71,10 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
     expect(facts.barText).toContain("claude");
     expect(facts.barText).toContain("4 novas");
     expect(facts.apply).toBe("claude");
-    const go = await driver.session.evaluate<number>(
-      `document.querySelectorAll("[data-welcome-import]").length`,
+    const go = await driver.session.evaluate<string[]>(
+      `[...document.querySelectorAll("[data-welcome-import]")].map((el) => el.getAttribute("data-welcome-import"))`,
     );
-    expect(go).toBe(3);
+    expect(go).toEqual(["claude"]);
     mkdirSync(SHOTS, { recursive: true });
     writeFileSync(`${SHOTS}/import-onboard.png`, await driver.session.screenshot());
   } finally {

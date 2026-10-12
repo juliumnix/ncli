@@ -177,6 +177,7 @@ const state = {
   queue: [],
   usage: { seats: [], chain: [] },
   import: null,
+  importOffers: [],
   clis: { claude: false, codex: false, cursor: false },
 };
 
@@ -773,10 +774,29 @@ function avatar(seat) {
   return `<div class="av ${klass}"><img alt="" src="${s.src}"></div>`;
 }
 
+function welcomeImportActions() {
+  const label = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
+  const offers = state.importOffers || [];
+  const sources = offers.length
+    ? offers.map((o) => o.source)
+    : state.import
+      ? [state.import.source]
+      : [];
+  if (!sources.length) return "";
+  return `<div class="welcome-actions">${sources
+    .map((src) => `<button type="button" class="welcome-go" data-welcome-import="${escapeHtml(src)}">trazer ${label[src] || src}</button>`)
+    .join("")}</div>`;
+}
+
 function renderChat() {
   if (chromeNow().showWelcome) {
     if (!log.querySelector(".welcome")) {
-      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p><div class="welcome-actions"><button type="button" class="welcome-go" data-welcome-import="claude">trazer Claude</button><button type="button" class="welcome-go" data-welcome-import="codex">trazer Codex</button><button type="button" class="welcome-go" data-welcome-import="cursor">trazer Cursor</button></div></div>`;
+      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p>${welcomeImportActions()}</div>`;
+    } else {
+      const actions = log.querySelector(".welcome-actions");
+      const next = welcomeImportActions();
+      if (actions && next) actions.outerHTML = next;
+      else if (!actions && next) log.querySelector(".welcome")?.insertAdjacentHTML("beforeend", next);
     }
     measureComposer();
     paintScrollHints();
@@ -1248,7 +1268,7 @@ function renderImport() {
   const bar = $("ibar");
   if (!bar) return;
   const preview = state.import;
-  if (!preview || (preview.newCount === 0 && preview.seenCount === 0 && preview.sessions === 0)) {
+  if (!preview || preview.newCount === 0) {
     bar.hidden = true;
     bar.innerHTML = "";
     measureComposer();
@@ -1938,7 +1958,9 @@ function applyEvent(ev) {
       break;
     case "import":
       state.import = ev.preview || null;
+      if (ev.offers) state.importOffers = ev.offers;
       renderImport();
+      if (chromeNow().showWelcome) renderChat();
       break;
     case "turn":
       if (ev.session === "main") {
@@ -2278,7 +2300,15 @@ $("form").addEventListener("submit", (e) => {
   const hint = reviewPasteHint(text);
   input.value = "";
   renderPasteHint();
-  if (hint) pendingReviewOpen = hint;
+  if (hint) {
+    pendingReviewOpen = hint;
+    const bar = $("phint");
+    if (bar) {
+      bar.hidden = false;
+      bar.innerHTML = `<div class="qitem" data-pr-hint="${escapeHtml(hint.pr)}"><span>review</span><b>abrindo #${escapeHtml(hint.pr)}</b></div>`;
+      measureComposer();
+    }
+  }
   void sendUser(text, e.shiftKey ? "queue" : undefined);
 });
 
@@ -2298,6 +2328,8 @@ $("queueBtn")?.addEventListener("click", () => {
 log?.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-welcome-import]");
   if (!go) return;
+  go.setAttribute("disabled", "true");
+  go.textContent = "trazendo…";
   await fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -2453,6 +2485,7 @@ async function boot() {
   if (!state.queue.length) state.queue = snap.queue || [];
   if (snap.usage) state.usage = snap.usage;
   if (snap.import) state.import = snap.import;
+  if (snap.importOffers) state.importOffers = snap.importOffers;
   if (snap.clis) state.clis = snap.clis;
   renderImport();
   renderQueue();
