@@ -1299,19 +1299,21 @@ function renderImport() {
   const bar = $("ibar");
   if (!bar) return;
   const preview = state.import;
-  if (!preview || preview.newCount === 0) {
+  const canApply = Boolean(preview && preview.sessions && preview.seenCount === 0);
+  if (!preview || (!preview.newCount && !canApply)) {
     bar.hidden = true;
     bar.innerHTML = "";
     measureComposer();
     return;
   }
-  const neu = preview.newCount === 1 ? "1 nova" : `${preview.newCount} novas`;
+  const neu = preview.newCount === 1 ? "1 nova" : preview.newCount > 1 ? `${preview.newCount} novas` : `${preview.sessions} ${preview.sessions === 1 ? "sessão" : "sessões"}`;
   const seen = preview.seenCount === 1 ? "1 já vista" : `${preview.seenCount} já vistas`;
-  const action = preview.newCount
+  const detail = preview.newCount ? `${neu} · ${seen}` : neu;
+  const action = canApply || preview.newCount
     ? `<button type="button" data-import-apply="${escapeHtml(preview.source)}">aplicar</button>`
     : "";
   bar.hidden = false;
-  bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${neu} · ${seen}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
+  bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${detail}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
   measureComposer();
 }
 
@@ -2373,7 +2375,7 @@ log?.addEventListener("click", async (e) => {
   const src = go.getAttribute("data-welcome-import");
   state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
   paintImportChip(go, src);
-  await fetch("/api/import", {
+  void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ source: go.getAttribute("data-welcome-import"), apply: true }),
@@ -2388,7 +2390,7 @@ $("ibar")?.addEventListener("click", async (e) => {
   }
   const apply = e.target.closest("[data-import-apply]");
   if (!apply) return;
-  await fetch("/api/import", {
+  void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ source: apply.dataset.importApply, apply: true }),

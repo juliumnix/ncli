@@ -40,16 +40,15 @@ function walk(dir: string, visit: (abs: string) => void): void {
   }
 }
 
-export function parseSessionFile(source: ImportSource, file: string): ImportLine[] {
+export function* parseSessionLines(source: ImportSource, file: string): Generator<ImportLine> {
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");
   } catch {
-    return [];
+    return;
   }
   const session = sessionIdOf(file);
   const fallbackAt = fileMtime(file);
-  const lines: ImportLine[] = [];
   let sessionMeta = session;
   for (const row of raw.split("\n")) {
     const trimmed = row.trim();
@@ -69,9 +68,12 @@ export function parseSessionFile(source: ImportSource, file: string): ImportLine
       continue;
     }
     const parsed = parseRow(source, rec, sessionMeta, fallbackAt, file);
-    if (parsed) lines.push(parsed);
+    if (parsed) yield parsed;
   }
-  return lines;
+}
+
+export function parseSessionFile(source: ImportSource, file: string): ImportLine[] {
+  return [...parseSessionLines(source, file)];
 }
 
 function parseRow(

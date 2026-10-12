@@ -141,7 +141,7 @@ test("empty hub offers claude import when sessions exist", async () => {
   const { hub } = await makeHub({ importClaude: CLAUDE });
   expect(hub.snapshot().import?.source).toBe("claude");
   expect(hub.snapshot().import?.sessions).toBe(1);
-  expect(hub.snapshot().import?.newCount).toBe(4);
+  expect(hub.snapshot().import?.lines).toEqual([]);
 });
 
 test("empty hub stays quiet when claude has no sessions", async () => {

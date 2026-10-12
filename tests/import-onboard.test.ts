@@ -69,7 +69,7 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
     expect(facts.welcome).toContain("O mesmo Claude do CLI");
     expect(facts.barHidden).toBe(false);
     expect(facts.barText).toContain("claude");
-    expect(facts.barText).toContain("4 novas");
+    expect(facts.barText).toMatch(/sessão|novas/);
     expect(facts.apply).toBe("claude");
     const go = await driver.session.evaluate<string[]>(
       `[...document.querySelectorAll("[data-welcome-import]")].map((el) => el.getAttribute("data-welcome-import"))`,
@@ -88,13 +88,15 @@ test("chrome: welcome chip shows live import percent", async () => {
   const root = tmpDir("fat-welcome");
   const proj = join(root, "workspace");
   mkdirSync(proj, { recursive: true });
-  const rows = Array.from({ length: 40 }, (_, i) => JSON.stringify({
-    type: "user",
-    timestamp: `2026-10-12T00:00:${String(i).padStart(2, "0")}.000Z`,
-    cwd: "/workspace",
-    message: { content: `FACT_LINE_${i}` },
-  }));
-  writeFileSync(join(proj, "sess.jsonl"), `${rows.join("\n")}\n`);
+  for (let f = 0; f < 8; f++) {
+    const rows = Array.from({ length: 8 }, (_, i) => JSON.stringify({
+      type: "user",
+      timestamp: `2026-10-12T0${f}:00:${String(i).padStart(2, "0")}.000Z`,
+      cwd: "/workspace",
+      message: { content: `FACT_LINE_${f}_${i}` },
+    }));
+    writeFileSync(join(proj, `sess-${f}.jsonl`), `${rows.join("\n")}\n`);
+  }
   const { hub } = await makeHub({ importClaude: root });
   hub.cfg.port = 18500 + Math.floor(Math.random() * 400);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });

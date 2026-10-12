@@ -120,6 +120,30 @@ export class Memory {
     reason?: string;
     recall?: Citation[];
   }): Message {
+    const msg = this.writeLine(partial);
+    if (this.viewBytesUsed() > this.viewHigh) this.fit();
+    else this.saveView();
+    this.notify();
+    void this.pump();
+    return msg;
+  }
+
+  ingest(partials: Array<Parameters<Memory["append"]>[0]>): Message[] {
+    if (!partials.length) return [];
+    this.muteChange = true;
+    const out: Message[] = [];
+    try {
+      for (const partial of partials) out.push(this.writeLine(partial));
+      if (this.viewBytesUsed() > this.viewHigh) this.fit();
+      else this.saveView();
+    } finally {
+      this.muteChange = false;
+    }
+    this.notify();
+    return out;
+  }
+
+  private writeLine(partial: Parameters<Memory["append"]>[0]): Message {
     if (!MEMORY_KINDS.has(partial.kind)) {
       throw new Error(`memory does not store ${partial.kind} steps`);
     }
@@ -148,10 +172,6 @@ export class Memory {
     persistLine(join(this.dir, "log.jsonl"), msg);
     this.view.push(this.partFromLevel(0, msg.i));
     this.enqueue(0, msg.i);
-    if (this.viewBytesUsed() > this.viewHigh) this.fit();
-    else this.saveView();
-    this.notify();
-    void this.pump();
     return msg;
   }
 
