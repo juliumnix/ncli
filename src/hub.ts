@@ -88,6 +88,8 @@ export class Hub {
       compressor: this.compressor,
       cwd: cfg.repo,
       pumpBatch: cfg.compactBatch,
+      deferCutAfter: cfg.compactTries,
+      compressTimeoutMs: cfg.compactTimeoutMs,
     });
     this.memory = this.spaces.current();
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId));
@@ -446,8 +448,8 @@ export class Hub {
   }
 
   private async turn(userText: string, retried = false): Promise<void> {
-    void this.memory.pump();
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
+    void this.memory.pump();
     const ctx = this.spaces.assemble(this.cfg.repo);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;
@@ -457,7 +459,7 @@ export class Hub {
     const inbox = this.bus.drainPrompt("main");
     try {
       for await (const ev of this.harness.run({
-        prompt: `${inbox}${ctx.view}\n\n${userText}`,
+        prompt: `${ctx.view}\n\n${inbox}${userText}`,
         system: ctx.system,
         cwd: this.cfg.repo,
         session: "main",

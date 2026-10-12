@@ -20,7 +20,7 @@ test("wrap injects NCLI tokens, CSP, chart helper and height reporter", () => {
   const html = wrapUiSource("<div class='tabs'><button class='on'>Visão</button></div>");
   expect(html).toContain("default-src 'none'");
   expect(html).toContain("frame-ancestors 'none'");
-  expect(html).toContain("--accent:#c2603d");
+  expect(html).toContain("--accent:#6ea4ff");
   expect(html).toContain("ncliChart");
   expect(html).toContain("ncliUi");
   expect(html).toContain("ncli-ui");

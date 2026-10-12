@@ -70,12 +70,13 @@ test("diffContext of two 1x plus a built parent is one merge", async () => {
   expect(after.every((r) => r.built)).toBe(true);
 });
 
-test("badgeTone stays on the NCLI terracotta accent", () => {
-  expect(badgeTone(1).toLowerCase()).toBe("#3d3330");
+test("badgeTone stays on the gray ramp, never a harness color", () => {
+  expect(badgeTone(1).toLowerCase()).toBe("#2b2b31");
   expect(badgeTone(1).toLowerCase()).not.toBe("#28a745");
-  expect(badgeTone(64).toLowerCase()).toBe("#c2603d");
+  expect(badgeTone(64).toLowerCase()).toBe("#6b6b75");
   expect(badgeTone(256)).toMatch(/^#[0-9a-f]{6}$/i);
   expect(badgeTone(256)).not.toBe(badgeTone(1));
+  expect(badgeTone(64).toLowerCase()).not.toBe("#d97757");
 });
 
 test("relativeTime speaks Portuguese", () => {

@@ -10,6 +10,15 @@ export function cutUtf8(s: string, max: number): string {
   return new TextDecoder().decode(bytes.slice(0, end));
 }
 
+export function keepRecent(s: string, max: number): string {
+  const bytes = new TextEncoder().encode(s);
+  if (bytes.length <= max) return s;
+  let start = bytes.length - max;
+  while (start < bytes.length && (bytes[start] & 0b1100_0000) === 0b1000_0000) start++;
+  const out = new TextDecoder().decode(bytes.slice(start));
+  return out || "…";
+}
+
 export function isPowerOfTwo(n: number): boolean {
   return n >= 1 && (n & (n - 1)) === 0;
 }

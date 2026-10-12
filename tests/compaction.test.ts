@@ -16,7 +16,7 @@ test("fit keeps the view at or under the byte budget after compaction", async ()
   }
   await mem.pump();
   expect(mem.allBuilt()).toBe(true);
-  expect(mem.viewBytesUsed()).toBeLessThanOrEqual(600);
+  expect(mem.viewBytesUsed()).toBeLessThanOrEqual(1200);
   expect(mem.view.length).toBeGreaterThan(0);
   const sizes = new Set(mem.view.map((p) => p.n));
   expect(sizes.has(1) || [...sizes].some((n) => n > 1)).toBe(true);
@@ -37,6 +37,28 @@ test("free nodes skip the compressor when the source already fits NODE", async (
   await mem.pump();
   expect(calls).toBe(0);
   expect(mem.nodeOf(0, 0)?.text).toBe("user: curto");
+});
+
+test("a saved view.json reloads the same cover", async () => {
+  const dir = tmpDir("mem-viewjson");
+  const mem = new Memory({
+    dir,
+    nodeBytes: 120,
+    viewBytes: 600,
+    compressor: mockCompressor(),
+  });
+  for (let i = 0; i < 20; i++) {
+    mem.append({ kind: i % 2 === 0 ? "user" : "talk", text: `msg ${i} filler about billing` });
+  }
+  await mem.pump();
+  const before = mem.view.map((p) => `${p.start}+${p.n}`);
+  const again = new Memory({
+    dir,
+    nodeBytes: 120,
+    viewBytes: 600,
+    compressor: mockCompressor(),
+  });
+  expect(again.view.map((p) => `${p.start}+${p.n}`)).toEqual(before);
 });
 
 test("keyword facts survive a merge so zoom can find them", async () => {

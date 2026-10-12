@@ -126,7 +126,9 @@ test("posts are prepended to the next main-chat prompt", async () => {
     expect(hub.memory.log.some((m) => m.kind === "bus" && m.text.includes("Codex → NCLI"))).toBe(true);
     await hub.send("e aí?");
     const prompt = harness.lastPrompts.at(-1) ?? "";
-    expect(prompt.startsWith("<inbox>")).toBe(true);
+    expect(prompt.startsWith("<chat>")).toBe(true);
+    expect(prompt).toContain("<inbox>");
+    expect(prompt.indexOf("<chat>")).toBeLessThan(prompt.indexOf("<inbox>"));
     expect(prompt).toContain("diff ok, member only");
   } finally {
     hub.close();
