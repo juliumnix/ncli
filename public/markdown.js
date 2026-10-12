@@ -108,8 +108,14 @@
 
   function inline(src, streaming) {
     let s = escapeHtml(holdCodes(src, streaming));
-    s = s.replace(/!\[([^\]]*)\]\((https?:[^)\s]+)\)/g, '<img alt="$1" src="$2">');
-    s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" rel="noreferrer" target="_blank">$1</a>');
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt, url) => {
+      const href = safeHref(url);
+      return href ? `<img alt="${alt}" src="${escapeHtml(href)}">` : alt;
+    });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => {
+      const href = safeHref(url);
+      return href ? `<a href="${escapeHtml(href)}" rel="noreferrer" target="_blank">${label}</a>` : label;
+    });
     s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
     if (!streaming || evenMarkers(src, "*")) s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
@@ -151,6 +157,33 @@
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
+  }
+
+  function decodeHtmlEntities(raw) {
+    return String(raw).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, ent) => {
+      if (/^#x/i.test(ent)) {
+        const n = Number.parseInt(ent.slice(2), 16);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : all;
+      }
+      if (ent.startsWith("#")) {
+        const n = Number.parseInt(ent.slice(1), 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : all;
+      }
+      const named = { amp: "&", quot: '"', lt: "<", gt: ">", apos: "'", colon: ":" };
+      return named[String(ent).toLowerCase()] || all;
+    });
+  }
+
+  function safeHref(raw) {
+    const t = decodeHtmlEntities(String(raw)).trim();
+    if (!t || t.startsWith("//")) return null;
+    if (t.startsWith("#") || t.startsWith("/") || t.startsWith("view://")) return t;
+    try {
+      const u = new URL(t);
+      return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+    } catch {
+      return null;
+    }
   }
 
   function escapeAttr(s) {

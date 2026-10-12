@@ -59,6 +59,8 @@ bun run ncli view remove checkout
 
 Private git uses the caller's `git` / `gh` credentials (`GH_TOKEN`, `GIT_ASKPASS`, `ssh-agent`). HTTPS GitHub URLs go through `gh auth git-credential` when `gh` is on PATH. The clone sets `GIT_TERMINAL_PROMPT=0` so a missing login fails instead of hanging. Install and open fail with a clear error if none of `requires.harnesses` exist on this host (`view echo@1.0.0 exige cursor; neste host: mock`).
 
+`render()` HTML is sanitized at the hub: `href` / `src` / `action` keep only `http(s)`, `#`, `/`, or `view://`. `escapeHtml` is for text, not URLs. `javascript:` is stripped.
+
 Or drop the folder into `views/<name>/` yourself. Same schema check on the next load.
 
 ## Check

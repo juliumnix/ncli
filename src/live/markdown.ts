@@ -1,3 +1,5 @@
+import { escapeHtml, safeHref } from "../util";
+
 const FENCE = /```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)```/g;
 const OPEN_FENCE = /```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*)$/;
 
@@ -104,8 +106,14 @@ function fenceHtml(lang: string, code: string, open = false): string {
 
 function inline(src: string, streaming: boolean): string {
   let s = escapeHtml(holdCodes(src, streaming));
-  s = s.replace(/!\[([^\]]*)\]\((https?:[^)\s]+)\)/g, '<img alt="$1" src="$2">');
-  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" rel="noreferrer" target="_blank">$1</a>');
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt: string, url: string) => {
+    const href = safeHref(url);
+    return href ? `<img alt="${alt}" src="${escapeHtml(href)}">` : alt;
+  });
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, url: string) => {
+    const href = safeHref(url);
+    return href ? `<a href="${escapeHtml(href)}" rel="noreferrer" target="_blank">${label}</a>` : label;
+  });
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
   if (!streaming || evenMarkers(src, "*")) s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
@@ -139,14 +147,6 @@ function highlight(code: string, lang: string): string {
     .replace(/\b(const|let|var|function|return|if|else|for|while|class|export|import|from|async|await|type|interface|new|throw|try|catch)\b/g, "<span class=\"kw\">$1</span>")
     .replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g, "<span class=\"str\">$1</span>")
     .replace(/\b(\d+(?:\.\d+)?)\b/g, "<span class=\"num\">$1</span>");
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function escapeAttr(s: string): string {

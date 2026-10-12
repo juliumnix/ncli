@@ -8,7 +8,7 @@ test("renders bold, italic, code, lists, links and tables", () => {
   expect(html).toContain("<code>code</code>");
   expect(html).toContain("<ul>");
   expect(html).toContain("<li>one</li>");
-  expect(html).toContain('href="https://example.com"');
+  expect(html).toContain('href="https://example.com/"');
   expect(html).toContain("<table>");
   expect(html).toContain("<td>1</td>");
   expect(html).not.toContain("**bold**");
@@ -49,6 +49,7 @@ test("the browser markdown copy keeps the same identifier rules", async () => {
   expect(html).not.toContain("<em>");
   expect(html).not.toContain("FACTMEMBERDISCOUNTBEFORETAX");
   expect(g.renderMarkdown!("isso é _ênfase_ de verdade")).toContain("<em>ênfase</em>");
+  expect(g.renderMarkdown!("[x](javascript:alert(1))")).not.toMatch(/href=["']?javascript:/i);
 });
 
 test("an open fence streams as a code block instead of leaking backticks", () => {
