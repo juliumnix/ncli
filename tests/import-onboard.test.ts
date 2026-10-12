@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub } from "./helpers";
+import { makeHub, waitUntil } from "./helpers";
 
 const CLAUDE = join(import.meta.dir, "../fixtures/import/claude/projects");
 const SHOTS = "/opt/cursor/artifacts/screenshots";
@@ -17,16 +17,14 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
-    await driver.session.evaluate(`new Promise((resolve) => {
-      const ready = () => {
+    await waitUntil(
+      () => driver.session.evaluate(`(() => {
         const bar = document.getElementById("ibar");
         return Boolean(document.querySelector(".welcome") && bar && !bar.hidden && bar.querySelector("[data-import-apply]"));
-      };
-      if (ready()) return resolve(true);
-      const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => resolve(Boolean(ready())), 6000);
-    })`);
+      })()`),
+      8000,
+      "welcome and import bar",
+    );
     const facts = await driver.session.evaluate<{
       welcome: string;
       barHidden: boolean;
