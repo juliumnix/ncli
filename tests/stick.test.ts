@@ -5,7 +5,9 @@ import {
   floorTop,
   nearBottom,
   onChatScroll,
+  shouldMarkUserUp,
   shouldPin,
+  startFollow,
 } from "../src/ui/stick";
 
 test("nearBottom is true only when the leftover scroll is within the slop", () => {
@@ -115,4 +117,10 @@ test("user scroll back to the floor turns follow on again", () => {
 test("open at bottom snaps to the floor, not one lerp frame", () => {
   expect(floorTop(2606, 900)).toBe(1706);
   expect(floorTop(400, 800)).toBe(0);
+});
+
+test("wheel at the top does not mark user-up; a jump clears it", () => {
+  expect(shouldMarkUserUp(0)).toBe(false);
+  expect(shouldMarkUserUp(1)).toBe(true);
+  expect(startFollow()).toEqual({ follow: true, userUp: false });
 });

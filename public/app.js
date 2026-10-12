@@ -57,6 +57,7 @@ function snapToFloor() {
     cancelAnimationFrame(scrollRaf);
     scrollRaf = 0;
   }
+  userUp = false;
   stick.follow = true;
   setChatTop(Math.max(0, chat.scrollHeight - chat.clientHeight));
 }
@@ -65,13 +66,19 @@ function bindChatFloor() {
   if (!chat || !log || typeof ResizeObserver === "undefined") return;
   const ro = new ResizeObserver(() => {
     if (stick.follow) snapToFloor();
+    paintScrollHints();
   });
   ro.observe(log);
   ro.observe(chat);
 }
 
 function markUserUp() {
-  userUp = true;
+  if (chat && chat.scrollTop > 0) userUp = true;
+}
+
+function dropStreamNode() {
+  if (!log) return;
+  for (const n of [...log.querySelectorAll(".m.stream")]) n.remove();
 }
 
 function pinNewAnswer() {
@@ -661,7 +668,9 @@ function scheduleFullPaint() {
 function paintLive() {
   const turn = state.turn;
   if (!turn || turn.status !== "running") {
+    dropStreamNode();
     renderChat();
+    paintScrollHints();
     return;
   }
   const html = liveTurnHtml(turn);
@@ -714,6 +723,7 @@ function paintScrollHints() {
 }
 
 function jumpToLatest() {
+  userUp = false;
   stick.follow = true;
   followScroll();
   paintScrollHints();
@@ -1572,6 +1582,7 @@ function applyEvent(ev) {
         renderChrome();
         if (ev.turn && ev.turn.status !== "running") {
           state.stream = "";
+          dropStreamNode();
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
             state.lastTurn = ev.turn;
           }
@@ -2003,7 +2014,19 @@ chat.addEventListener("scroll", () => {
   paintScrollHints();
 }, { passive: true });
 bindChatFloor();
+bindComposerModality();
 $("jumpLatest")?.addEventListener("click", jumpToLatest);
+
+function bindComposerModality() {
+  const form = $("form");
+  if (!form) return;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") form.classList.add("from-key");
+  });
+  document.addEventListener("pointerdown", () => {
+    form.classList.remove("from-key");
+  });
+}
 window.addEventListener("resize", () => {
   measureComposer();
   if (stick.follow) followScroll();

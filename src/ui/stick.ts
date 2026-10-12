@@ -44,6 +44,14 @@ export function shouldPin(stick: Stick): boolean {
   return stick.follow;
 }
 
+export function shouldMarkUserUp(scrollTop: number): boolean {
+  return scrollTop > 0;
+}
+
+export function startFollow(): { follow: true; userUp: false } {
+  return { follow: true, userUp: false };
+}
+
 export function followFrame(cur: number, target: number, k = 0.22): { next: number; done: boolean } {
   const next = cur + (target - cur) * k;
   if (Math.abs(target - next) < 0.6) return { next: target, done: true };
