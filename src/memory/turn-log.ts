@@ -5,3 +5,7 @@ export function toolActivityLine(names: string[]): string | undefined {
   const parts = [...counts].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
   return `tools: ${parts.join(", ")}`;
 }
+
+export function isToolDiaryNote(text: string): boolean {
+  return /^tools:\s/i.test(text);
+}

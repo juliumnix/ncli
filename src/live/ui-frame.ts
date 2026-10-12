@@ -1,10 +1,10 @@
 export const NCLI_UI_TOKENS = {
-  bg: "#0e0e0f",
-  card: "#161618",
-  line: "#262628",
-  fg: "#ececec",
-  muted: "#8a8a8a",
-  accent: "#c2603d",
+  bg: "#0f0f11",
+  card: "#151518",
+  line: "#2b2b31",
+  fg: "#eeeef0",
+  muted: "#a8a8b3",
+  accent: "#6ea4ff",
 } as const;
 
 export const UI_CSP =
@@ -64,7 +64,7 @@ h1,h2,h3{font-size:15px;font-weight:600;margin:0 0 10px}
 .muted,.hint{color:var(--muted)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
 .tabs button{appearance:none;border:0;background:transparent;color:var(--muted);padding:6px 10px;border-radius:999px;font:12px/1.2 inherit;cursor:pointer}
-.tabs button.on{color:var(--fg);background:#2a2422;box-shadow:inset 0 -2px 0 var(--accent)}
+.tabs button.on{color:var(--fg);background:var(--card);box-shadow:inset 0 -2px 0 var(--accent)}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:0 0 14px}
 .metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .metric b{display:block;font-size:18px}
@@ -73,9 +73,9 @@ table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-size:12px}
 th{color:var(--muted);font-weight:600}
 .badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.02em}
-.badge.ok{background:#243028;color:#b7d4bf}
-.badge.warn{background:#2a2618;color:#e6d39a}
-.badge.bad{background:#2a1c1c;color:#e8b4b4}
+.badge.ok{background:#162520;color:#4cc38a}
+.badge.warn{background:#292318;color:#e8b54a}
+.badge.bad{background:#2a1b1e;color:#f2777a}
 .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}
 .gallery .ph{height:140px;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 input[type=range]{width:100%;accent-color:var(--accent)}
