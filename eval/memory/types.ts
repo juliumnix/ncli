@@ -47,10 +47,13 @@ export interface EvalReport {
   needles: NeedleReport[];
   recallAtLevel: Record<string, number>;
   viewPresence: number;
+  leafPresence: number;
   reachability: number;
   invented: number;
   compactCalls: number;
   settled: boolean;
+  quiescent: boolean;
+  deferred: number;
 }
 
 export interface MetricStats {
@@ -63,6 +66,7 @@ export interface EvalAggregate {
   n: number;
   compressor: string;
   viewPresence: MetricStats;
+  leafPresence: MetricStats;
   reachability: MetricStats;
   invented: MetricStats;
   compactCalls: MetricStats;

@@ -34,7 +34,7 @@ test("at T=10 last-due prefers 8-9 and first-due prefers 0-7", () => {
   expect(firstDue(10, 2, 0)).toBeGreaterThan(firstDue(10, 0, 8));
 });
 
-test("incremental last-due matches pushView; first-due matches 481 times through T=20000", () => {
+test("incrementalView last-due matches pushView; first-due matches 481 times through T=20000. This is the due function, not Memory.fit", () => {
   const targetAt = (T: number) => pushView(T).length;
   const last = incrementalView(20_000, pairDue, targetAt);
   const first = incrementalView(20_000, firstDue, targetAt);
@@ -57,7 +57,8 @@ test("Memory.fit at T=10 merges 8-9, not 0-7", async () => {
     compressor: mockCompressor(),
   });
   for (let i = 0; i < 10; i++) mem.append({ kind: "user", text: `m${i}` });
-  await mem.settle();
+  await mem.pump();
+  await mem.settleQuiescent(5_000);
   expect(mem.nodeOf(3, 0)).toBeDefined();
   expect(mem.nodeOf(1, 4)).toBeDefined();
   const left = mem.nodeOf(2, 0)!;
@@ -84,4 +85,25 @@ test("Memory.fit at T=10 merges 8-9, not 0-7", async () => {
   (mem as { viewBytes: number }).viewBytes = 81;
   mem.fit();
   expect(mem.view.map((p) => `${p.start}+${p.n}`)).toEqual(["0+4", "4+4", "8+2"]);
+});
+
+test("Memory.fit with uniform nodes is a byte sawtooth, not pushView", async () => {
+  const mem = new Memory({
+    dir: tmpDir("fit-vs-push"),
+    nodeBytes: 40,
+    viewBytes: 200,
+    compressor: mockCompressor(),
+  });
+  let hits = 0;
+  const maxT = 200;
+  for (let T = 1; T <= maxT; T++) {
+    mem.append({ kind: "user", text: `m${String(T).padStart(3, "0")}` });
+    await mem.settle(2_000);
+    mem.fit();
+    const cover = mem.view.map((p) => ({ start: p.start, n: p.n }));
+    const push = pushView(T);
+    if (same(cover, push)) hits += 1;
+  }
+  expect(hits).toBeLessThan(maxT);
+  expect(hits).toBe(5);
 });

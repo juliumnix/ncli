@@ -444,8 +444,9 @@ export class Hub {
 
   private async turn(userText: string, retried = false): Promise<void> {
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
+    this.compressor.flush?.();
     void this.memory.pump();
-    const cap = Math.min(Math.max(this.cfg.compactSettleMs, 0), 500);
+    const cap = Math.max(this.cfg.compactSettleMs, 0);
     await this.memory.waitForInFlight({
       timeoutMs: this.memory.hasInFlight() ? cap : 0,
       signal: this.abort?.signal,

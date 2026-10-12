@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { flattenLine, keepRecent } from "../../src/util";
 import { Memory, mockCompressor, type Compressor } from "../../src/memory/store";
 import { generateTranscript } from "./generator";
 import type { EvalAggregate, EvalReport, MetricStats, Needle, NeedleReport } from "./types";
@@ -14,7 +15,7 @@ export interface EvalOpts {
   label?: string;
 }
 
-const TOKEN_RE = /[A-Z][A-Z0-9_]{7,}|\b\d{3,}\b|\/[\w./-]+|[a-z]+(?:[ -][a-z0-9]+){1,3}/g;
+const INVENTED_RE = /[A-Z][A-Z0-9_]{7,}|\b\d{3,}\b|\/[\w./-]+/g;
 
 function hopTo(mem: Memory, id: number): { hops: number; reached: boolean } {
   const cover = mem.view.find((p) => p.start <= id && id < p.start + p.n);
@@ -55,7 +56,7 @@ function inventedCount(mem: Memory): number {
     const start = i * 2 ** l;
     const end = Math.min(start + 2 ** l, mem.T);
     const source = mem.log.slice(start, end).map((m) => m.text).join("\n");
-    const tokens = node.text.match(TOKEN_RE) ?? [];
+    const tokens = node.text.match(INVENTED_RE) ?? [];
     for (const tok of tokens) {
       if (!source.includes(tok)) bad += 1;
     }
@@ -90,8 +91,13 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
   for (const line of transcript.lines) {
     mem.append({ kind: line.kind, text: line.text });
   }
-  const settled = await mem.settle(30_000);
   await mem.pump();
+  const settled = await mem.settle(30_000);
+  const quiescent = await mem.settleQuiescent(30_000);
+  if (!quiescent || mem.deferredCount() > 0) {
+    throw new Error(`memory eval tree is not quiescent deferred=${mem.deferredCount()} pending=${mem.pendingCount()}`);
+  }
+  mem.fit();
   const view = mem.renderView();
   const needles: NeedleReport[] = transcript.needles.map((needle) => {
     const inLog = mem.log.some((m) => needle.tokens.some((tok) => m.text.includes(tok)));
@@ -118,10 +124,10 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
     const hit = scored.filter((nrep) => nrep.levelHits[l]).length;
     recallAtLevel[l] = scored.length ? hit / scored.length : 0;
   }
-  const scored = needles.filter((nrep) => nrep.id !== "space");
-  const viewPresence = scored.length ? scored.filter((nrep) => nrep.inView).length / scored.length : 0;
-  const logNeedles = scored.filter((nrep) => nrep.inLog);
-  const reachability = logNeedles.length ? logNeedles.filter((nrep) => nrep.reachedLeaf).length / logNeedles.length : 0;
+  const scored = needles.filter((nrep) => nrep.inLog && nrep.id !== "space");
+  const viewPresence = scored.length ? scored.filter((nrep) => nrep.answerInView).length / scored.length : 0;
+  const leafPresence = scored.length ? scored.filter((nrep) => nrep.levelHits["0"]).length / scored.length : 0;
+  const reachability = scored.length ? scored.filter((nrep) => nrep.reachedLeaf).length / scored.length : 0;
   return {
     at: new Date().toISOString(),
     seed,
@@ -132,10 +138,13 @@ export async function runMemoryEval(opts: EvalOpts): Promise<EvalReport> {
     needles,
     recallAtLevel,
     viewPresence,
+    leafPresence,
     reachability,
     invented: inventedCount(mem),
     compactCalls,
     settled,
+    quiescent,
+    deferred: mem.deferredCount(),
   };
 }
 
@@ -153,6 +162,7 @@ export async function runMemoryEvalSeeds(opts: EvalOpts & { seeds: number[] }): 
     n: opts.n ?? 300,
     compressor: opts.label ?? "mock",
     viewPresence: stats(reports.map((r) => r.viewPresence)),
+    leafPresence: stats(reports.map((r) => r.leafPresence)),
     reachability: stats(reports.map((r) => r.reachability)),
     invented: stats(reports.map((r) => r.invented)),
     compactCalls: stats(reports.map((r) => r.compactCalls)),
@@ -167,11 +177,21 @@ export function stats(values: number[]): MetricStats {
   return { mean, stddev: Math.sqrt(variance) };
 }
 
+export function ciLow(s: MetricStats, n: number, z = 1.96): number {
+  if (n <= 0) return s.mean;
+  return s.mean - z * (s.stddev / Math.sqrt(n));
+}
+
+export function ciHigh(s: MetricStats, n: number, z = 1.96): number {
+  if (n <= 0) return s.mean;
+  return s.mean + z * (s.stddev / Math.sqrt(n));
+}
+
 export function formatEvalTable(report: EvalReport): string {
   const rows = [
-    `memory:eval n=${report.n} seed=${report.seed} compressor=${report.compressor} settled=${report.settled}`,
+    `memory:eval n=${report.n} seed=${report.seed} compressor=${report.compressor} settled=${report.settled} quiescent=${report.quiescent} deferred=${report.deferred}`,
     `view ${report.viewBytes}B · node ${report.nodeBytes}B · compactCalls ${report.compactCalls} · invented ${report.invented}`,
-    `viewPresence ${(report.viewPresence * 100).toFixed(1)}% · reachability ${(report.reachability * 100).toFixed(1)}%`,
+    `viewPresence ${(report.viewPresence * 100).toFixed(1)}% · leafPresence ${(report.leafPresence * 100).toFixed(1)}% · reachability ${(report.reachability * 100).toFixed(1)}%`,
     `recall@level ${Object.entries(report.recallAtLevel).map(([l, v]) => `l${l}=${(v * 100).toFixed(0)}%`).join(" ")}`,
     ...report.needles.map((n) => `  ${n.id} log=${n.inLog} view=${n.inView} leaf=${n.reachedLeaf} answer=${n.answerInLeaf} hops=${n.hops ?? "-"}`),
   ];
@@ -182,7 +202,7 @@ export function formatEvalAggregate(agg: EvalAggregate): string {
   const pct = (s: MetricStats) => `${(s.mean * 100).toFixed(1)}% ± ${(s.stddev * 100).toFixed(1)}`;
   return [
     `memory:eval n=${agg.n} seeds=${agg.seeds.join(",")} compressor=${agg.compressor}`,
-    `viewPresence ${pct(agg.viewPresence)} · reachability ${pct(agg.reachability)}`,
+    `viewPresence ${pct(agg.viewPresence)} · leafPresence ${pct(agg.leafPresence)} · reachability ${pct(agg.reachability)}`,
     `invented ${agg.invented.mean.toFixed(2)} ± ${agg.invented.stddev.toFixed(2)} · compactCalls ${agg.compactCalls.mean.toFixed(1)} ± ${agg.compactCalls.stddev.toFixed(1)}`,
   ].join("\n");
 }
@@ -195,9 +215,16 @@ export function writeEvalReport(report: EvalReport, dir: string, name: string): 
 }
 
 export function fakeCursorRunner(prompt: string): string {
-  const blocks = [...prompt.matchAll(/<input>\n([\s\S]*?)\n<\/input>/g)].map((m) => m[1] ?? "");
-  return blocks.map((src, i) => {
-    const kept = (src.match(TOKEN_RE) ?? []).slice(0, 8).join(" ");
-    return `${i + 1}. ${kept || src.slice(0, 80)}`;
+  const jobs = [...prompt.matchAll(/### (\d+) \(max (\d+) bytes\)[\s\S]*?<input>\n([\s\S]*?)\n<\/input>/g)];
+  if (!jobs.length) {
+    return [...prompt.matchAll(/<input>\n([\s\S]*?)\n<\/input>/g)]
+      .map((m, i) => `${i + 1}. ${keepRecent(flattenLine(m[1] ?? ""), 280)}`)
+      .join("\n");
+  }
+  return jobs.map((m) => {
+    const n = m[1];
+    const max = Number(m[2]);
+    const src = flattenLine(m[3] ?? "");
+    return `${n}. ${keepRecent(src, Number.isFinite(max) && max > 0 ? max : 280)}`;
   }).join("\n");
 }

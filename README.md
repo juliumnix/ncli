@@ -59,7 +59,7 @@ Optional env:
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
-| `NCLI_COMPACT_SETTLE` | `400` | max milliseconds a turn waits when a compact job is actually in flight. Deferred or cooled nodes do not block |
+| `NCLI_COMPACT_SETTLE` | `400` | max milliseconds a turn waits when a compact job is actually in flight. The debounce flushes first. If nothing is in flight the wait is 0 |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |

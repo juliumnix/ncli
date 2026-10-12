@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { assemble } from "../src/memory/assemble";
+import { CompactDeferred } from "../src/memory/compact-deferred";
 import { Memory } from "../src/memory/store";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -39,6 +40,46 @@ test("a settle timeout paints the recipe placeholder, never a raw excerpt", asyn
   expect(mem.viewLines()).toEqual([`0+1|${PLACEHOLDER}`]);
   expect(assemble(mem).system).toContain(PLACEHOLDER);
   expect(assemble(mem).system).not.toContain("short raw excerpt");
+});
+
+test("a burst of raw leaves cannot keep the cover above the 2x ceiling", async () => {
+  const mem = new Memory({
+    dir: tmpDir("view-cap"),
+    nodeBytes: 280,
+    viewBytes: 2500,
+    compressor: async (input) => {
+      if (input.kind === "merge") throw new CompactDeferred();
+      return input.source.slice(-280);
+    },
+  });
+  const pad = "padding about billing lint chores and the sprint status of this repo. ".repeat(4);
+  for (let i = 0; i < 30; i++) {
+    mem.append({ kind: "user", text: `${pad} msg ${i}` });
+  }
+  await mem.pump();
+  mem.fit();
+  expect(mem.viewBytesUsed()).toBeLessThanOrEqual(mem.viewHigh);
+  expect(assemble(mem).bytes).toBeLessThanOrEqual(mem.viewHigh);
+});
+
+test("settle stays registered across notifies until the cover is built", async () => {
+  let release!: (s: string) => void;
+  const gate = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const mem = new Memory({
+    dir: tmpDir("settle-waiters"),
+    nodeBytes: 40,
+    viewBytes: 8000,
+    compressor: async () => gate,
+  });
+  mem.append({ kind: "user", text: `long pending ${"x".repeat(80)}` });
+  const waiting = mem.settle(5_000);
+  await Bun.sleep(20);
+  expect(mem.allBuilt()).toBe(false);
+  release("done line for the waiter");
+  expect(await waiting).toBe(true);
+  expect(mem.allBuilt()).toBe(true);
 });
 
 test("the turn prompt is view, then inbox, then the user line", async () => {
