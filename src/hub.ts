@@ -252,7 +252,7 @@ export class Hub {
       compact: this.compact,
       turning: this.turning,
       queue: this.queue.list(),
-      usage: this.usage.snapshot(),
+      usage: this.usageSnap(),
       import: this.lastImport,
       clis: detectClis(this.cfg),
     };
@@ -578,7 +578,7 @@ export class Hub {
   setUsagePolicy(seat: HarnessKind, policy: LimitPolicy): ReturnType<UsageBoard["snapshot"]> {
     this.usage.setPolicy(seat, policy);
     this.emitUsage();
-    return this.usage.snapshot();
+    return this.usageSnap();
   }
 
   onUsageReset(seat: HarnessKind): void {
@@ -606,7 +606,7 @@ export class Hub {
   }
 
   private nextOpenSeat(from: HarnessKind): HarnessKind | undefined {
-    const found = this.usage.nextOpen(from);
+    const found = this.usage.nextOpen(from, detectClis(this.cfg));
     if (found) return found;
     const backup = this.cfg.backupHarness;
     if (isSeatKind(backup) && backup !== from && backup !== "auto" && this.usage.limitOf(backup).status === "ok") {
@@ -615,8 +615,12 @@ export class Hub {
     return undefined;
   }
 
+  private usageSnap() {
+    return this.usage.snapshot(this.harness.id as HarnessKind, detectClis(this.cfg));
+  }
+
   private emitUsage(): void {
-    this.emit({ type: "usage", usage: this.usage.snapshot() });
+    this.emit({ type: "usage", usage: this.usageSnap() });
   }
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
