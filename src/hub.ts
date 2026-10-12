@@ -501,7 +501,7 @@ export class Hub {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
         const seat = seatFromId(this.harness.id);
-        const citations = verifyCitations(talk, this.recalls);
+        const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
         const msg = this.memory.append({
           kind: "talk",
           text: talk,
@@ -597,15 +597,26 @@ export class Hub {
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
     const mem = this.memoryForTool(from, args.space);
+    const space = this.spaceIdOf(from);
     switch (name) {
       case "zoom": {
         const r = mem.zoom(Number(args.id), Number(args.n));
-        return r.ok ? r.lines.join("\n") : r.error;
+        if (!r.ok) return r.error;
+        this.noteRecall("zoom", args, space);
+        return r.lines.join("\n");
       }
-      case "date":
-        return mem.dateOf(Number(args.id));
-      case "recall":
-        return mem.recall(String(args.pattern ?? "")).join("\n") || "No match.";
+      case "date": {
+        const out = mem.dateOf(Number(args.id));
+        if (out.startsWith("No message")) return out;
+        this.noteRecall("date", args, space);
+        return out;
+      }
+      case "recall": {
+        const out = mem.recall(String(args.pattern ?? "")).join("\n") || "No match.";
+        if (out === "No match." || out.startsWith("bad regex:")) return out;
+        this.noteRecall("recall", args, space);
+        return out;
+      }
       case "supersede": {
         const old = parseIds(args.old);
         const reason = String(args.reason ?? "").trim();
@@ -701,7 +712,6 @@ export class Hub {
         break;
       case "tool": {
         tools.push(ev.name);
-        this.noteRecall(ev.name, (ev.input ?? {}) as Record<string, unknown>);
         this.emit({ type: "tool", session: "main", name: ev.name, input: ev.input });
         break;
       }
@@ -725,8 +735,12 @@ export class Hub {
     }
   }
 
-  private noteRecall(name: string, args: Record<string, unknown>): void {
-    const ev = recallFromTool(name, args, this.live?.id ?? "", nowIso());
+  private spaceIdOf(from: string): string {
+    return this.sparks.get(from) ? `spark:${from}` : this.spaces.currentId;
+  }
+
+  private noteRecall(name: string, args: Record<string, unknown>, space: string): void {
+    const ev = recallFromTool(name, args, this.live?.id ?? "", nowIso(), space);
     if (ev) this.recalls.push(ev);
   }
 

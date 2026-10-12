@@ -5,6 +5,7 @@ export type Successor = { by: number; reason: string };
 export function factsOf(log: readonly Message[]): Map<number, Successor> {
   const index = new Map<number, Successor>();
   for (const msg of log) {
+    if (!msg) continue;
     const olds = msg.supersedes;
     if (!olds?.length) continue;
     const by = msg.successor ?? msg.i;
