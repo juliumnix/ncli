@@ -23,7 +23,7 @@ import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
 import { SparkManager, mergeMessage } from "./sparks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
-import { nowIso, parseViewLink } from "./util";
+import { nowIso, parseViewLink, reviewPasteHint } from "./util";
 import { seedDemo } from "./demo";
 import type { GitRunner } from "./sparks/worktree";
 import { runNcli } from "./skills/scaffold";
@@ -279,6 +279,10 @@ export class Hub {
     const user = this.memory.append({ kind: "user", text: trimmed });
     this.emit({ type: "message", session: "main", message: user });
     if (await this.slash(trimmed)) return;
+    if (reviewPasteHint(trimmed)) {
+      await this.openLinks(trimmed);
+      return;
+    }
     this.turning = true;
     this.abort = new AbortController();
     this.beginLive();
