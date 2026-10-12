@@ -23,7 +23,7 @@ import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
 import { SparkManager, mergeMessage } from "./sparks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
-import { isLonePrUrl, missingPrTalk, nowIso, parseViewLink } from "./util";
+import { ghOpenTalk, isLonePrUrl, nowIso, parseViewLink } from "./util";
 import { seedDemo } from "./demo";
 import type { GitRunner } from "./sparks/worktree";
 import { runNcli } from "./skills/scaffold";
@@ -76,6 +76,7 @@ export class Hub {
     readonly fixturesDir: string,
     harness?: Harness,
     git?: GitRunner,
+    ghClient?: GhClient,
   ) {
     mkdirSync(cfg.dataDir, { recursive: true });
     this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
@@ -114,7 +115,7 @@ export class Hub {
       onLine: (line) => this.noteBus(line),
       onMcp: (name, args, from) => this.callMcp(name, args, from),
     });
-    const gh = pickGh(cfg, fixturesDir);
+    const gh = ghClient ?? pickGh(cfg, fixturesDir);
     this.sparks = new SparkManager(cfg, this.views, gh, {
       compressor: this.compressor,
       harness: this.harness,
@@ -442,9 +443,9 @@ export class Hub {
       try {
         const rt = await this.sparks.open(link.id, link.params);
         opened.push(rt.spark);
-      } catch {
+      } catch (err) {
         const text =
-          link.id === "review" ? missingPrTalk(link.params) : `Não abri ${link.id}. O hub segue no ar.`;
+          link.id === "review" ? ghOpenTalk(link.params, err) : `Não abri ${link.id}. O hub segue no ar.`;
         const talk = this.memory.append({
           kind: "talk",
           text,

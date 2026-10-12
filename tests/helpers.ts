@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig, type HarnessKind } from "../src/config";
 import { parseFallbackChain } from "../src/harness/usage";
+import type { GhClient } from "../src/gh/pr";
 import { Hub } from "../src/hub";
 import { MockHarness } from "../src/harness/mock";
 import type { Harness } from "../src/harness/types";
@@ -30,6 +31,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   importCodex?: string;
   importCursor?: string;
   repo?: string;
+  gh?: GhClient;
 } = {}): Promise<{ hub: Hub; repo: string; dataDir: string; harness: H }> {
   const dataDir = tmpDir("ncli-data");
   const repo = opts.repo ?? await initTempRepo();
@@ -56,6 +58,8 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     opts.viewsDir ?? join(import.meta.dir, "../views"),
     join(import.meta.dir, "../fixtures/gh"),
     harness,
+    undefined,
+    opts.gh,
   );
   await hub.start();
   return { hub, repo, dataDir, harness };
