@@ -1,6 +1,5 @@
 import { escapeHtml } from "../util";
 import type { LiveBlock, LiveKind } from "./parse";
-import { ncli3dSrc } from "./3d-frame";
 import { liveDocCss, uiKey, wrapUiSource } from "./ui-frame";
 
 const CSP =
@@ -19,7 +18,7 @@ export function frameHtml(block: LiveBlock): string {
     case "ui":
       return wrapUiSource(block.source);
     case "3d":
-      return ncli3dSrc(block.source);
+      return "/ncli3d.html";
     default: {
       const _n: never = block.kind;
       return String(_n);
@@ -29,8 +28,7 @@ export function frameHtml(block: LiveBlock): string {
 
 export function iframeTag(block: LiveBlock, id?: string): string {
   if (block.kind === "3d") {
-    const src = ncli3dSrc(block.source);
-    return `<iframe class="live-frame live-3d" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts allow-same-origin" src="${escapeHtml(src)}"></iframe>`;
+    return `<iframe class="live-frame live-3d" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts allow-same-origin" src="/ncli3d.html"></iframe>`;
   }
   if (block.kind === "url") {
     const href = safeUrl(block.source);

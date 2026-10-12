@@ -16,14 +16,9 @@ export function mount() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 40);
-  const renderer = new THREE.WebGLRenderer({
-    antialias: !reduced(),
-    alpha: false,
-    preserveDrawingBuffer: true,
-    failIfMajorPerformanceCaveat: false,
-  });
+  const renderer = new THREE.WebGLRenderer({ antialias: !reduced(), alpha: false });
   renderer.setClearColor(BG, 1);
-  renderer.setPixelRatio(1);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   host.appendChild(renderer.domElement);
 
   const parts = addDesk(scene);
