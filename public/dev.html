@@ -13,13 +13,25 @@
     .dev-page h2 { font-size: var(--text-sm); color: var(--fg-3); font-weight: 500; margin: 0 0 var(--s-4); }
     .dev-block { display: flex; flex-direction: column; gap: var(--s-4); }
     .dev-long { max-height: 220px; overflow: auto; }
+    body.dev-one .dev-page > h1,
+    body.dev-one .dev-page > .dev-block { display: none; }
+    body.dev-one .dev-page > .dev-block.on { display: flex; }
+    body.dev-one .dev-page { padding-top: 52px; }
   </style>
 </head>
 <body>
+  <header class="top">
+    <button class="burger" type="button">☰</button>
+    <span class="brand">NCLI</span>
+    <div class="top-cluster">
+      <span class="limit-ind" id="limitInd" hidden>limite · Claude</span>
+    </div>
+  </header>
+
   <main class="dev-page">
     <h1>Estados</h1>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="empty">
       <h2>vazio</h2>
       <div class="welcome">
         <p>NCLI</p>
@@ -27,14 +39,14 @@
       </div>
     </section>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="thinking">
       <h2>pensando</h2>
       <div class="live quiet">
         <div class="live-status"><span class="shimmer-text">Pensando…</span><span class="tdur">3s</span></div>
       </div>
     </section>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="streaming">
       <h2>streaming</h2>
       <div class="u">explica o desconto</div>
       <div class="m stream">
@@ -46,7 +58,31 @@
       </div>
     </section>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="long">
+      <h2>resposta longa</h2>
+      <div class="u">explica o desconto</div>
+      <div class="m">
+        <div class="av cl"><img alt="" src="/icons/claude.svg"></div>
+        <div class="bb">
+          <div class="nm ncl">Claude<span class="tm">22:41</span></div>
+          <div class="md">
+            <h2>Regra do desconto</h2>
+            <p>O desconto de member entra antes do imposto. Em ordem:</p>
+            <pre><code><span class="kw">function</span> apply(n) { <span class="kw">return</span> n * <span class="num">0.9</span> }</code></pre>
+            <table>
+              <thead><tr><th>etapa</th><th>entrada</th><th>saida</th></tr></thead>
+              <tbody>
+                <tr><td>subtotal</td><td>itens</td><td>120</td></tr>
+                <tr><td>member</td><td>120</td><td>108</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="work-disc"><button type="button" class="work-sum">Trabalhou por 1s · 4 passos</button></div>
+    </section>
+
+    <section class="dev-block" data-state="error">
       <h2>erro</h2>
       <div class="live-err">
         <div class="live-err-h">o card não abriu</div>
@@ -55,18 +91,18 @@
       <div class="note warn">Claude bateu no limite. Sem seat livre · volta 14:20.</div>
     </section>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="names">
       <h2>nomes longos</h2>
       <div class="m">
         <div class="av cl"><img alt="" src="/icons/claude.svg"></div>
         <div class="bb">
           <div class="nm ncl">Claude Code · claude-opus-4-7-thinking-max<span class="tm">22:41</span></div>
-          <div class="md"><p>view://review?pr=482</p></div>
+          <div class="md"><p><a class="vlink" href="#">view://review?pr=482</a></p></div>
         </div>
       </div>
     </section>
 
-    <section class="dev-block">
+    <section class="dev-block" data-state="list">
       <h2>lista enorme</h2>
       <div class="dev-long md">
         <ol>
@@ -78,11 +114,53 @@
           <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
           <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
           <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
-          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
-          <li>FACT_MEMBER_DISCOUNT_BEFORE_TAX</li>
         </ol>
       </div>
     </section>
+
+    <section class="dev-block" data-state="refino">
+      <h2>refino</h2>
+      <div class="modal" style="position:relative;opacity:1;transform:none;max-height:none">
+        <div class="mh"><b>refino #2</b> Card · Pickup scheduling <span class="chip y">2 perguntas pra você</span><span class="chip">score 0.78</span></div>
+        <div class="mbody">
+          <div class="sec">Pareceres</div>
+          <div class="m"><div class="av cl"><img alt="" src="/icons/claude.svg"></div>
+            <div class="bb"><div class="nm">Produto<i>Claude Code</i></div>Clear value: fewer calls to reschedule.</div></div>
+          <div class="sec">Esperando você</div>
+          <div class="q"><b>1.</b> Pickup after 16:00: block it, or let the store decide?<div class="opts">
+            <button type="button" class="chip opt">block</button>
+            <button type="button" class="chip opt">store decides</button>
+          </div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="dev-block" data-state="limit">
+      <h2>limite</h2>
+      <div class="note warn">Claude bateu no limite. Sem seat livre · volta 14:20.</div>
+    </section>
   </main>
+
+  <div class="dock">
+    <form class="composer" id="form">
+      <input id="input" autocomplete="off" placeholder="Pergunta ou /help" />
+      <button type="submit" class="send" aria-label="enviar">↑</button>
+    </form>
+  </div>
+
+  <script>
+    const q = new URLSearchParams(location.search);
+    const state = q.get("state");
+    if (state) {
+      document.body.classList.add("dev-one");
+      const block = document.querySelector('[data-state="' + state + '"]');
+      if (block) block.classList.add("on");
+      if (state === "limit") {
+        const chip = document.getElementById("limitInd");
+        if (chip) chip.hidden = false;
+      }
+      if (state === "focus") document.getElementById("input").focus();
+    }
+  </script>
 </body>
 </html>
