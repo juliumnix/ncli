@@ -16,7 +16,7 @@ function cfg(dir: string, extra: Record<string, unknown> = {}) {
     compactDebounceMs: 20,
     compactSkipTokens: 1,
     compactBudgetTokens: 250000,
-    compactModel: "claude-haiku-5-5",
+    compactModel: "composer-2.5",
     nodeBytes: 140,
     ...extra,
   });

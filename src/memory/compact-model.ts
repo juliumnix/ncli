@@ -12,6 +12,7 @@ export type CompactModelLister = (apiKey: string) => Promise<CompactCatalogModel
 
 const EFFORT_ID = /effort|reason/i;
 const THINKING_ID = /^thinking$|^think$/i;
+const MAX_MODE_ID = /max.?mode/i;
 const LOW = /^(low|lowest|minimal|min)$/i;
 const OFF = /^(false|off|none|disabled|0)$/i;
 const SUFFIX = /-(low|medium|high|fast|max)$/i;
@@ -22,7 +23,7 @@ export function unknownCompactModelMessage(requested: string, ids: string[]): st
     `Cannot use this model: ${requested}.`,
     "Cursor SDK model ids have no effort suffix.",
     sample ? `Valid ids include: ${sample}.` : "Cursor.models.list() returned no models for this key.",
-    "Set NCLI_COMPACT_MODEL to a catalog id (default claude-haiku-5-5).",
+    "Set NCLI_COMPACT_MODEL to a catalog id (default composer-2.5).",
   ].join(" ");
 }
 
@@ -33,6 +34,7 @@ export function cheapParamValue(param: {
   const values = param.values.map((v) => v.value);
   if (EFFORT_ID.test(param.id)) return values.find((v) => LOW.test(v));
   if (THINKING_ID.test(param.id)) return values.find((v) => OFF.test(v));
+  if (MAX_MODE_ID.test(param.id)) return values.find((v) => OFF.test(v));
   return undefined;
 }
 
