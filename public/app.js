@@ -970,11 +970,14 @@ function compactLabel(compact) {
 
 function agentTrio(clis, mainHarness) {
   const main = mainHarness === "codex" || mainHarness === "cursor" ? mainHarness : "claude";
-  return ["claude", "codex", "cursor"].map((seat) => ({
-    seat,
-    present: Boolean(clis && clis[seat]),
-    main: seat === main,
-  }));
+  return ["claude", "codex", "cursor"].map((seat) => {
+    const present = Boolean(clis && clis[seat]);
+    return {
+      seat,
+      present,
+      main: seat === main && present,
+    };
+  });
 }
 
 function renderAgentTrio() {
