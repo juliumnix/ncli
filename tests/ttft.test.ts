@@ -7,7 +7,7 @@ import { MockHarness } from "../src/harness/mock";
 import { initTempRepo } from "../src/sparks/worktree";
 import { CompactDeferred } from "../src/memory/compact-deferred";
 import { Memory } from "../src/memory/store";
-import { tmpDir } from "./helpers";
+import { makeHub, tmpDir } from "./helpers";
 
 const LONG = "user decided the alpha file lives at /tmp/ncli/alpha.json. ".repeat(8);
 
@@ -29,7 +29,6 @@ test("exhausted compact budget does not delay the first token and writes no comp
     compactBudgetTokens: 30,
     compactSkipTokens: 1,
     compactDebounceMs: 2500,
-    compactSettleMs: 400,
     compactTries: 3,
     viewBytes: 800,
     nodeBytes: 140,
@@ -63,6 +62,7 @@ test("stop aborts an in-flight compact wait before the settle cap", async () => 
     dir: tmpDir("ttft-abort-mem"),
     nodeBytes: 40,
     viewBytes: 800,
+    compressTimeoutMs: 0,
     compressor: () => new Promise(() => undefined),
   });
   mem.append({ kind: "user", text: LONG });
@@ -89,7 +89,6 @@ test("stop aborts an in-flight compact wait before the settle cap", async () => 
     compactBackend: "cursor",
     compactSkipTokens: 1,
     compactDebounceMs: 2500,
-    compactSettleMs: 400,
     compactBudgetTokens: 30,
     viewBytes: 800,
     nodeBytes: 140,
@@ -109,6 +108,33 @@ test("stop aborts an in-flight compact wait before the settle cap", async () => 
     expect(hub.memory.log.some((m) => m.text.includes("turno interrompido"))).toBe(true);
   } finally {
     hub.close();
+  }
+});
+
+test("an in-flight compact from the previous answer does not delay the next turn", async () => {
+  const prev = process.env.NCLI_COMPACT_DELAY;
+  process.env.NCLI_COMPACT_DELAY = "2000";
+  try {
+    const { hub } = await makeHub({ nodeBytes: 40, viewBytes: 800 });
+    try {
+      hub.memory.append({ kind: "user", text: LONG });
+      await Bun.sleep(20);
+      expect(hub.memory.hasInFlight()).toBe(true);
+      let firstDelta = 0;
+      const t0 = performance.now();
+      const off = hub.subscribe((ev) => {
+        if (ev.type === "delta" && ev.text && !firstDelta) firstDelta = performance.now();
+      });
+      await hub.send("oi depois da compactacao");
+      off();
+      const ttft = (firstDelta || performance.now()) - t0;
+      expect(ttft).toBeLessThan(400);
+    } finally {
+      hub.close();
+    }
+  } finally {
+    if (prev === undefined) delete process.env.NCLI_COMPACT_DELAY;
+    else process.env.NCLI_COMPACT_DELAY = prev;
   }
 });
 

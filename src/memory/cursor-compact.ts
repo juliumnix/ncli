@@ -108,13 +108,6 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
       else if (!timer) timer = setTimeout(flush, cfg.compactDebounceMs || 2500);
     });
   };
-  compress.flush = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    if (queue.length) flush();
-  };
   return compress;
 }
 

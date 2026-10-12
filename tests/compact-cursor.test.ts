@@ -188,18 +188,19 @@ test("a skipped merge keeps the recent right child, not the left prefix", async 
   expect(line).not.toContain("AAAA");
 });
 
-test("flush runs a queued debounce job before the debounce timer", async () => {
-  const dir = tmpDir("cflush");
+test("debounce holds a job so a later sibling shares one Cursor call", async () => {
+  const dir = tmpDir("cdebounce");
   let calls = 0;
-  const compact = cursorCompressor(cfg(dir, { compactBatch: 8, compactDebounceMs: 2500, compactSkipTokens: 1 }), async () => {
+  const compact = cursorCompressor(cfg(dir, { compactBatch: 8, compactDebounceMs: 80, compactSkipTokens: 1 }), async () => {
     calls += 1;
-    return "1. flushed";
+    return "1. first\n2. second";
   });
-  const pending = compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
+  const a = compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
   await Bun.sleep(20);
   expect(calls).toBe(0);
-  compact.flush?.();
-  expect(await pending).toContain("flushed");
+  const b = compact({ kind: "leaf", source: `${LONG} sibling`, contextLines: [], nodeBytes: 140 });
+  expect(await a).toBe("first");
+  expect(await b).toBe("second");
   expect(calls).toBe(1);
 });
 

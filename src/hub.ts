@@ -87,6 +87,7 @@ export class Hub {
       compressor: this.compressor,
       pumpBatch: cfg.compactBatch,
       deferCutAfter: cfg.compactTries,
+      compressTimeoutMs: cfg.compactTimeoutMs,
     });
     this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName));
     this.queue = new TurnQueue(cfg.dataDir);
@@ -444,13 +445,7 @@ export class Hub {
 
   private async turn(userText: string, retried = false): Promise<void> {
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
-    this.compressor.flush?.();
     void this.memory.pump();
-    const cap = Math.max(this.cfg.compactSettleMs, 0);
-    await this.memory.waitForInFlight({
-      timeoutMs: this.memory.hasInFlight() ? cap : 0,
-      signal: this.abort?.signal,
-    });
     const ctx = assemble(this.memory);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;

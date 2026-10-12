@@ -31,6 +31,7 @@ test("a settle timeout paints the recipe placeholder, never a raw excerpt", asyn
     dir: tmpDir("settle-timeout"),
     nodeBytes: 40,
     viewBytes: 8000,
+    compressTimeoutMs: 0,
     compressor: async () => new Promise(() => undefined),
   });
   mem.append({ kind: "user", text: `pending raw ${"y".repeat(80)}` });
@@ -80,6 +81,58 @@ test("settle stays registered across notifies until the cover is built", async (
   release("done line for the waiter");
   expect(await waiting).toBe(true);
   expect(mem.allBuilt()).toBe(true);
+});
+
+test("settle returns when the cover is built even if a parent is still pending", async () => {
+  let release!: (s: string) => void;
+  const gate = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const mem = new Memory({
+    dir: tmpDir("settle-cover-only"),
+    nodeBytes: 40,
+    viewBytes: 8000,
+    compressor: async (input) => {
+      if (input.kind === "merge") return gate;
+      return input.source.slice(0, 36);
+    },
+  });
+  for (let i = 0; i < 4; i++) {
+    mem.append({ kind: "user", text: `long pending user line ${i} ${"x".repeat(80)}` });
+  }
+  expect(await mem.settle(5_000)).toBe(true);
+  expect(mem.allBuilt()).toBe(true);
+  expect(mem.nodeOf(1, 0)).toBeUndefined();
+  release("parent line after the cover settled");
+  expect(await mem.settleQuiescent(5_000)).toBe(true);
+  expect(mem.nodeOf(1, 0)?.text).toContain("parent line");
+});
+
+test("a stuck compressor times out and frees the slot", async () => {
+  let late = "";
+  const mem = new Memory({
+    dir: tmpDir("compress-timeout"),
+    nodeBytes: 40,
+    viewBytes: 8000,
+    compressTimeoutMs: 40,
+    compressor: () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          late = "late line that must not land";
+          resolve(late);
+        }, 400);
+      }),
+  });
+  mem.append({ kind: "user", text: `pending raw ${"y".repeat(80)}` });
+  const t0 = performance.now();
+  await mem.pump();
+  expect(performance.now() - t0).toBeLessThan(200);
+  expect(mem.hasInFlight()).toBe(false);
+  expect(mem.deferredCount()).toBeGreaterThan(0);
+  expect(mem.nodeOf(0, 0)).toBeUndefined();
+  await Bun.sleep(450);
+  expect(late).toBe("late line that must not land");
+  expect(mem.nodeOf(0, 0)).toBeUndefined();
 });
 
 test("the turn prompt is view, then inbox, then the user line", async () => {
