@@ -58,13 +58,13 @@ Optional env:
 | `NCLI_CODEX_MODEL` | unset | if set, passed as `codex exec --json --model`. Default is no `--model` so Codex uses `~/.codex/config.toml`. The UI reads that file and Codex json read-only |
 | `NCLI_USER_NAME` | `Você` | display name for user rows in the memory drawer. Initial is the first letter |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
-| `NCLI_COMPACT_MODEL` | `claude-haiku-5-5` | catalog id for `@cursor/sdk` compaction. No effort suffix. Low effort / no thinking come from `model.params` after `Cursor.models.list()` |
+| `NCLI_COMPACT_MODEL` | `composer-2.5` | catalog id for `@cursor/sdk` compaction. No effort suffix and no Max mode. Low effort / no thinking / Max off come from `model.params` after `Cursor.models.list()` |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
 | `NCLI_COMPACT_SETTLE` | `0` | unused on the turn path. The turn never waits for compaction. The view enriches later |
 | `NCLI_COMPACT_TIMEOUT` | `30000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
-| `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
+| `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the 100k 5x surcharge band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
 | `NCLI_IMPORT_CODEX` | unset | override root for Codex rollout JSONL. Default is `$CODEX_HOME/sessions` or `~/.codex/sessions` |
@@ -102,7 +102,7 @@ The in-repo skill is `ncli/skills/ncli-ui/SKILL.md`. Agents read it on spawn. Us
 
 The memory tree still compresses in the background and never blocks the user turn (`void memory.pump()`). Compaction talks to the official Cursor TypeScript SDK (`@cursor/sdk`). It does **not** spawn `cursor-agent --print`. That `--print --model` path used to write the compact model into `~/.cursor/cli-config.json` and then the interactive CLI and NCLI ACP seats inherited Haiku.
 
-The compact model id is `claude-haiku-5-5`. The SDK rejects effort suffixes such as `-low`. Boot calls `Cursor.models.list()` when a key is present and fails with the valid ids if `NCLI_COMPACT_MODEL` is missing from the catalog. Low effort and no thinking are `model.params` taken from that catalog (`effort=low`, `thinking=false` when those parameters exist).
+The compact model id is `composer-2.5` (Composer 2.5, no Max mode). Override with `NCLI_COMPACT_MODEL`. The SDK rejects effort suffixes such as `-low`. Boot calls `Cursor.models.list()` when a key is present and fails with the valid ids if `NCLI_COMPACT_MODEL` is missing from the catalog. Low effort, no thinking, and Max mode off are `model.params` taken from that catalog (`effort=low`, `thinking=false`, `maxMode=false` when those parameters exist). NCLI never writes `~/.cursor`.
 
 The agentic Cursor seat stays on the local CLI: `cursor-agent --model $NCLI_CURSOR_MODEL acp` (default `composer-2.5`) with your `cursor-agent login`. Sparks and bus `ask` / `wait` use that same CLI adapter. They never import `@cursor/sdk`.
 

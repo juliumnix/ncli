@@ -15,6 +15,15 @@ const HAIKU = {
   ],
 };
 
+const COMPOSER = {
+  id: "composer-2.5",
+  parameters: [
+    { id: "effort", values: [{ value: "low" }, { value: "high" }] },
+    { id: "thinking", values: [{ value: "false" }, { value: "true" }] },
+    { id: "maxMode", values: [{ value: "true" }, { value: "false" }] },
+  ],
+};
+
 test("resolveCompactModel maps a suffix id to the catalog id and cheap params", () => {
   const choice = resolveCompactModel([HAIKU], "claude-haiku-5-5-low");
   expect(choice).toEqual({
@@ -35,11 +44,25 @@ test("unknownCompactModelMessage names the bad id and lists catalog ids", () => 
     "Cannot use this model: claude-haiku-5-5-low",
   );
   expect(unknownCompactModelMessage("x", ["claude-haiku-5-5"])).toContain("claude-haiku-5-5");
+  expect(unknownCompactModelMessage("x", ["composer-2.5"])).toContain("default composer-2.5");
+});
+
+test("resolveCompactModel keeps Composer 2.5 cheap and turns Max mode off", () => {
+  expect(resolveCompactModel([COMPOSER], "composer-2.5")).toEqual({
+    id: "composer-2.5",
+    params: [
+      { id: "effort", value: "low" },
+      { id: "thinking", value: "false" },
+      { id: "maxMode", value: "false" },
+    ],
+  });
 });
 
 test("cheapParamValue picks low effort and thinking off, and ignores other params", () => {
   expect(cheapParamValue({ id: "effort", values: [{ value: "high" }, { value: "low" }] })).toBe("low");
   expect(cheapParamValue({ id: "thinking", values: [{ value: "true" }, { value: "false" }] })).toBe("false");
+  expect(cheapParamValue({ id: "maxMode", values: [{ value: "true" }, { value: "false" }] })).toBe("false");
+  expect(cheapParamValue({ id: "max-mode", values: [{ value: "on" }, { value: "off" }] })).toBe("off");
   expect(cheapParamValue({ id: "fast", values: [{ value: "false" }, { value: "true" }] })).toBeUndefined();
 });
 

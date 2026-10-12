@@ -21,6 +21,7 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 | `NCLI_VIEW` | 2500 | cover merge-back target in bytes. Drawer shows `2 ×` this |
 | `NCLI_NODE` | 280 | summary line target |
 | `NCLI_COMPACT` | auto | `cursor` / `claude` / `mock` |
+| `NCLI_COMPACT_MODEL` | composer-2.5 | `@cursor/sdk` catalog id. No effort suffix, no Max mode. Override with this env. Never writes `~/.cursor` |
 | `NCLI_COMPACT_BATCH` | 6 | nodes per Cursor SDK call |
 | `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens and cut locally |
 | `NCLI_CURSOR_API_KEY` | file | compaction SDK only; `~/.config/ncli/secrets.env` |

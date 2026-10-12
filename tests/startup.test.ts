@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadConfig, parseUserName } from "../src/config";
+import { DEFAULT_COMPACT_MODEL, loadConfig, parseCompactModel, parseUserName } from "../src/config";
 import { bootNcli, formatBoot, shouldValidateCompactModel } from "../src/boot";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -15,13 +15,13 @@ test("bun start boots HTTP, SSE, MCP and bus in one process and fails loud if MC
     expect(booted.report.uiUrl).toStartWith("http://127.0.0.1:");
     expect(booted.report.mcpUrl).toBe(`${booted.report.uiUrl}/mcp`);
     expect(booted.report.main.harness).toBe("mock");
-    expect(booted.report.compact.model).toBe("claude-haiku-5-5");
+    expect(booted.report.compact.model).toBe(DEFAULT_COMPACT_MODEL);
     expect(booted.report.views).toContain("review");
     const summary = formatBoot(booted.report);
     expect(summary).toContain("NCLI");
     expect(summary).toContain(booted.report.uiUrl);
     expect(summary).toContain("mcp");
-    expect(summary).toContain("claude-haiku-5-5");
+    expect(summary).toContain(DEFAULT_COMPACT_MODEL);
 
     const token = hub.mcp.mint("main");
     const init = await fetch(booted.report.mcpUrl, {
@@ -49,7 +49,7 @@ test("boot report mentions the main agent and compact model", () => {
     uiUrl: "http://127.0.0.1:47231",
     mcpUrl: "http://127.0.0.1:47231/mcp",
     main: { harness: "claude", model: "opus" },
-    compact: { backend: "cursor", model: "claude-haiku-5-5", budget: 250000, sdk: "ok" },
+    compact: { backend: "cursor", model: DEFAULT_COMPACT_MODEL, budget: 250000, sdk: "ok" },
     clis: { claude: true, codex: false, cursor: true },
     bus: "/tmp/ncli-bus.sock",
     views: ["review"],
@@ -57,18 +57,27 @@ test("boot report mentions the main agent and compact model", () => {
   });
   expect(text).toContain("agent claude · opus");
   expect(text).toContain("compact: cursor-sdk ok");
-  expect(text).toContain("claude-haiku-5-5");
+  expect(text).toContain(DEFAULT_COMPACT_MODEL);
   expect(text).toContain("cursor ok");
 });
 
-test("loadConfig keeps Haiku 5.5 as the cheap compact default and a 60k input cap", () => {
+test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap", () => {
   const cfg = loadConfig({ dataDir: tmpDir("cfg") });
-  expect(cfg.compactModel).toBe("claude-haiku-5-5");
+  expect(cfg.compactModel).toBe("composer-2.5");
   expect(cfg.compactMaxInputTokens).toBe(60_000);
   expect(cfg.compactSettleMs).toBe(0);
   expect(cfg.compactTimeoutMs).toBe(30_000);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
+});
+
+test("parseCompactModel defaults to Composer 2.5 and keeps an env-style override", () => {
+  expect(parseCompactModel(undefined)).toBe("composer-2.5");
+  expect(parseCompactModel("")).toBe("composer-2.5");
+  expect(parseCompactModel("   ")).toBe("composer-2.5");
+  expect(parseCompactModel(" claude-haiku-5-5 ")).toBe("claude-haiku-5-5");
+  expect(loadConfig({ compactModel: "claude-haiku-5-5" }).compactModel).toBe("claude-haiku-5-5");
+  expect(loadConfig({ compactModel: "  " }).compactModel).toBe("composer-2.5");
 });
 
 test("mock compact skips the live Cursor.models.list check", () => {
