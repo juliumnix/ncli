@@ -612,7 +612,7 @@ function avatar(seat) {
 function renderChat() {
   if (chromeNow().showWelcome) {
     if (!log.querySelector(".welcome")) {
-      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p></div>`;
+      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p><div class="welcome-actions"><button type="button" class="welcome-go" data-welcome-import="claude">trazer Claude</button><button type="button" class="welcome-go" data-welcome-import="codex">trazer Codex</button><button type="button" class="welcome-go" data-welcome-import="cursor">trazer Cursor</button></div></div>`;
     }
     measureComposer();
     paintScrollHints();
@@ -2073,6 +2073,16 @@ $("queueBtn")?.addEventListener("click", () => {
   renderPasteHint();
   if (hint) pendingReviewOpen = hint;
   void sendUser(text, "queue");
+});
+
+log?.addEventListener("click", async (e) => {
+  const go = e.target.closest("[data-welcome-import]");
+  if (!go) return;
+  await fetch("/api/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source: go.getAttribute("data-welcome-import"), apply: true }),
+  });
 });
 
 $("ibar")?.addEventListener("click", async (e) => {
