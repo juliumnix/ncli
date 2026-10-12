@@ -26,7 +26,10 @@ test("index preloads Inter Variable and JetBrains Mono and loads tokens before a
 test("focus-visible exists and every outline:none sits next to a ring", () => {
   expect(appCss).toContain(":focus-visible");
   expect(appCss).toContain("var(--focus-ring)");
-  expect(appCss).toContain(".composer:has(:focus-visible)");
+  expect(appCss).toContain(".composer.from-key:focus-within");
+  expect(appCss).not.toContain(".composer:has(:focus-visible)");
+  expect(appJs).toContain('form.classList.add("from-key")');
+  expect(appJs).toContain('form.classList.remove("from-key")');
   expect(appCss).not.toContain("color-mix(in srgb, var(--accent) 22%");
   const bare = [...appCss.matchAll(/outline:\s*none/g)];
   expect(bare.length).toBeGreaterThan(0);
