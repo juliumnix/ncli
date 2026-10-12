@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { bootNcli } from "../src/boot";
-import { ghViewArgs } from "../src/gh/pr";
+import { FixtureGh, ghViewArgs } from "../src/gh/pr";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { isLonePrUrl, parseViewLink, reviewPasteHint } from "../src/util";
+import { ghOpenTalk, isLonePrUrl, parseViewLink, reviewPasteHint } from "../src/util";
 import { makeHub, shotsDir, waitUntil } from "./helpers";
 
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
@@ -87,6 +88,20 @@ test("a PR URL inside a sentence still opens review and runs the turn", async ()
   }
 });
 
+test("ghOpenTalk names login vs missing vs other gh errors", () => {
+  const params = { pr: "12", owner: "acme", repo: "shop" };
+  expect(ghOpenTalk(params, new Error("To get started with GitHub CLI, please run: `gh auth login`"))).toBe(
+    "O gh não está logado. O hub segue no ar.",
+  );
+  expect(ghOpenTalk(params, new Error("HTTP 401 Unauthorized"))).toContain("logado");
+  expect(ghOpenTalk(params, new Error("sem fixture gh pra PR 12"))).toBe(
+    "Não achei o pull request #12 acme/shop. O hub segue no ar.",
+  );
+  expect(ghOpenTalk(params, new Error("HTTP 403: API rate limit exceeded"))).toBe(
+    "Não abri o pull request: HTTP 403: API rate limit exceeded. O hub segue no ar.",
+  );
+});
+
 test("a missing PR URL keeps the hub alive", async () => {
   const { hub } = await makeHub();
   try {
@@ -113,6 +128,59 @@ test("a PR URL from another repo keeps owner/repo and does not crash", async () 
     const talks = hub.memory.log.filter((m) => m.kind === "talk").map((m) => m.text).join("\n");
     expect(talks).toContain("#5");
     expect(talks).toContain("outro/repo");
+  } finally {
+    hub.close();
+  }
+});
+
+test("gh without login says the real cause", async () => {
+  const { hub } = await makeHub({
+    gh: {
+      async view() {
+        throw new Error("To get started with GitHub CLI, please run: `gh auth login`");
+      },
+    },
+  });
+  try {
+    await hub.send(PR);
+    const talks = hub.memory.log.filter((m) => m.kind === "talk").map((m) => m.text).join("\n");
+    expect(talks).toContain("logado");
+    expect(talks.toLowerCase()).not.toContain("não achei o pull request");
+    expect(hub.snapshot().turning).toBe(false);
+  } finally {
+    hub.close();
+  }
+});
+
+test("a failed open does not consume the next spark number", async () => {
+  const { hub } = await makeHub();
+  try {
+    await hub.send(MISSING);
+    expect(hub.sparks.list()).toHaveLength(0);
+    await hub.send(PR);
+    await waitUntil(() => hub.sparks.list().length === 1, 8000, "review after miss");
+    expect(hub.sparks.list()[0]?.id).toBe("review-1");
+    expect(hub.sparks.list()[0]?.seq).toBe(1);
+  } finally {
+    hub.close();
+  }
+});
+
+test("opening a PR calls gh.view once", async () => {
+  const inner = new FixtureGh(join(import.meta.dir, "../fixtures/gh"));
+  let n = 0;
+  const { hub } = await makeHub({
+    gh: {
+      async view(pr, spec) {
+        n += 1;
+        return inner.view(pr, spec);
+      },
+    },
+  });
+  try {
+    await hub.send(PR);
+    await waitUntil(() => hub.sparks.list().length === 1, 8000, "review spark");
+    expect(n).toBe(1);
   } finally {
     hub.close();
   }

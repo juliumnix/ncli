@@ -112,6 +112,22 @@ export function missingPrTalk(params: Record<string, string>): string {
   return `Não achei o pull request #${pr}${where}. O hub segue no ar.`;
 }
 
+export function ghOpenTalk(params: Record<string, string>, err: unknown): string {
+  const raw = flattenLine(err instanceof Error ? err.message : String(err));
+  if (/auth login|not logged in|no oauth|http 401|authentication required|gh auth/i.test(raw)) {
+    return "O gh não está logado. O hub segue no ar.";
+  }
+  if (
+    /could not resolve to a pullrequest|could not find|not found|sem fixture|no pull requests found|unknown pull request/i.test(
+      raw,
+    )
+  ) {
+    return missingPrTalk(params);
+  }
+  const cause = raw.slice(0, 180) || "falha no gh";
+  return `Não abri o pull request: ${cause}. O hub segue no ar.`;
+}
+
 export function escapeHtml(s: string): string {
   return String(s)
     .replaceAll("&", "&amp;")
