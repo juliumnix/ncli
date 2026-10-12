@@ -69,6 +69,9 @@ test("agentTrio marks presence and the main seat", () => {
   expect(rows.find((r) => r.seat === "cursor")).toEqual({ seat: "cursor", present: true, main: true });
   expect(rows.find((r) => r.seat === "codex")).toEqual({ seat: "codex", present: false, main: false });
   expect(agentTrio({ claude: true, codex: false, cursor: false }, "mock").find((r) => r.main)?.seat).toBe("claude");
+  const missing = agentTrio({ claude: false, codex: true, cursor: false }, "claude");
+  expect(missing.find((r) => r.seat === "claude")).toEqual({ seat: "claude", present: false, main: false });
+  expect(missing.some((r) => r.main && !r.present)).toBe(false);
 });
 
 test("snapshot reports which clis are on PATH", async () => {
