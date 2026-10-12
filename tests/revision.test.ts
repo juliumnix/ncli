@@ -8,9 +8,11 @@ import {
   parseLsRemoteMain,
   parseRevision,
   parseShaFromPath,
+  readGitHead,
   resolveRevision,
   shortSha,
 } from "../src/revision";
+import { initTempRepo } from "../src/sparks/worktree";
 import { tmpDir } from "./helpers";
 
 const MAIN = "b5f42a699b4a33960f49a13a2d4a6761a7477dbd";
@@ -36,12 +38,18 @@ test("parseLsRemoteMain reads the main tip", () => {
   expect(parseShaFromPath(`/home/u/.bun/install/cache/github.com/juliumnix/ncli@${MAIN}/src`)).toBe(MAIN);
 });
 
-test("resolveRevision prefers env, then file, then git", () => {
-  const root = tmpDir("rev");
+test("resolveRevision prefers env, then git, then the revision file", async () => {
+  const empty = tmpDir("rev");
   expect(parseRevision("deadbee")).toEqual({ sha: "deadbee", short: "deadbee" });
-  expect(resolveRevision(root, { NCLI_REVISION: "cafebab123" }).short).toBe("cafebab");
-  writeFileSync(join(root, ".ncli-revision"), `${MAIN}\n`);
-  expect(resolveRevision(root, {}).short).toBe("b5f42a6");
+  expect(resolveRevision(empty, { NCLI_REVISION: "cafebab123" }).short).toBe("cafebab");
+  writeFileSync(join(empty, ".ncli-revision"), `${MAIN}\n`);
+  expect(resolveRevision(empty, {}).short).toBe("b5f42a6");
+
+  const repo = await initTempRepo("rev-git");
+  const head = readGitHead(repo);
+  expect(head).toBeTruthy();
+  writeFileSync(join(repo, ".ncli-revision"), `${MAIN}\n`);
+  expect(resolveRevision(repo, {}).sha).toBe(head);
 });
 
 test("resolveRevision reads a bunx cache path when git is missing", () => {

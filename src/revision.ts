@@ -36,10 +36,10 @@ export function resolveRevision(
 ): NcliRevision {
   const fromEnv = parseRevision(env.NCLI_REVISION);
   if (fromEnv) return fromEnv;
-  const fromFile = parseRevision(readRevisionFile(root));
-  if (fromFile) return fromFile;
   const fromGit = parseRevision(readGitHead(root));
   if (fromGit) return fromGit;
+  const fromFile = parseRevision(readRevisionFile(root));
+  if (fromFile) return fromFile;
   const fromPath = parseRevision(parseShaFromPath(root));
   if (fromPath) return fromPath;
   return { sha: "unknown", short: "unknown" };
