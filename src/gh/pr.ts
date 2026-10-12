@@ -52,6 +52,17 @@ export async function createPr(opts: { cwd: string; title: string; head: string 
   return { url: url ?? out.trim() };
 }
 
+export async function viewPrForHead(opts: { cwd: string; head: string }): Promise<{ url: string } | null> {
+  try {
+    const out = await gh(["pr", "view", opts.head, "--json", "url,state"], opts.cwd);
+    const meta = JSON.parse(out) as { url?: string; state?: string };
+    if (meta.url && (!meta.state || meta.state === "OPEN")) return { url: meta.url };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export class RealGh implements GhClient {
   constructor(private readonly cwd: string) {}
   async view(pr: string, spec?: GhPrSpec): Promise<PrInfo> {
