@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
 import { CompactDeferred } from "./compact-deferred";
+import { factsOf, supersededHeader } from "./facts";
 import { pairDue } from "./merge-order";
 
 export interface MemoryOptions {
@@ -114,6 +115,9 @@ export class Memory {
     stepId?: string;
     parentId?: string;
     durationMs?: number;
+    supersedes?: number[];
+    successor?: number;
+    reason?: string;
   }): Message {
     if (!MEMORY_KINDS.has(partial.kind)) {
       throw new Error(`memory does not store ${partial.kind} steps`);
@@ -134,6 +138,9 @@ export class Memory {
       stepId: partial.stepId,
       parentId: partial.parentId,
       durationMs: partial.durationMs,
+      supersedes: partial.supersedes,
+      successor: partial.successor,
+      reason: partial.reason,
     };
     this.log.push(msg);
     persistLine(join(this.dir, "log.jsonl"), msg);
@@ -257,7 +264,9 @@ export class Memory {
     if (n === 1) {
       const m = this.log[id];
       if (!m) return { ok: false, error: `No line ${id}+${n}.` };
-      return { ok: true, lines: [`${id}+0|${m.kind}: ${m.text}`] };
+      const header = supersededHeader(factsOf(this.log), id);
+      const line = `${id}+0|${m.kind}: ${m.text}`;
+      return { ok: true, lines: header ? [header, line] : [line] };
     }
     const l = Math.log2(n);
     const i = id / n;

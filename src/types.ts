@@ -33,6 +33,9 @@ export interface Message {
   stepId?: string;
   parentId?: string;
   durationMs?: number;
+  supersedes?: number[];
+  successor?: number;
+  reason?: string;
 }
 
 export interface TurnStep {
