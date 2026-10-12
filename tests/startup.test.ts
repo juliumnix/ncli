@@ -21,8 +21,10 @@ test("bun start boots HTTP, SSE, MCP and bus in one process and fails loud if MC
     expect(summary).toContain("NCLI rodando em");
     expect(summary).toContain(booted.report.uiUrl.replace("127.0.0.1", "localhost"));
     expect(summary).toContain("clis");
+    expect(summary).toContain(booted.report.revision);
     expect(summary).not.toContain("compact:");
     expect(summary).not.toContain("mcp");
+    expect(booted.report.revision.length).toBeGreaterThanOrEqual(7);
     expect(formatBoot(booted.report, { verbose: true })).toContain(DEFAULT_COMPACT_MODEL);
 
     const token = hub.mcp.mint("main");
@@ -46,7 +48,7 @@ test("bun start boots HTTP, SSE, MCP and bus in one process and fails loud if MC
   }
 });
 
-test("boot banner is URL and CLIs; compact and cli-config stay in verbose", () => {
+test("boot banner is URL, CLIs and version; compact and cli-config stay in verbose", () => {
   const report = {
     uiUrl: "http://127.0.0.1:47231",
     mcpUrl: "http://127.0.0.1:47231/mcp",
@@ -57,9 +59,10 @@ test("boot banner is URL and CLIs; compact and cli-config stay in verbose", () =
     bus: "/tmp/ncli-bus.sock",
     views: ["review"],
     liveOrigin: "http://127.0.0.1:9",
+    revision: "b5f42a6",
   };
   const text = formatBoot(report);
-  expect(text).toBe("NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok");
+  expect(text).toBe("NCLI rodando em http://localhost:47231 · b5f42a6\nclis  claude ok, codex missing, cursor ok");
   expect(text).not.toContain("compact:");
   expect(text).not.toContain("cli-config");
   expect((text.match(/clis/g) || []).length).toBe(1);
@@ -68,8 +71,8 @@ test("boot banner is URL and CLIs; compact and cli-config stay in verbose", () =
   expect(verbose).toContain("compact: cursor-sdk ok");
   expect(verbose).toContain(DEFAULT_COMPACT_MODEL);
   expect(verbose).toContain("Cursor CLI config");
-  expect(formatBoot({ ...report, revision: "b5f42a6" })).toBe(
-    "NCLI rodando em http://localhost:47231 · b5f42a6\nclis  claude ok, codex missing, cursor ok",
+  expect(formatBoot({ ...report, revision: "" })).toBe(
+    "NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok",
   );
 });
 

@@ -5,6 +5,7 @@ import type { CliPresence } from "./ui/chrome";
 export type ReadyNotice = {
   url: string;
   clis: CliPresence;
+  revision?: string;
 };
 
 export function readyUrl(port: number): string {
@@ -17,7 +18,8 @@ export function formatClis(clis: CliPresence): string {
 }
 
 export function formatReady(notice: ReadyNotice): string {
-  return `NCLI rodando em ${notice.url}\n${formatClis(notice.clis)}`;
+  const rev = notice.revision ? ` · ${notice.revision}` : "";
+  return `NCLI rodando em ${notice.url}${rev}\n${formatClis(notice.clis)}`;
 }
 
 export function flushText(text: string, fd = 1): void {
