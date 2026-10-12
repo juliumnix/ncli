@@ -52,7 +52,7 @@ test("import without cwd lands in inbox and never enters a project or global vie
   const repo = await initTempRepo("imp-cwd");
   const { hub } = await makeHub({ repo, importClaude: writeClaudeImport(repo) });
   try {
-    hub.applyImport("claude");
+    await hub.applyImport("claude");
     expect(hub.memory.log.some((m) => m.text.includes("PROJECT_FACT"))).toBe(true);
     expect(hub.memory.log.some((m) => m.text.includes("ORPHAN_FACT"))).toBe(false);
     expect(hub.spaces.inbox().log.some((m) => m.text.includes("ORPHAN_FACT"))).toBe(true);
@@ -79,7 +79,7 @@ test("a Claude project slug without cwd does not invent a path or a project spac
   expect(lines[0]?.cwd).toBeUndefined();
   const { hub, dataDir } = await makeHub({ repo, importClaude: join(root, "projects") });
   try {
-    hub.applyImport("claude");
+    await hub.applyImport("claude");
     expect(hub.spaces.inbox().log.some((m) => m.text.includes("SLUG_ORPHAN"))).toBe(true);
     expect(hub.memory.log.some((m) => m.text.includes("SLUG_ORPHAN"))).toBe(false);
     const spaceDirs = existsSync(join(dataDir, "spaces")) ? readdirSync(join(dataDir, "spaces")) : [];

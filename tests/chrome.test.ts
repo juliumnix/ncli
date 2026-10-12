@@ -55,6 +55,10 @@ test("compact tokens turn the chip on", () => {
   expect(sessionChrome(empty).showCompact).toBe(false);
 });
 
+test("an in-flight import keeps the welcome chips up", () => {
+  expect(sessionChrome({ ...empty, messageCount: 3, importing: true }).showWelcome).toBe(true);
+});
+
 test("userHelp lists /help and import and skips scaffold", () => {
   const text = userHelp();
   expect(text).toContain("/help");

@@ -178,6 +178,7 @@ const state = {
   usage: { seats: [], chain: [] },
   import: null,
   importOffers: [],
+  importProgress: {},
   clis: { claude: false, codex: false, cursor: false },
 };
 
@@ -774,8 +775,31 @@ function avatar(seat) {
   return `<div class="av ${klass}"><img alt="" src="${s.src}"></div>`;
 }
 
+function importChipLabel(src) {
+  const names = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
+  const p = state.importProgress && state.importProgress[src];
+  if (!p) return `trazer ${names[src] || src}`;
+  if (!p.total) return "trazendo…";
+  const pct = Math.min(100, Math.max(0, Math.floor((p.done / p.total) * 100)));
+  return `trazendo… ${pct}%`;
+}
+
+function paintImportChip(btn, src) {
+  const p = state.importProgress && state.importProgress[src];
+  btn.textContent = importChipLabel(src);
+  if (p) {
+    btn.disabled = true;
+    btn.classList.add("is-importing");
+    const pct = p.total ? Math.min(100, Math.max(0, Math.floor((p.done / p.total) * 100))) : 0;
+    btn.style.setProperty("--import-pct", String(pct));
+  } else {
+    btn.disabled = false;
+    btn.classList.remove("is-importing");
+    btn.style.removeProperty("--import-pct");
+  }
+}
+
 function welcomeImportActions() {
-  const label = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
   const offers = state.importOffers || [];
   const sources = offers.length
     ? offers.map((o) => o.source)
@@ -784,7 +808,12 @@ function welcomeImportActions() {
       : [];
   if (!sources.length) return "";
   return `<div class="welcome-actions">${sources
-    .map((src) => `<button type="button" class="welcome-go" data-welcome-import="${escapeHtml(src)}">trazer ${label[src] || src}</button>`)
+    .map((src) => {
+      const p = state.importProgress && state.importProgress[src];
+      const pct = p && p.total ? Math.min(100, Math.max(0, Math.floor((p.done / p.total) * 100))) : 0;
+      const busy = p ? ` disabled class="welcome-go is-importing" style="--import-pct:${pct}"` : ` class="welcome-go"`;
+      return `<button type="button"${busy} data-welcome-import="${escapeHtml(src)}">${escapeHtml(importChipLabel(src))}</button>`;
+    })
     .join("")}</div>`;
 }
 
@@ -1187,12 +1216,13 @@ function sessionChrome(input) {
     showCompact: input.compactRunning || input.compactTokens > 0,
     showSparks: sparked,
     showViews: sparked,
-    showWelcome: input.messageCount === 0,
+    showWelcome: input.messageCount === 0 || Boolean(input.importing),
   };
 }
 
 function chromeNow() {
   const seats = (state.usage && state.usage.seats) || [];
+  const progress = state.importProgress || {};
   return sessionChrome({
     messageCount: state.messages.length,
     sparkCount: state.sparks.length,
@@ -1200,6 +1230,7 @@ function chromeNow() {
     compactRunning: Boolean(state.compact && state.compact.running),
     limited: seats.some((s) => s.status === "limited"),
     mainHarness: (state.main && state.main.harness) || "claude",
+    importing: Object.keys(progress).length > 0,
   });
 }
 
@@ -1956,9 +1987,20 @@ function applyEvent(ev) {
       state.usage = ev.usage || { seats: [], chain: [] };
       renderChrome();
       break;
+    case "import-progress":
+      if (ev.source) {
+        state.importProgress = { ...(state.importProgress || {}), [ev.source]: { done: ev.done || 0, total: ev.total || 0 } };
+        const btn = log.querySelector(`[data-welcome-import="${ev.source}"]`);
+        if (btn) paintImportChip(btn, ev.source);
+        else if (chromeNow().showWelcome) renderChat();
+      }
+      break;
     case "import":
       state.import = ev.preview || null;
       if (ev.offers) state.importOffers = ev.offers;
+      if (ev.preview && ev.preview.source && state.importProgress) {
+        delete state.importProgress[ev.preview.source];
+      }
       renderImport();
       if (chromeNow().showWelcome) renderChat();
       break;
@@ -2328,8 +2370,9 @@ $("queueBtn")?.addEventListener("click", () => {
 log?.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-welcome-import]");
   if (!go) return;
-  go.setAttribute("disabled", "true");
-  go.textContent = "trazendo…";
+  const src = go.getAttribute("data-welcome-import");
+  state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
+  paintImportChip(go, src);
   await fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },

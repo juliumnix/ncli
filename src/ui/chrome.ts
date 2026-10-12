@@ -45,6 +45,7 @@ export type ChromeInput = {
   compactRunning: boolean;
   limited: boolean;
   mainHarness: string;
+  importing?: boolean;
 };
 
 export type SessionChrome = {
@@ -63,7 +64,7 @@ export function sessionChrome(input: ChromeInput): SessionChrome {
     showCompact: input.compactRunning || input.compactTokens > 0,
     showSparks: sparked,
     showViews: sparked,
-    showWelcome: input.messageCount === 0,
+    showWelcome: input.messageCount === 0 || Boolean(input.importing),
   };
 }
 

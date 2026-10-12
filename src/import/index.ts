@@ -2,9 +2,12 @@ import type { Message } from "../types";
 import { ImportLedger } from "./ledger";
 import { listSessionFiles, parseSessionFile } from "./parse";
 import { defaultImportRoots, rootFor } from "./roots";
+import type { ImportProgress } from "./progress";
 import type { ImportApply, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
 
 export type { ImportApply, ImportArgv, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
+export type { ImportProgress } from "./progress";
+export { formatImportChip, importPct } from "./progress";
 export { isImportSource, parseImportArgv } from "./args";
 export { defaultImportRoots, rootFor } from "./roots";
 export { listSessionFiles, parseSessionFile, textOf } from "./parse";
@@ -59,23 +62,29 @@ export class Importer {
     };
   }
 
-  apply(
+  async apply(
     source: ImportSource,
     since: string | undefined,
     append: (line: ImportLine) => Message | undefined,
     already: (line: ImportLine) => boolean,
-  ): ImportApply {
+    onProgress?: (progress: ImportProgress) => void,
+  ): Promise<ImportApply> {
     const preview = this.preview(source, since);
+    const total = preview.lines.length;
+    onProgress?.({ source, done: 0, total });
     let applied = 0;
     const marked: string[] = [];
-    for (const line of preview.lines) {
+    for (let i = 0; i < preview.lines.length; i++) {
+      const line = preview.lines[i]!;
       if (already(line) || this.ledger.has(line.fingerprint)) {
         marked.push(line.fingerprint);
-        continue;
+      } else {
+        append(line);
+        marked.push(line.fingerprint);
+        applied += 1;
       }
-      append(line);
-      marked.push(line.fingerprint);
-      applied += 1;
+      onProgress?.({ source, done: i + 1, total });
+      if (onProgress) await Bun.sleep(0);
     }
     this.ledger.add(marked);
     return { preview, applied };

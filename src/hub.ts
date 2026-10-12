@@ -41,6 +41,7 @@ import {
   formatApply,
   formatPreview,
   Importer,
+  importPct,
   listSessionFiles,
   parseImportArgv,
   rootFor,
@@ -374,7 +375,7 @@ export class Hub {
       const argv = m[1].trim().split(/\s+/);
       try {
         if (argv[0] === "import") {
-          note = this.runImport(argv.slice(1));
+          note = await this.runImport(argv.slice(1));
         } else {
           note = runNcli(argv, {
             viewsDir: this.viewsDir,
@@ -394,9 +395,9 @@ export class Hub {
     return true;
   }
 
-  private runImport(argv: string[]): string {
+  private async runImport(argv: string[]): Promise<string> {
     const cmd = parseImportArgv(argv);
-    if (cmd.apply) return formatApply(this.applyImport(cmd.source, cmd.since));
+    if (cmd.apply) return formatApply(await this.applyImport(cmd.source, cmd.since));
     return formatPreview(this.previewImport(cmd.source, cmd.since), cmd.verbose);
   }
 
@@ -427,13 +428,13 @@ export class Hub {
     this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
   }
 
-  applyImport(
+  async applyImport(
     source: ImportPreview["source"],
     since?: string,
     opts: { surface?: boolean } = {},
-  ): ReturnType<Importer["apply"]> {
+  ): Promise<Awaited<ReturnType<Importer["apply"]>>> {
     const surface = Boolean(opts.surface) && this.memory.T === 0;
-    const result = this.importer.apply(
+    const result = await this.importer.apply(
       source,
       since,
       (line) => {
@@ -449,6 +450,15 @@ export class Hub {
         return msg;
       },
       (line) => alreadyInLog((surface ? this.memory : this.memoryForImport(line.cwd)).log, line),
+      (progress) => {
+        this.emit({
+          type: "import-progress",
+          source: progress.source,
+          done: progress.done,
+          total: progress.total,
+          pct: importPct(progress.done, progress.total),
+        });
+      },
     );
     this.lastImport = {
       ...result.preview,
