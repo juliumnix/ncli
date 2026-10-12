@@ -442,8 +442,17 @@ export class Hub {
   }
 
   private async turn(userText: string, retried = false): Promise<void> {
-    void this.memory.pump();
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
+    void this.memory.pump();
+    const ready = await this.memory.settle(this.cfg.compactSettleMs ?? 8000);
+    if (!ready) {
+      const msg = this.memory.append({
+        kind: "note",
+        text: "memória ainda compactando · a view pode omitir as últimas linhas",
+        seat: seatFromId(this.harness.id),
+      });
+      this.emit({ type: "message", session: "main", message: msg });
+    }
     const ctx = assemble(this.memory);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;
@@ -453,7 +462,7 @@ export class Hub {
     const inbox = this.bus.drainPrompt("main");
     try {
       for await (const ev of this.harness.run({
-        prompt: `${inbox}${ctx.view}\n\n${userText}`,
+        prompt: `${ctx.view}\n\n${inbox}${userText}`,
         system: ctx.system,
         cwd: this.cfg.repo,
         session: "main",

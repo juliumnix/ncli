@@ -10,7 +10,7 @@ test("onChange emits a pending context row then a built merge", async () => {
   const mem = new Memory({
     dir: tmpDir("ctx-live"),
     nodeBytes: 40,
-    viewBytes: 50,
+    viewBytes: 20,
     compressor: async (input) => {
       await Bun.sleep(15);
       return input.source.slice(0, 28);
@@ -26,7 +26,7 @@ test("onChange emits a pending context row then a built merge", async () => {
 });
 
 test("GET /api/events hello-burst includes a context snapshot and later a merge", async () => {
-  const { hub } = await makeHub({ viewBytes: 50, nodeBytes: 40 });
+  const { hub } = await makeHub({ viewBytes: 20, nodeBytes: 40 });
   hub.cfg.port = 19400 + Math.floor(Math.random() * 800);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
   try {

@@ -11,7 +11,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` open, pick harness/compressor |
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
 | `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
-| `src/memory/store.ts` | log + OptChat tree; `pump()` is background |
+| `src/memory/store.ts` | log + OptChat tree; `settle()` before assemble; `pump()` builds nodes |
 | `src/memory/sdk-compact.ts` | compaction ONLY, via `@cursor/sdk`. Auth is `NCLI_CURSOR_API_KEY` from `~/.config/ncli/secrets.env` or the process env. Never used by the Cursor seat |
 | `src/memory/cursor-compact.ts` | batch / cache / 60k cap. Calls the SDK runner. CLI `--print` is a marked fallback |
 | `src/secrets.ts` | load `~/.config/ncli/secrets.env`. Process env wins. Never log the key |
@@ -43,7 +43,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 - **View / mode** — a package in `views/<id>/` (`manifest.json` + `view.ts` + exclusive `skills/`). Loose `views/<id>.ts` is only for previews (`live`). Open with `view://id`. Share with `ncli view pack` / `ncli view add`.
 - **Harness** — `AcpAdapter` in `src/acp/<id>.ts`, then a case in `pickHarness` + `HarnessKind`.
 - **Render kind** — add to `LiveKind`, `frameHtml`, and the matching regex in `public/app.js`.
-- **Memory** — env in `src/config.ts`; do not compact on the user turn.
+- **Memory** — env in `src/config.ts`. The turn waits on `settle()`; `pump()` builds nodes in the background.
 - **Shortcut** — spark inbox on the right rail (`src/live/inbox.ts`): trabalhando / precisa de você / pronto; settled drops off. `próximo` + Notification API when the tab is hidden.
 - **Delegate** — `ask(agent, prompt)` on ncli-bus, or a `view://` spark. No extra daemons.
 - **Queue** — `data/queue.json`. Send during a turn steers (mock, same turn) or waits for the next boundary. `fila` persists across restart. The memory tree does not see an item until it is delivered as `user`.

@@ -57,8 +57,9 @@ Optional env:
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `claude-haiku-5-5` | catalog id for `@cursor/sdk` compaction. No effort suffix. Low effort / no thinking come from `model.params` after `Cursor.models.list()` |
 | `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
-| `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the node is already this many tokens or fewer |
+| `NCLI_COMPACT_SKIP` | `80` | leftover knob; NCLI no longer head-cuts a node to skip the SDK |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
+| `NCLI_COMPACT_SETTLE` | `8000` | milliseconds a turn waits for the view to finish compacting |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the Haiku 100k 5x band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |

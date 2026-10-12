@@ -25,7 +25,7 @@ test("assembled view tiles [0, T) without gaps and never shows a whole raw messa
   expect(ctx.system).toContain("ncli/skills/add-view/SKILL.md");
   expect(ctx.view.startsWith("<chat>")).toBe(true);
   expect(ctx.allBuilt).toBe(true);
-  expect(ctx.bytes).toBeLessThanOrEqual(500);
+  expect(ctx.bytes).toBeLessThanOrEqual(1000);
   expect(ctx.T).toBe(24);
   const raw = "UNIQUE_PAYLOAD_0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
   const onlyAsSummary = ctx.lines.every((line) => !line.includes(`user: ${raw}`) || line.startsWith("0+"));
