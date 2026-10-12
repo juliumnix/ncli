@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
 import { CompactDeferred } from "./compact-deferred";
+import { factsOf, supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
 
 export interface MemoryOptions {
@@ -114,6 +115,9 @@ export class Memory {
     stepId?: string;
     parentId?: string;
     durationMs?: number;
+    supersedes?: number[];
+    successor?: number;
+    reason?: string;
   }): Message {
     if (!MEMORY_KINDS.has(partial.kind)) {
       throw new Error(`memory does not store ${partial.kind} steps`);
@@ -134,6 +138,9 @@ export class Memory {
       stepId: partial.stepId,
       parentId: partial.parentId,
       durationMs: partial.durationMs,
+      supersedes: partial.supersedes,
+      successor: partial.successor,
+      reason: partial.reason,
     };
     this.log.push(msg);
     persistLine(join(this.dir, "log.jsonl"), msg);
@@ -147,12 +154,14 @@ export class Memory {
   }
 
   renderView(): string {
-    const lines = this.view.map((p) => this.renderPart(p));
+    const facts = factsOf(this.log);
+    const lines = this.view.map((p) => this.renderPart(p, facts));
     return `<chat>\n${lines.join("\n")}\n</chat>`;
   }
 
   viewLines(): string[] {
-    return this.view.map((p) => this.renderPart(p));
+    const facts = factsOf(this.log);
+    return this.view.map((p) => this.renderPart(p, facts));
   }
 
   levels(): string[] {
@@ -257,7 +266,9 @@ export class Memory {
     if (n === 1) {
       const m = this.log[id];
       if (!m) return { ok: false, error: `No line ${id}+${n}.` };
-      return { ok: true, lines: [`${id}+0|${m.kind}: ${m.text}`] };
+      const header = supersededHeader(factsOf(this.log), id);
+      const line = `${id}+0|${m.kind}: ${m.text}`;
+      return { ok: true, lines: header ? [header, line] : [line] };
     }
     const l = Math.log2(n);
     const i = id / n;
@@ -286,10 +297,15 @@ export class Memory {
     } catch {
       return [`bad regex: ${re}`];
     }
+    const facts = factsOf(this.log);
     return this.log
       .filter((m) => pat.test(`#${m.i} ${m.kind} ${m.text}`))
       .slice(-40)
-      .map((m) => `#${m.i} ${m.kind}: ${m.text}`);
+      .flatMap((m) => {
+        const header = supersededHeader(facts, m.i);
+        const line = `#${m.i} ${m.kind}: ${m.text}`;
+        return header ? [header, line] : [line];
+      });
   }
 
   debug(): { lines: string[]; bytes: number; budget: number; levels: string[]; T: number } {
@@ -524,8 +540,11 @@ export class Memory {
     });
   }
 
-  private renderPart(p: ViewPart): string {
-    return `${p.start}+${p.n}|${flattenLine(p.text)}`;
+  private renderPart(p: ViewPart, facts: Map<number, Successor>): string {
+    const body = `${p.start}+${p.n}|${flattenLine(p.text)}`;
+    if (p.n !== 1) return body;
+    const header = supersededHeader(facts, p.start);
+    return header ? `${header}\n${body}` : body;
   }
 
   fit(): void {

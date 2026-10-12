@@ -9,6 +9,7 @@ import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
+import { factsOf, parseIds, wouldCycle } from "./memory/facts";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
@@ -594,6 +595,32 @@ export class Hub {
         return mem.dateOf(Number(args.id));
       case "recall":
         return mem.recall(String(args.pattern ?? "")).join("\n") || "No match.";
+      case "supersede": {
+        const old = parseIds(args.old);
+        const reason = String(args.reason ?? "").trim();
+        const neu = args.new === undefined || args.new === "" ? undefined : Number(args.new);
+        if (!old.length || !reason) return "supersede needs old and reason.";
+        if (old.some((id) => !mem.log[id])) return "no message to replace.";
+        if (neu !== undefined && (!Number.isInteger(neu) || neu < 0 || !mem.log[neu])) {
+          return "no successor message.";
+        }
+        if (neu !== undefined && old.some((id) => neu <= id)) {
+          return "successor must be after the replaced message.";
+        }
+        if (neu !== undefined && wouldCycle(factsOf(mem.log), old, neu)) {
+          return "supersede cycle.";
+        }
+        const note = mem.append({
+          kind: "note",
+          text: neu !== undefined
+            ? `supersedes #${old.join(",#")} → #${neu}: ${reason}`
+            : `supersedes #${old.join(",#")}: ${reason}`,
+          supersedes: old,
+          successor: neu,
+          reason,
+        });
+        return `ok #${note.i}`;
+      }
       case "ncli.render": {
         const kind = String(args.kind ?? "html");
         const source = String(args.source ?? "");

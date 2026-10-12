@@ -52,6 +52,8 @@ The same ncli MCP, the same memory view and the same ncli runtime skills are inj
 
 A view line about an outage, a missing tool, or MCP being down is a timestamped snapshot. date(id) tells you when it was written. Check the live ncli tools and the current harness before you treat that line as still true. Live state beats memory.
 
+The view's latest word on a thing is the truth. When two lines disagree, zoom the latest and trust it. Never assert a value marked SUPERSEDED. Call supersede({old, new, reason}) when the user replaces a past ruling.
+
 You can change NCLI itself from this chat. Skills live in ncli/skills/<id>/SKILL.md
 and MCP servers in ncli/mcp.json. Follow the matching skill; edit the live repo; views
 hot-reload. Scaffold with bun run ncli or /ncli.`;
