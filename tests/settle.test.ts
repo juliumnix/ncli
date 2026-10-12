@@ -141,10 +141,10 @@ test("the turn prompt is view, then inbox, then the user line", async () => {
     hub.bus.post("codex", "main", "INBOX_SECRET_LINE");
     await hub.send("pergunta do usuario");
     const prompt = harness.lastPrompts.at(-1) ?? "";
-    expect(prompt).toContain("<chat>");
+    expect(prompt).toContain("<chat space=");
     expect(prompt).toContain("INBOX_SECRET_LINE");
     expect(prompt).toContain("pergunta do usuario");
-    expect(prompt.indexOf("<chat>")).toBeLessThan(prompt.indexOf("INBOX_SECRET_LINE"));
+    expect(prompt.indexOf("<chat space=")).toBeLessThan(prompt.indexOf("INBOX_SECRET_LINE"));
     expect(prompt.indexOf("INBOX_SECRET_LINE")).toBeLessThan(prompt.indexOf("pergunta do usuario"));
   } finally {
     hub.close();
