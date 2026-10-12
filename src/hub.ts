@@ -48,6 +48,7 @@ import {
   type ImportPreview,
   type ImportSource,
 } from "./import";
+import { runImportJob } from "./import/job";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 
 export class Hub {
@@ -60,6 +61,7 @@ export class Hub {
   readonly importer: Importer;
   lastImport: ImportPreview | null = null;
   importOffers: { source: ImportSource; sessions: number }[] = [];
+  private importing = false;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -216,7 +218,7 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
-    void this.memory.pump();
+    this.pumpWhenIdle();
     this.emitDebug();
     this.emitQueue();
     this.emitUsage();
@@ -441,11 +443,61 @@ export class Hub {
     opts: { surface?: boolean } = {},
   ): Promise<Awaited<ReturnType<Importer["apply"]>>> {
     const surface = Boolean(opts.surface) && this.memory.T === 0;
-    let bucketMem = this.memory;
-    let bucket: ImportLine[] = [];
-    const flush = (): void => {
-      if (!bucket.length) return;
-      bucketMem.ingest(
+    this.importing = true;
+    this.memory.paused = true;
+    const touched = new Set<Memory>();
+    try {
+      const result = await runImportJob({
+        source,
+        roots: this.importer.roots,
+        since,
+        seenFile: this.importer.ledger.path,
+        onProgress: (progress) => {
+          this.emit({
+            type: "import-progress",
+            source: progress.source,
+            done: progress.done,
+            total: progress.total,
+            pct: importPct(progress.done, progress.total),
+          });
+        },
+        onBatch: async (lines) => {
+          for (const mem of this.ingestImportBatch(lines, surface)) {
+            mem.paused = true;
+            touched.add(mem);
+          }
+          await Bun.sleep(0);
+        },
+      });
+      this.lastImport = {
+        ...result.preview,
+        lines: [],
+        newCount: 0,
+      };
+      this.importer.ledger.flush();
+      for (const mem of touched) mem.publish();
+      this.memory.publish();
+      this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
+      this.emitDebug();
+      return result;
+    } finally {
+      this.importing = false;
+      this.memory.paused = false;
+      for (const mem of touched) mem.paused = false;
+      this.pumpWhenIdle();
+    }
+  }
+
+  private ingestImportBatch(lines: ImportLine[], surface: boolean): Memory[] {
+    const groups = new Map<Memory, ImportLine[]>();
+    for (const line of lines) {
+      const mem = surface ? this.memory : this.memoryForImport(line.cwd);
+      const bucket = groups.get(mem) ?? [];
+      bucket.push(line);
+      groups.set(mem, bucket);
+    }
+    for (const [mem, bucket] of groups) {
+      mem.ingest(
         bucket.map((line) => ({
           kind: line.kind,
           text: line.text,
@@ -453,44 +505,19 @@ export class Hub {
           date: line.at,
           hops: `import:${line.source}`,
         })),
+        { quiet: true },
       );
-      bucket = [];
-    };
-    const result = await this.importer.apply(
-      source,
-      since,
-      (line) => {
-        const mem = surface ? this.memory : this.memoryForImport(line.cwd);
-        if (mem !== bucketMem) {
-          flush();
-          bucketMem = mem;
-        }
-        bucket.push(line);
-        if (bucket.length >= 32) flush();
-        return undefined;
-      },
-      () => false,
-      (progress) => {
-        flush();
-        this.emit({
-          type: "import-progress",
-          source: progress.source,
-          done: progress.done,
-          total: progress.total,
-          pct: importPct(progress.done, progress.total),
-        });
-      },
-    );
-    flush();
-    this.lastImport = {
-      ...result.preview,
-      lines: [],
-      newCount: 0,
-    };
-    this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
+      this.importer.ledger.add(bucket.map((line) => line.fingerprint));
+    }
+    return [...groups.keys()];
+  }
+
+  private pumpWhenIdle(): void {
+    if (this.turning || this.importing) {
+      setTimeout(() => this.pumpWhenIdle(), 250);
+      return;
+    }
     void this.memory.pump();
-    this.emitDebug();
-    return result;
   }
 
   seedViewSeq(view: string, last: number): void {
@@ -537,7 +564,7 @@ export class Hub {
 
   private async turn(userText: string, retried = false): Promise<void> {
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
-    void this.memory.pump();
+    if (!this.importing) void this.memory.pump();
     const ctx = this.spaces.assemble(this.cfg.repo);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;

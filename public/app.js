@@ -1216,7 +1216,7 @@ function sessionChrome(input) {
     showCompact: input.compactRunning || input.compactTokens > 0,
     showSparks: sparked,
     showViews: sparked,
-    showWelcome: input.messageCount === 0 || Boolean(input.importing),
+    showWelcome: input.messageCount === 0,
   };
 }
 
@@ -1298,6 +1298,17 @@ function renderChrome() {
 function renderImport() {
   const bar = $("ibar");
   if (!bar) return;
+  const srcs = Object.keys(state.importProgress || {});
+  const src = srcs[0];
+  const p = src && state.importProgress[src];
+  if (p) {
+    const pct = p.total ? Math.min(100, Math.max(0, Math.floor((p.done / p.total) * 100))) : 0;
+    const label = p.total ? `trazendo… ${pct}%` : "trazendo…";
+    bar.hidden = false;
+    bar.innerHTML = `<div class="qitem is-importing" style="--import-pct:${pct}" data-import="${escapeHtml(src)}"><span>import</span><b>${escapeHtml(src)} · ${escapeHtml(label)}</b></div>`;
+    measureComposer();
+    return;
+  }
   const preview = state.import;
   const canApply = Boolean(preview && preview.sessions && preview.seenCount === 0);
   if (!preview || (!preview.newCount && !canApply)) {
@@ -1995,13 +2006,26 @@ function applyEvent(ev) {
         const btn = log.querySelector(`[data-welcome-import="${ev.source}"]`);
         if (btn) paintImportChip(btn, ev.source);
         else if (chromeNow().showWelcome) renderChat();
+        renderImport();
       }
       break;
     case "import":
       state.import = ev.preview || null;
       if (ev.offers) state.importOffers = ev.offers;
-      if (ev.preview && ev.preview.source && state.importProgress) {
-        delete state.importProgress[ev.preview.source];
+      if (ev.preview && ev.preview.source && state.importProgress && state.importProgress[ev.preview.source]) {
+        const prev = state.importProgress[ev.preview.source];
+        const total = prev.total || 1;
+        state.importProgress[ev.preview.source] = { done: total, total };
+        const src = ev.preview.source;
+        setTimeout(() => {
+          if (state.importProgress) delete state.importProgress[src];
+          renderImport();
+          if (chromeNow().showWelcome) renderChat();
+          else {
+            const btn = log.querySelector(`[data-welcome-import="${src}"]`);
+            if (btn) paintImportChip(btn, src);
+          }
+        }, 1200);
       }
       renderImport();
       if (chromeNow().showWelcome) renderChat();
@@ -2375,6 +2399,7 @@ log?.addEventListener("click", async (e) => {
   const src = go.getAttribute("data-welcome-import");
   state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
   paintImportChip(go, src);
+  renderImport();
   void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -2390,10 +2415,13 @@ $("ibar")?.addEventListener("click", async (e) => {
   }
   const apply = e.target.closest("[data-import-apply]");
   if (!apply) return;
+  const src = apply.dataset.importApply;
+  state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
+  renderImport();
   void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ source: apply.dataset.importApply, apply: true }),
+    body: JSON.stringify({ source: src, apply: true }),
   });
 });
 

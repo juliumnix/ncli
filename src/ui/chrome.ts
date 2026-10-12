@@ -64,7 +64,7 @@ export function sessionChrome(input: ChromeInput): SessionChrome {
     showCompact: input.compactRunning || input.compactTokens > 0,
     showSparks: sparked,
     showViews: sparked,
-    showWelcome: input.messageCount === 0 || Boolean(input.importing),
+    showWelcome: input.messageCount === 0,
   };
 }
 

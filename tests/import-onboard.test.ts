@@ -39,7 +39,7 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
   const { hub } = await makeHub({ importClaude: CLAUDE });
   hub.cfg.port = 18400 + Math.floor(Math.random() * 400);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
-  const driver = await launchChrome(9600 + Math.floor(Math.random() * 400));
+  const driver = await launchChrome(11200 + Math.floor(Math.random() * 400));
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
@@ -100,7 +100,7 @@ test("chrome: welcome chip shows live import percent", async () => {
   const { hub } = await makeHub({ importClaude: root });
   hub.cfg.port = 18500 + Math.floor(Math.random() * 400);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
-  const driver = await launchChrome(9650 + Math.floor(Math.random() * 400));
+  const driver = await launchChrome(11400 + Math.floor(Math.random() * 400));
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
@@ -109,18 +109,23 @@ test("chrome: welcome chip shows live import percent", async () => {
       8000,
       "welcome chip",
     );
-    await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
-    await waitUntil(
-      () => driver.session.evaluate(`/trazendo… \\d+%/.test(document.querySelector("[data-welcome-import='claude']")?.textContent || "")`),
-      8000,
-      "percent chip",
-    );
-    const label = await driver.session.evaluate<string>(
-      `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
-    );
-    expect(label).toMatch(/trazendo… \d+%/);
     mkdirSync(SHOTS, { recursive: true });
+    await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
+    const seen: string[] = [];
+    await waitUntil(async () => {
+      const label = await driver.session.evaluate<string>(
+        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+      );
+      if (/trazendo/.test(label) && !seen.includes(label)) {
+        seen.push(label);
+        writeFileSync(`${SHOTS}/import-progress-${seen.length}.png`, await driver.session.screenshot());
+      }
+      return /trazendo… \d+%/.test(label);
+    }, 8000, "percent chip");
+    const label = seen.at(-1) ?? "";
+    expect(label).toMatch(/trazendo… \d+%/);
     writeFileSync(`${SHOTS}/import-progress.png`, await driver.session.screenshot());
+    console.log(`import-progress chrome_labels=${JSON.stringify(seen)}`);
   } finally {
     driver.close();
     booted.stop();
