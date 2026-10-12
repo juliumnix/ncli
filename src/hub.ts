@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, SeatId, Turn, ViewInfo } from "./types";
+import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatId, Turn, ViewInfo } from "./types";
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
@@ -10,6 +10,7 @@ import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
 import { factsOf, parseIds, wouldCycle } from "./memory/facts";
+import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
@@ -22,7 +23,7 @@ import { joinText } from "./live/join-text";
 import { ViewRegistry } from "./views/registry";
 import { SparkManager, mergeMessage } from "./sparks/manager";
 import { AutoGh, FixtureGh, RealGh, type GhClient } from "./gh/pr";
-import { parseViewLink } from "./util";
+import { nowIso, parseViewLink } from "./util";
 import { seedDemo } from "./demo";
 import type { GitRunner } from "./sparks/worktree";
 import { runNcli } from "./skills/scaffold";
@@ -67,6 +68,7 @@ export class Hub {
   private abort: AbortController | null = null;
   private spawnMain: ReturnType<Hub["injectSpawn"]> | null = null;
   private spawnHarness = "";
+  private recalls: RecallEvent[] = [];
 
   constructor(
     readonly cfg: NcliConfig,
@@ -440,6 +442,7 @@ export class Hub {
   }
 
   private beginLive(): void {
+    this.recalls = [];
     this.live = new LiveTurn(
       "main",
       seatFromId(this.harness.id),
@@ -498,14 +501,22 @@ export class Hub {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
         const seat = seatFromId(this.harness.id);
+        const citations = verifyCitations(talk, this.recalls);
         const msg = this.memory.append({
           kind: "talk",
           text: talk,
           seat,
           model: this.live.turn.model,
-          hops: tools.includes("zoom") ? tools.join(" → ") : undefined,
+          recall: citations.length ? citations : undefined,
         });
         this.emit({ type: "message", session: "main", message: msg });
+        this.emit({
+          type: "recall",
+          session: "main",
+          turnId: this.live.id,
+          events: this.recalls,
+          citations,
+        });
       }
       await this.openLinks(talk);
     }
@@ -690,6 +701,7 @@ export class Hub {
         break;
       case "tool": {
         tools.push(ev.name);
+        this.noteRecall(ev.name, (ev.input ?? {}) as Record<string, unknown>);
         this.emit({ type: "tool", session: "main", name: ev.name, input: ev.input });
         break;
       }
@@ -711,6 +723,11 @@ export class Hub {
         void _n;
       }
     }
+  }
+
+  private noteRecall(name: string, args: Record<string, unknown>): void {
+    const ev = recallFromTool(name, args, this.live?.id ?? "", nowIso());
+    if (ev) this.recalls.push(ev);
   }
 
   private persistToolSummary(tools: string[]): void {
