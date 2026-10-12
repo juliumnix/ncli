@@ -13,9 +13,10 @@ export interface MemoryOptions {
   pumpBatch?: number;
   deferCutAfter?: number;
   deferBackoffMs?: number;
+  compressTimeoutMs?: number;
 }
 
-export type Compressor = ((input: CompactInput) => Promise<string>) & { flush?: () => void };
+export type Compressor = (input: CompactInput) => Promise<string>;
 
 export interface CompactInput {
   kind: "leaf" | "merge";
@@ -53,6 +54,7 @@ export class Memory {
   readonly pumpBatch: number;
   readonly deferCutAfter: number;
   readonly deferBackoffMs: number;
+  readonly compressTimeoutMs: number;
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
   view: ViewPart[] = [];
@@ -74,6 +76,7 @@ export class Memory {
     this.pumpBatch = opts.pumpBatch ?? 6;
     this.deferCutAfter = opts.deferCutAfter ?? 3;
     this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
+    this.compressTimeoutMs = opts.compressTimeoutMs ?? 30_000;
     mkdirSync(this.dir, { recursive: true });
     this.load();
   }
@@ -166,6 +169,7 @@ export class Memory {
     return this.view.every((p) => p.built);
   }
 
+  /** Resolves when every visible cover part is built. Off-cover parents may still be pending. */
   settle(timeoutMs = 30_000): Promise<boolean> {
     return this.waitUntil(() => this.allBuilt(), timeoutMs);
   }
@@ -432,7 +436,7 @@ export class Memory {
       const source = `${m.kind}: ${m.text}`;
       const text = utf8Bytes(source) <= nodeBytes
         ? source
-        : await this.compressor({
+        : await this.runCompressor({
             kind: "leaf",
             contextLines: this.contextBefore(i),
             source,
@@ -446,7 +450,7 @@ export class Memory {
     const joined = `${left.text}\n${right.text}`;
     const text = utf8Bytes(joined) <= nodeBytes
       ? flattenLine(joined)
-      : await this.compressor({
+      : await this.runCompressor({
           kind: "merge",
           contextLines: this.contextBefore((i + 1) * 2 ** l),
           source: joined,
@@ -455,6 +459,25 @@ export class Memory {
           nodeBytes,
         });
     this.putNode(l, i, text);
+  }
+
+  private async runCompressor(input: CompactInput): Promise<string> {
+    const work = this.compressor(input);
+    const ms = this.compressTimeoutMs;
+    if (ms <= 0) return work;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new CompactDeferred()), ms);
+    });
+    try {
+      return await Promise.race([work, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      void work.then(
+        () => undefined,
+        () => undefined,
+      );
+    }
   }
 
   private putNode(l: number, i: number, text: string): void {

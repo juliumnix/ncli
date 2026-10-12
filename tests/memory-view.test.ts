@@ -9,6 +9,7 @@ test("a pending view line is the recipe placeholder, never a raw excerpt", () =>
     dir: tmpDir("view-pending"),
     nodeBytes: 40,
     viewBytes: 4000,
+    compressTimeoutMs: 0,
     compressor: async () => new Promise(() => undefined),
   });
   mem.append({ kind: "talk", text: "MCP ncli sem conexão, ask/wait indisponíveis" });

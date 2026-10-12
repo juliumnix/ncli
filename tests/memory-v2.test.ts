@@ -43,7 +43,7 @@ test("forget drops the node and its ancestor without editing the log", async () 
     compressor: mockCompressor(),
   });
   for (let i = 0; i < 4; i++) mem.append({ kind: "user", text: `m${i}` });
-  await mem.settle();
+  await mem.settleQuiescent();
   expect(mem.nodeOf(0, 0)?.text).toContain("m0");
   expect(mem.nodeOf(1, 0)?.text).toContain("m0");
   const logBefore = readFileSync(join(dir, "log.jsonl"), "utf8");

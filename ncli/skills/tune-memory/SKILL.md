@@ -8,7 +8,7 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 ## Files
 
 - `src/config.ts` — `NCLI_VIEW`, `NCLI_NODE`, `NCLI_COMPACT_*`
-- `src/memory/store.ts` — tree + `pump()` + `waitForInFlight()` before the user turn
+- `src/memory/store.ts` — tree + `pump()` in the background. `settle()` waits for the visible cover only. `settleQuiescent()` waits until the tree is idle
 - `src/memory/cursor-compact.ts` — batch, hash cache, skip, daily budget
 - `src/memory/sdk-compact.ts` — `@cursor/sdk` only (not `cursor-agent acp`)
 - `~/.config/ncli/secrets.env` — `NCLI_CURSOR_API_KEY` (chmod 600)
@@ -25,9 +25,10 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 | `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens and cut locally |
 | `NCLI_CURSOR_API_KEY` | file | compaction SDK only; `~/.config/ncli/secrets.env` |
 | `NCLI_COMPACT_BUDGET` | 250000 | daily compaction tokens |
-| `NCLI_COMPACT_SETTLE` | 400 | max wait when a compact job is in flight. Deferred nodes do not block. The debounce flushes at turn start |
+| `NCLI_COMPACT_SETTLE` | 0 | unused on the turn path. The turn never waits for compaction |
+| `NCLI_COMPACT_TIMEOUT` | 30000 | compressor call timeout. `0` disables it. A stuck call becomes `CompactDeferred` so it does not hold a pump slot |
 
-Restart after env changes. `Hub.turn` flushes the compact debounce, then waits at most `NCLI_COMPACT_SETTLE` only while a build is in flight. If nothing is in flight the wait is 0. Compaction still runs in `pump()`, not inside the model call. The cover cannot stay above `2 × NCLI_VIEW`.
+Restart after env changes. `Hub.turn` starts `pump()` and assembles the cover that is ready now. Compaction still runs in `pump()`, not inside the model call. The debounce is not flushed at turn start, so siblings can share one Cursor call. The cover cannot stay above `2 × NCLI_VIEW`.
 
 ## Check
 

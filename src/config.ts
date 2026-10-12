@@ -23,6 +23,7 @@ export interface NcliConfig {
   compactBudgetTokens: number;
   compactMaxInputTokens: number;
   compactSettleMs: number;
+  compactTimeoutMs: number;
   toolCap: number;
   repo: string;
   ghMode: "real" | "mock" | "auto";
@@ -51,6 +52,13 @@ function num(name: string, fallback: number): number {
   if (!v) return fallback;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function millis(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v === undefined || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 export function parseCursorModel(raw: string | undefined): string {
@@ -89,7 +97,8 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),
     compactBudgetTokens: num("NCLI_COMPACT_BUDGET", 250000),
     compactMaxInputTokens: num("NCLI_COMPACT_MAX_INPUT", 60_000),
-    compactSettleMs: num("NCLI_COMPACT_SETTLE", 400),
+    compactSettleMs: millis("NCLI_COMPACT_SETTLE", 0),
+    compactTimeoutMs: millis("NCLI_COMPACT_TIMEOUT", 30_000),
     toolCap: num("NCLI_CAP", 8000),
     repo: process.env.NCLI_REPO ?? process.cwd(),
     ghMode: ghEnv,
