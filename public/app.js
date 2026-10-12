@@ -828,7 +828,7 @@ function workedOf(turn) {
 function stepHtml(s) {
   if (s.kind === "thinking") return thinkBlock(s.seat, s.model, s.text, s.status === "running");
   if (s.kind === "text") {
-    return `<div class="m stream">${avatar(s.seat)}<div class="bb">
+    return `<div class="m replay">${avatar(s.seat)}<div class="bb">
       <div class="nm ${s.seat === "claude" ? "ncl" : s.seat === "codex" ? "ncx" : "ncu"}">${escapeHtml(agentLabel(s.seat, s.model))}</div>
       <div class="md">${bodyHtml(s.text, s.status === "running")}</div>
     </div></div>`;
