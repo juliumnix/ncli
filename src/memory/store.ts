@@ -1,6 +1,6 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
+import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
 import { CompactDeferred } from "./compact-deferred";
 import { factsOf, supersededHeader, type Successor } from "./facts";
@@ -118,6 +118,7 @@ export class Memory {
     supersedes?: number[];
     successor?: number;
     reason?: string;
+    recall?: Citation[];
   }): Message {
     if (!MEMORY_KINDS.has(partial.kind)) {
       throw new Error(`memory does not store ${partial.kind} steps`);
@@ -141,6 +142,7 @@ export class Memory {
       supersedes: partial.supersedes,
       successor: partial.successor,
       reason: partial.reason,
+      recall: partial.recall,
     };
     this.log.push(msg);
     persistLine(join(this.dir, "log.jsonl"), msg);
