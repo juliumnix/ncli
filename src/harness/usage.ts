@@ -13,9 +13,12 @@ export interface SeatLimit {
   policy: LimitPolicy;
 }
 
+export type SeatPresence = Partial<Record<HarnessKind, boolean>>;
+
 export interface UsageSnapshot {
   seats: SeatLimit[];
   chain: HarnessKind[];
+  next?: HarnessKind;
 }
 
 export function parseFallbackChain(raw: string | undefined, backup: HarnessKind): HarnessKind[] {
@@ -60,12 +63,14 @@ export class UsageBoard {
     this.arm();
   }
 
-  snapshot(): UsageSnapshot {
+  snapshot(from?: HarnessKind, have?: SeatPresence): UsageSnapshot {
     const seats = this.chain.map((seat) => this.limitOf(seat));
     for (const [seat, row] of this.seats) {
       if (!seats.some((s) => s.seat === seat)) seats.push(row);
     }
-    return { seats, chain: [...this.chain] };
+    const start = from ?? this.chain[0];
+    const next = start ? this.nextOpen(start, have) : undefined;
+    return { seats, chain: [...this.chain], next };
   }
 
   limitOf(seat: HarnessKind): SeatLimit {
@@ -96,9 +101,15 @@ export class UsageBoard {
     return row;
   }
 
-  nextOpen(from: HarnessKind): HarnessKind | undefined {
+  nextOpen(from: HarnessKind, have?: SeatPresence): HarnessKind | undefined {
     const order = this.orderFrom(from);
-    return order.find((seat) => seat !== from && this.limitOf(seat).status === "ok");
+    return order.find((seat) => {
+      if (seat === from) return false;
+      if (this.limitOf(seat).status !== "ok") return false;
+      if (seat === "mock") return true;
+      if (!have) return true;
+      return Boolean(have[seat]);
+    });
   }
 
   clear(seat: HarnessKind): SeatLimit {
