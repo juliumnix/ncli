@@ -102,7 +102,7 @@ test("preview then apply is opt-in and the second apply is empty", async () => {
   expect(preview.newCount).toBe(4);
   expect(preview.seenCount).toBe(0);
   const log: Array<{ kind: string; text: string; date: string }> = [];
-  const first = importer.apply(
+  const first = await importer.apply(
     "claude",
     undefined,
     (line) => {
@@ -114,7 +114,7 @@ test("preview then apply is opt-in and the second apply is empty", async () => {
   );
   expect(first.applied).toBe(4);
   expect(log.map((m) => m.kind)).toEqual(["user", "talk", "user", "talk"]);
-  const again = importer.apply(
+  const again = await importer.apply(
     "claude",
     undefined,
     () => {
@@ -180,13 +180,13 @@ test("hub slash previews and apply writes the log then pumps", async () => {
   expect(hub.lastImport?.newCount).toBe(0);
 });
 
-test("import never writes the source jsonl", () => {
+test("import never writes the source jsonl", async () => {
   const file = join(CLAUDE, "workspace/sess-desconto.jsonl");
   const before = statSync(file);
   const raw = readFileSync(file, "utf8");
   const importer = new Importer(tmpDir("ncli-import-ro-"), { claude: CLAUDE, codex: CODEX, cursor: CURSOR });
   importer.preview("claude");
-  importer.apply("claude", undefined, () => undefined as never, () => false);
+  await importer.apply("claude", undefined, () => undefined as never, () => false);
   expect(readFileSync(file, "utf8")).toBe(raw);
   expect(statSync(file).mtimeMs).toBe(before.mtimeMs);
 });

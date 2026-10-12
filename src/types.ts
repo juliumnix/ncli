@@ -203,6 +203,7 @@ export type HubEvent =
   | { type: "queue"; items: QueueItem[] }
   | { type: "usage"; usage: UsageSnapshot }
   | { type: "import"; preview: ImportPreview; offers?: { source: ImportSource; sessions: number }[] }
+  | { type: "import-progress"; source: ImportSource; done: number; total: number; pct: number | null }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
   | { type: "recall"; session: string; turnId: string; events: RecallEvent[]; citations: Citation[] }

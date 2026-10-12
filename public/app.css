@@ -230,6 +230,16 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
 .welcome-go {
   appearance: none; border: 0; background: var(--accent); color: var(--on-accent);
   border-radius: 999px; padding: 6px 12px; font: 12px/1.2 inherit; cursor: pointer;
+  position: relative; overflow: hidden;
+}
+.welcome-go.is-importing { cursor: wait; }
+.welcome-go.is-importing::after {
+  content: "";
+  position: absolute; inset: 0 auto 0 0;
+  width: calc(var(--import-pct, 0) * 1%);
+  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+  transition: width 240ms var(--ease-out);
+  pointer-events: none;
 }
 .day { text-align: center; font-size: 11px; color: var(--fg-3); margin: 8px 0 0; }
 .m, .u, .note, .ret {
