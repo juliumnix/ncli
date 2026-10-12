@@ -347,12 +347,17 @@ const review: ViewPlugin = {
   tabs: ["Overview", "Guide", "Diff"],
   parseLink(params) {
     const pr = params.pr ?? params.number ?? "";
-    return params.wt === "1" ? { pr, wt: "1" } : { pr };
+    const parsed: Record<string, string> = { pr };
+    if (params.owner) parsed.owner = params.owner;
+    if (params.repo) parsed.repo = params.repo;
+    if (params.wt === "1") parsed.wt = "1";
+    return parsed;
   },
   async createSpark(params, ctx) {
     const pr = params.pr;
     if (!pr) throw new Error("view://review precisa de ?pr=");
-    const info = (await ctx.fetchPr?.(pr)) as PrInfo | undefined;
+    const spec = params.owner && params.repo ? { owner: params.owner, repo: params.repo } : undefined;
+    const info = (await ctx.fetchPr?.(pr, spec)) as PrInfo | undefined;
     const ui = info
       ? buildReviewUi(info)
       : buildReviewUi({
@@ -405,9 +410,16 @@ Se não puder, não invente paths. O hub já tem um fallback.`,
       case "rereview": {
         const pr = spark.params.pr;
         if (!pr || !ctx?.fetchPr) return;
-        const info = (await ctx.fetchPr(pr)) as PrInfo;
-        const next = applyRereview(ui, info);
-        return { ui: next, note: findingsFence(next.findings), needsUser: spark.needsUser };
+        const spec = spark.params.owner && spark.params.repo
+          ? { owner: spark.params.owner, repo: spark.params.repo }
+          : undefined;
+        try {
+          const info = (await ctx.fetchPr(pr, spec)) as PrInfo;
+          const next = applyRereview(ui, info);
+          return { ui: next, note: findingsFence(next.findings), needsUser: spark.needsUser };
+        } catch {
+          return;
+        }
       }
       case "say":
         return;
