@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { detectClis, sessionChrome, userHelp, type ChromeInput } from "../src/ui/chrome";
+import { agentTrio, detectClis, sessionChrome, userHelp, type ChromeInput } from "../src/ui/chrome";
 import { makeHub } from "./helpers";
 
 const empty: ChromeInput = {
@@ -61,6 +61,14 @@ test("userHelp lists /help and import and skips scaffold", () => {
   expect(text).toContain("/ncli import");
   expect(text).toContain("pull request");
   expect(text).not.toContain("new view");
+});
+
+test("agentTrio marks presence and the main seat", () => {
+  const rows = agentTrio({ claude: true, codex: false, cursor: true }, "cursor");
+  expect(rows.map((r) => r.seat)).toEqual(["claude", "codex", "cursor"]);
+  expect(rows.find((r) => r.seat === "cursor")).toEqual({ seat: "cursor", present: true, main: true });
+  expect(rows.find((r) => r.seat === "codex")).toEqual({ seat: "codex", present: false, main: false });
+  expect(agentTrio({ claude: true, codex: false, cursor: false }, "mock").find((r) => r.main)?.seat).toBe("claude");
 });
 
 test("snapshot reports which clis are on PATH", async () => {
