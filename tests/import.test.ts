@@ -215,6 +215,7 @@ test("/help posts the command list and does not start a turn", async () => {
     expect(notes).toHaveLength(3);
     expect(notes[0]).toContain("/help");
     expect(notes[0]).toContain("/ncli import");
+    expect(notes[0]).toContain("pull request");
     expect(notes[1]).toBe(notes[0]);
     expect(notes[2]).toBe(notes[0]);
     expect(hub.snapshot().turning).toBe(false);
