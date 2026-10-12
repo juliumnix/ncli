@@ -42,6 +42,7 @@ import {
   parseImportArgv,
   type ImportPreview,
 } from "./import";
+import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 
 export class Hub {
   readonly memory: Memory;
@@ -226,6 +227,7 @@ export class Hub {
     queue: ReturnType<TurnQueue["list"]>;
     usage: ReturnType<UsageBoard["snapshot"]>;
     import: ImportPreview | null;
+    clis: CliPresence;
   } {
     return {
       messages: this.memory.log,
@@ -242,6 +244,7 @@ export class Hub {
       queue: this.queue.list(),
       usage: this.usage.snapshot(),
       import: this.lastImport,
+      clis: detectClis(this.cfg),
     };
   }
 
@@ -342,24 +345,28 @@ export class Hub {
   }
 
   private async slash(text: string): Promise<boolean> {
-    const m = text.match(/^\/ncli\s+(.+)$/);
-    if (!m) return false;
-    const argv = m[1].trim().split(/\s+/);
     let note: string;
-    try {
-      if (argv[0] === "import") {
-        note = this.runImport(argv.slice(1));
-      } else {
-        note = runNcli(argv, {
-          viewsDir: this.viewsDir,
-          acpDir: join(this.cfg.repo, "src/acp"),
-          skillsDir: defaultSkillsDir(),
-        });
-        await this.views.loadAll();
-        this.emit({ type: "views", views: this.views.list() });
+    if (text === "/help" || text === "/?" || text === "/ncli") {
+      note = userHelp();
+    } else {
+      const m = text.match(/^\/ncli\s+(.+)$/);
+      if (!m) return false;
+      const argv = m[1].trim().split(/\s+/);
+      try {
+        if (argv[0] === "import") {
+          note = this.runImport(argv.slice(1));
+        } else {
+          note = runNcli(argv, {
+            viewsDir: this.viewsDir,
+            acpDir: join(this.cfg.repo, "src/acp"),
+            skillsDir: defaultSkillsDir(),
+          });
+          await this.views.loadAll();
+          this.emit({ type: "views", views: this.views.list() });
+        }
+      } catch (err) {
+        note = err instanceof Error ? err.message : String(err);
       }
-    } catch (err) {
-      note = err instanceof Error ? err.message : String(err);
     }
     const msg = this.memory.append({ kind: "note", text: note });
     this.emit({ type: "message", session: "main", message: msg });

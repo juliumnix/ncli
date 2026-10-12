@@ -9,12 +9,8 @@ import { cursorCliConfigPath, cursorPollutionWarning } from "./memory/cli-config
 import { assertCompactModel } from "./memory/compact-model";
 import { compactSdkStatus } from "./memory/sdk-compact";
 import { compactSdkKey, loadNcliSecrets } from "./secrets";
-
-export interface CliPresence {
-  claude: boolean;
-  codex: boolean;
-  cursor: boolean;
-}
+import { detectClis, type CliPresence } from "./ui/chrome";
+export { detectClis };
 
 export interface BootReport {
   uiUrl: string;
@@ -38,14 +34,6 @@ export function shouldValidateCompactModel(cfg: NcliConfig): boolean {
   if (cfg.compactBackend === "mock") return false;
   if (cfg.compactBackend === "auto" && cfg.harness === "mock") return false;
   return true;
-}
-
-export function detectClis(cfg: NcliConfig): CliPresence {
-  return {
-    claude: Boolean(Bun.which(cfg.claudeBin)),
-    codex: Boolean(Bun.which(cfg.codexBin)),
-    cursor: Boolean(Bun.which(cfg.cursorBin)),
-  };
 }
 
 export function formatBoot(r: BootReport): string {
