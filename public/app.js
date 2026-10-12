@@ -38,9 +38,27 @@ function waitMotion(el) {
   });
 }
 
+function pinNewAnswer() {
+  if (!chat || !stick.follow) return;
+  const last = [...log.querySelectorAll(".u")].at(-1);
+  if (!last) {
+    followScroll();
+    return;
+  }
+  const top = Math.max(0, last.offsetTop - 72);
+  chat.scrollTop = top;
+}
+
 function followScroll() {
   if (!chat || !stick.follow) return;
   if (reducedMotion()) {
+    const live = log.querySelector(".live.quiet, .m.stream");
+    if (live) {
+      const box = chat.getBoundingClientRect();
+      const r = live.getBoundingClientRect();
+      if (r.bottom > box.bottom - 24) chat.scrollTop += r.bottom - box.bottom + 24;
+      return;
+    }
     chat.scrollTop = chat.scrollHeight;
     return;
   }
@@ -546,7 +564,9 @@ function renderChat() {
       continue;
     }
     if (m.kind === "note") {
-      parts.push(`<div class="note" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
+      if (/^tools:\s/i.test(m.text)) continue;
+      const warn = /limite|quota/i.test(m.text);
+      parts.push(`<div class="note${warn ? " warn" : ""}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
       continue;
     }
     const seat = m.seat || "claude";
@@ -637,13 +657,25 @@ function paintScrollHints() {
   if (!chat) return;
   const top = chat.scrollTop;
   const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+  const view = chat.clientHeight;
   chat.classList.toggle("can-up", top > 8);
   chat.classList.toggle("can-down", max - top > 8);
   const jump = $("jumpLatest");
   if (!jump) return;
-  const show = !stick.follow && max > 8;
+  const streaming = Boolean(state.turn && state.turn.status === "running");
+  const live = log.querySelector(".live.quiet, .m.stream");
+  let streamOff = false;
+  if (streaming && live) {
+    const r = live.getBoundingClientRect();
+    const box = chat.getBoundingClientRect();
+    streamOff = r.bottom > box.bottom - 8 || r.top > box.bottom;
+  }
+  const far = max - top > view;
+  const show = (!stick.follow && far) || streamOff;
   jump.hidden = !show;
   jump.classList.toggle("show", show);
+  jump.classList.toggle("live", streamOff);
+  jump.textContent = streamOff && !stick.follow ? "↓ resposta em curso" : "↓ agora";
 }
 
 function jumpToLatest() {
@@ -1202,7 +1234,7 @@ function treeSvg(rows) {
 }
 
 function badgeTone(n) {
-  const stops = [[0, [61, 51, 48]], [2, [107, 74, 66]], [4, [154, 86, 72]], [6, [194, 96, 61]], [8, [143, 74, 54]]];
+  const stops = [[0, [43, 43, 49]], [2, [54, 54, 61]], [4, [74, 74, 83]], [6, [107, 107, 117]], [8, [142, 142, 153]]];
   const lv = Math.log2(Math.max(1, n));
   let lo = stops[0];
   let hi = stops[stops.length - 1];
@@ -1802,6 +1834,7 @@ async function sendUser(text, mode) {
       steps: [],
     };
     renderChat();
+    pinNewAnswer();
   }
   const res = await fetch("/api/message", {
     method: "POST",

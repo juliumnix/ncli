@@ -232,4 +232,4 @@ NCLI_HARNESS=claude bun start
 
 ## Development
 
-Coding agents developing this repo use pstack. The NCLI chat at runtime does not. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`. Sync Emil with `bun run scripts/sync-emil.ts`.
+Coding agents developing this repo use pstack. The NCLI chat at runtime does not. See `AGENTS.md` and `.cursor/rules/pstack.mdc`. Skills live in `ncli/skills/`. Sync vendored pstack with `bun run scripts/sync-pstack.ts`. Sync Emil with `bun run scripts/sync-emil.ts`. The visual system is `DESIGN.md` and `TOKENS.md`. `public/tokens.css` is the only palette.

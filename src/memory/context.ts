@@ -8,11 +8,11 @@ const SEAT_NAME = {
 } as const;
 
 const TONE_STOPS: Array<[number, [number, number, number]]> = [
-  [0, [61, 51, 48]],
-  [2, [107, 74, 66]],
-  [4, [154, 86, 72]],
-  [6, [194, 96, 61]],
-  [8, [143, 74, 54]],
+  [0, [43, 43, 49]],
+  [2, [54, 54, 61]],
+  [4, [74, 74, 83]],
+  [6, [107, 107, 117]],
+  [8, [142, 142, 153]],
 ];
 
 export function contextAuthor(n: number, kind: MsgKind | undefined, seat: SeatId | undefined, userName: string): ContextAuthor {
