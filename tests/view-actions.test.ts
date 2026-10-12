@@ -26,7 +26,7 @@ test("registry ships review, refino, and live (refine is gone)", async () => {
   const reg = new ViewRegistry(join(import.meta.dir, "../views"));
   await reg.loadAll();
   expect(reg.get("refine")).toBeUndefined();
-  expect(reg.list().map((v) => v.id).sort()).toEqual(["live", "refino", "review"]);
+  expect(reg.list().map((v) => v.id).sort()).toEqual(["live", "refino", "review", "team"]);
 });
 
 test("refino mock has three role pareceres, two question chips, and score below 0.90", async () => {
