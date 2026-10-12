@@ -64,7 +64,7 @@ Fonte de verdade da UI. Agente ou humano mexendo em `public/` ou `views/`: leia 
   :root { --d-press:0ms; --d-msg:0ms; --d-chunk:0ms; --d-toast:120ms; --d-modal:120ms; --d-sheet:120ms; --d-sheet-out:80ms; }
 }
 ```
-A fonte é carregada de `public/fonts/InterVariable.woff2` (self-hosted, `font-display: swap`, `<link rel="preload">`).
+A sans é `public/fonts/InterVariable.woff2`. A mono é `public/fonts/JetBrainsMono-Regular.woff2`. As duas são self-hosted, `font-display: swap`, com `<link rel="preload">`.
 
 ## Regras de uso
 **Texto**

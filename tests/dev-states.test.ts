@@ -12,4 +12,6 @@ test("/dev lists the fixture states the audit asked for", () => {
   expect(html).toContain("lista enorme");
   expect(html).toContain("shimmer-text");
   expect(html).toContain("note warn");
+  expect(html).toContain(".dev-block > h2");
+  expect(html).not.toMatch(/\.dev-page h2\b/);
 });

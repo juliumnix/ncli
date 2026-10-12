@@ -22,7 +22,10 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
 .minput input:focus-visible { outline: none; box-shadow: none; }
 .composer:focus-within {
   border-color: var(--gray-7);
-  box-shadow: var(--shadow-float), 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.composer:has(:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-float), var(--focus-ring);
 }
 .scroller, .drawer, .mbody, #debugView, .ctx-tree {
   scrollbar-width: thin;
@@ -1167,6 +1170,7 @@ code, .md pre, .tool, .diff, .rv-diff, .rv-raw, #debugView { font-family: var(--
 .dock::before { content: ""; position: absolute; inset: -40px -50vw -16px; background: linear-gradient(to bottom, transparent, var(--bg) 55%); z-index: -1; pointer-events: none; }
 .composer { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-xl); padding: 8px 8px 8px 16px; box-shadow: var(--shadow-float); }
 .composer:focus-within { border-color: var(--gray-7); }
+.composer:has(:focus-visible) { border-color: var(--accent); box-shadow: var(--shadow-float), var(--focus-ring); }
 .composer input { font-size: var(--text-base); color: var(--fg); }
 .composer input::placeholder { color: var(--fg-4); }
 .send, .go { width: 32px; height: 32px; background: var(--fg); color: var(--bg); }
@@ -1216,7 +1220,7 @@ code, .md pre, .tool, .diff, .rv-diff, .rv-raw, #debugView { font-family: var(--
 body.drawer-open .dock { left: calc(420px + (100vw - 420px) / 2); width: min(720px, calc(100vw - 420px - 48px)); }
 .live-ph, .ui-card, .live-frame { border-color: var(--border); border-radius: var(--r-lg); background: var(--surface); }
 .composer input:focus-visible, .mi input:focus-visible, .minput input:focus-visible { box-shadow: none; }
-.composer:focus-within { border-color: var(--gray-7); box-shadow: var(--shadow-float), 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.composer:has(:focus-visible) { border-color: var(--accent); box-shadow: var(--shadow-float), var(--focus-ring); }
 
 .note.warn { background: var(--warning-bg); color: var(--fg); }
 .md { overflow-wrap: break-word; }

@@ -15,8 +15,10 @@ test("tokens.css is the only palette and app.css has no loose hex", () => {
   expect(hex).toEqual([]);
 });
 
-test("index preloads Inter Variable and loads tokens before app.css", () => {
+test("index preloads Inter Variable and JetBrains Mono and loads tokens before app.css", () => {
   expect(html).toContain('href="/fonts/InterVariable.woff2"');
+  expect(html).toContain('href="/fonts/JetBrainsMono-Regular.woff2"');
+  expect(tokens).toContain("JetBrainsMono-Regular.woff2");
   expect(html).toContain('href="/tokens.css"');
   expect(html.indexOf("/tokens.css")).toBeLessThan(html.indexOf("/app.css"));
 });
@@ -24,11 +26,17 @@ test("index preloads Inter Variable and loads tokens before app.css", () => {
 test("focus-visible exists and every outline:none sits next to a ring", () => {
   expect(appCss).toContain(":focus-visible");
   expect(appCss).toContain("var(--focus-ring)");
-  expect(appCss).toContain(".composer:focus-within");
+  expect(appCss).toContain(".composer:has(:focus-visible)");
+  expect(appCss).not.toContain("color-mix(in srgb, var(--accent) 22%");
   const bare = [...appCss.matchAll(/outline:\s*none/g)];
   expect(bare.length).toBeGreaterThan(0);
   expect(appCss).toContain(".q {");
   expect(appCss).toContain("var(--accent-bg)");
+});
+
+test("iframes and mermaid arrows use the token accent, not terracotta", () => {
+  expect(appJs).not.toContain("#c2603d");
+  expect(appJs).toContain('accent: "#6ea4ff"');
 });
 
 test("refino question card uses the accent surface, not a light leftover", () => {

@@ -7,15 +7,18 @@ Arquivo pronto pra colar: `proposta/tokens.css`. Contraste medido: `contrast.md`
 **Família:** Inter Variable (rsms), self-hosted. Sem CDN, porque o NCLI é local-first e pode rodar offline.
 ```html
 <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
 ```
 ```css
 @font-face { font-family:"InterVariable"; src:url("/fonts/InterVariable.woff2") format("woff2");
   font-weight:100 900; font-display:swap; }
+@font-face { font-family:"JetBrains Mono"; src:url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight:400; font-display:swap; }
 --font-sans: "InterVariable","Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 --font-mono: "JetBrains Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
 font-feature-settings: "cv11","ss03","calt";   /* a de um andar, glifos mais legíveis em UI */
 ```
-Origem: `InterVariable.woff2` da release do github.com/rsms/inter (OFL), copiado pra `public/fonts/`. O servidor precisa servir `.woff2` com `font/woff2`. JetBrains Mono é opcional: sem ele, cai em `ui-monospace`. Números que mudam (tempo, contadores, +/−, tokens) usam `font-variant-numeric: tabular-nums`.
+Origem: `InterVariable.woff2` da release do github.com/rsms/inter (OFL) e `JetBrainsMono-Regular.woff2` do github.com/JetBrains/JetBrainsMono (OFL), os dois em `public/fonts/`. O servidor precisa servir `.woff2` com `font/woff2`. Números que mudam (tempo, contadores, +/−, tokens) usam `font-variant-numeric: tabular-nums`.
 
 | token | px | line-height | peso | tracking | uso |
 |---|---|---|---|---|---|
