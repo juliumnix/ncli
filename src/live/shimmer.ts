@@ -1,10 +1,11 @@
 import type { LiveKind } from "./parse";
 
-export type LiveShape = "diagram" | "chart" | "card" | "page";
+export type LiveShape = "diagram" | "chart" | "card" | "page" | "scene";
 
 export function liveShape(kind: LiveKind, source = ""): LiveShape {
   if (kind === "mermaid") return "diagram";
   if (kind === "url") return "page";
+  if (kind === "3d") return "scene";
   if (kind === "react" || kind === "ui") return "card";
   if (/chart|canvas|svg|bar|plot/i.test(source)) return "chart";
   return "card";
@@ -20,6 +21,8 @@ export function liveLabel(kind: LiveKind, source = ""): string {
       return kind === "ui" ? "montando o card…" : kind === "react" ? "montando componente…" : "montando prévia…";
     case "page":
       return "carregando página…";
+    case "scene":
+      return "montando a cena…";
     default: {
       const _n: never = liveShape(kind, source);
       return _n;
@@ -54,6 +57,8 @@ function shapeMarkup(shape: LiveShape): string {
       return `<s></s><em></em><em></em>`;
     case "page":
       return `<s></s><em></em><em></em><em></em>`;
+    case "scene":
+      return `<s></s><em></em><em></em>`;
     default: {
       const _n: never = shape;
       return _n;

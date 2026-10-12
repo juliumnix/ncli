@@ -5,7 +5,7 @@ description: Reply with an interactive in-chat mini-app (tabs, charts, tables). 
 
 # ncli-ui
 
-The user asks in plain language ("mostra como card", "um gráfico disso", "documenta em abas"). You reply with a self-contained mini-app. Do not ask them to pick a fence.
+The user asks in plain language ("mostra como card", "um gráfico disso", "documenta em abas", "mostra em 3D"). You reply with a self-contained mini-app or scene. Do not ask them to pick a fence.
 
 ## Contract
 
@@ -17,9 +17,17 @@ A fenced block in the reply, or MCP `ncli.render({kind:"ui", source})` and then 
 ```
 ````
 
-`kind=ui` only. Do not use `html` / `react` for these cards. The host injects NCLI dark tokens, `ncliChart`, and `ncliUi.send`. No CDN. No `fetch`. No cookies.
+`kind=ui` for cards. `kind=3d` for an in-chat three.js scene. Do not use `html` / `react` for these. The host injects NCLI dark tokens, `ncliChart`, `ncliUi.send`, and `ncli3d`. No CDN. No `fetch`. No cookies.
 
-The iframe is sandboxed (`allow-scripts`, no `allow-same-origin`) with `default-src 'none'`. Network is off. Images are `data:` only.
+````
+```ncli 3d
+ncli3d.desk()
+```
+````
+
+The fence source is the scene. `ncli3d.desk()` draws a wood top, metal frame, and clamp. `ncli3d.box()` draws a red cube. Scripts load from this hub (`/vendor/three.global.js`, `/ncli3d.js`) as classic scripts.
+
+HTML, react, and 3d stay on `sandbox="allow-scripts"` without `allow-same-origin`. CSP is `default-src 'none'`. 3d scripts are `'self' blob:` (vendored three.js). Network is off. Images are `data:` only.
 
 ## When
 
@@ -36,5 +44,5 @@ Keep the source small. Put scripts after the markup so `ncliChart` exists. Do no
 ## Check
 
 ```bash
-bun test tests/ncli-ui.test.ts tests/live.test.ts
+bun test tests/ncli-ui.test.ts tests/live.test.ts tests/live-3d.test.ts
 ```
