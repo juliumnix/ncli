@@ -90,7 +90,10 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
         }
         if (body.apply) {
-          return Response.json({ ok: true, apply: hub.applyImport(source, body.since) });
+          return Response.json({
+            ok: true,
+            apply: hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }),
+          });
         }
         return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
       }

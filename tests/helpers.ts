@@ -62,6 +62,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     opts.gh,
   );
   await hub.start();
+  hub.offerFirstImport();
   return { hub, repo, dataDir, harness };
 }
 
