@@ -36,6 +36,21 @@ export interface Message {
   supersedes?: number[];
   successor?: number;
   reason?: string;
+  recall?: Citation[];
+}
+
+export type RecallKind = "summary" | "original";
+
+export type CitationStatus = "verified" | "unverified" | "superseded";
+
+export type RecallEvent =
+  | { turnId: string; tool: "zoom"; id: number; n: number; kind: RecallKind; space: string; at: string }
+  | { turnId: string; tool: "date"; id: number; space: string; at: string }
+  | { turnId: string; tool: "recall"; pattern: string; space: string; at: string };
+
+export interface Citation {
+  id: number;
+  status: CitationStatus;
 }
 
 export interface TurnStep {
@@ -190,5 +205,6 @@ export type HubEvent =
   | { type: "import"; preview: ImportPreview }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
+  | { type: "recall"; session: string; turnId: string; events: RecallEvent[]; citations: Citation[] }
   | ContextSnapshot
   | { type: "error"; error: string };

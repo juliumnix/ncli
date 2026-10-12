@@ -74,7 +74,10 @@ Navigating: zoom(id, n) opens line id+n into the two lines of n/2
 messages it was made from; zoom(id, 1) gives message id in full. Zoom
 whenever a summary only mentions something you need, such as what your
 last reply said, a decision, a past attempt or where a file is, before
-you act, guess or ask. date(id) gives the date and time of message id.`;
+you act, guess or ask. date(id) gives the date and time of message id.
+Every claim about the past cites [#id] of a message you opened with
+zoom(id, 1) this turn. Without that, say it is from the summary
+(unverified).`;
 
 export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
   if (mem.viewBytesUsed() > mem.viewHigh) mem.fit();
