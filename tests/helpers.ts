@@ -12,6 +12,12 @@ export function tmpDir(prefix = "ncli"): string {
   return mkdtempSync(join(tmpdir(), `${prefix}-`));
 }
 
+export function shotsDir(env: NodeJS.ProcessEnv = process.env): string {
+  const fromEnv = env.NCLI_SHOTS?.trim();
+  if (fromEnv) return fromEnv;
+  return join(tmpdir(), "ncli-shots");
+}
+
 export async function makeHub<H extends Harness = MockHarness>(opts: {
   viewsDir?: string;
   harness?: H;

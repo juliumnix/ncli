@@ -3,10 +3,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, waitUntil } from "./helpers";
+import { makeHub, shotsDir, waitUntil } from "./helpers";
 
 const CLAUDE = join(import.meta.dir, "../fixtures/import/claude/projects");
-const SHOTS = "/opt/cursor/artifacts/screenshots";
+const SHOTS = shotsDir();
 
 test("chrome: empty session shows welcome and the claude import bar", async () => {
   if (!chromePath()) throw new Error("chrome not found");
