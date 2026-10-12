@@ -62,9 +62,16 @@ function millis(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+export const DEFAULT_COMPACT_MODEL = "composer-2.5";
+
 export function parseCursorModel(raw: string | undefined): string {
   const id = (raw ?? "").trim();
   return id || "composer-2.5";
+}
+
+export function parseCompactModel(raw: string | undefined): string {
+  const id = (raw ?? "").trim();
+  return id || DEFAULT_COMPACT_MODEL;
 }
 
 export function parseCodexModel(raw: string | undefined): string {
@@ -80,7 +87,13 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
   const harnessEnv = (process.env.NCLI_HARNESS ?? "auto") as HarnessKind;
   const ghEnv = (process.env.NCLI_GH ?? "auto") as NcliConfig["ghMode"];
   const compactEnv = (process.env.NCLI_COMPACT ?? "auto") as CompactBackend;
-  const { cursorModel: cursorOverride, codexModel: codexOverride, userName: userNameOverride, ...rest } = overrides;
+  const {
+    cursorModel: cursorOverride,
+    compactModel: compactOverride,
+    codexModel: codexOverride,
+    userName: userNameOverride,
+    ...rest
+  } = overrides;
   return {
     dataDir: process.env.NCLI_DATA ?? join(process.cwd(), "data"),
     port: num("NCLI_PORT", 47231),
@@ -93,7 +106,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactJobs: num("NCLI_JOBS", 4),
     compactTries: num("NCLI_TRIES", 3),
     compactBackend: compactEnv,
-    compactModel: process.env.NCLI_COMPACT_MODEL ?? "claude-haiku-5-5",
+    compactModel: parseCompactModel(compactOverride ?? process.env.NCLI_COMPACT_MODEL),
     compactSkipTokens: num("NCLI_COMPACT_SKIP", 80),
     compactBatch: num("NCLI_COMPACT_BATCH", 6),
     compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),

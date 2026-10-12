@@ -16,7 +16,7 @@ export function cursorEvalCompressor(dir: string, opts: {
     compactDebounceMs: 5,
     compactSkipTokens: opts.skipTokens ?? 1,
     compactBudgetTokens: opts.budgetTokens ?? 250000,
-    compactModel: "claude-haiku-5-5",
+    compactModel: "composer-2.5",
     nodeBytes: 280,
   });
   return cursorCompressor(cfg, async (prompt, model) => {
