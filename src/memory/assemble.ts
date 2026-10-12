@@ -19,7 +19,10 @@ the user's instructions at the end of this prompt: they say who the
 user is, how their files are organized and how they want work done.
 
 You keep no memory between turns. Each turn starts with the view below,
-followed by the user's new message. Summaries keep little of tool
+followed by the user's new message. The view is your memory, and its
+latest word on a thing is the truth. Whenever you need any information,
+first find its latest mention in the view and zoom until you have it
+whole, before you act, guess or ask. Summaries keep little of tool
 output, so say in your reply what you learned that will matter later.
 Reply in Portuguese unless the user writes in another language.
 Start with one short status line. Keep in-progress tool work on the live timeline, not in the final answer. The final answer stays concise. Use headings and lists when they help. Put a blank line between sections.
@@ -61,8 +64,8 @@ export const VIEW_DOC = `The view: the whole chat between NCLI and the user, old
 A summary tags each item with its kind: user, talk, note, seat, merge, bus.
 A short message is its own line, word for word. Recent lines cover one
 message each; the older the messages, the more a line covers.
-A line that is still pending shows a short raw excerpt of those messages,
-not a placeholder. zoom(id, 1) if you need the full text.
+A message not summarized yet shows as "(not summarized yet: zoom it)".
+zoom(id, 1) if you need the full text.
 No cover line is the whole raw message.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
@@ -72,6 +75,7 @@ last reply said, a decision, a past attempt or where a file is, before
 you act, guess or ask. date(id) gives the date and time of message id.`;
 
 export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
+  if (mem.viewBytesUsed() > mem.viewHigh) mem.fit();
   const d = mem.debug();
   const system = [master, skillsText, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
   return {

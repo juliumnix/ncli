@@ -39,12 +39,13 @@ export function contextRows(mem: Memory, userName: string): ContextRow[] {
     const last = mem.log[Math.min(p.start + p.n - 1, mem.T - 1)] ?? first;
     const kind = p.n === 1 ? first?.kind : undefined;
     const seat = p.n === 1 ? first?.seat : undefined;
+    const text = p.n === 1 && first && !p.built ? `${first.kind}: ${first.text}` : p.text;
     return {
       id: `${p.start}+${p.n}`,
       start: p.start,
       n: p.n,
-      text: p.text,
-      summary: contextSummary(p.text, p.n, userName),
+      text,
+      summary: contextSummary(text, p.n, userName),
       built: p.built,
       from: first?.date ?? "",
       to: last?.date ?? first?.date ?? "",
@@ -61,7 +62,7 @@ export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: s
     session: "main",
     rows: contextRows(mem, userName),
     bytes: mem.viewBytesUsed(),
-    budget: mem.viewBytes,
+    budget: mem.viewHigh,
     pending: mem.pendingCount(),
     T: mem.T,
     compact,
