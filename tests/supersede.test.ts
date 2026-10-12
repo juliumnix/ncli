@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { assemble } from "../src/memory/assemble";
 import { spaceFor } from "../src/memory/spaces";
 import { Memory, mockCompressor } from "../src/memory/store";
+import { utf8Bytes } from "../src/util";
 import { makeHub, tmpDir } from "./helpers";
 
 test("zoom of a replaced message names the successor and keeps the original text", async () => {
@@ -30,6 +31,12 @@ test("zoom of a replaced message names the successor and keeps the original text
     `SUPERSEDED by #${neu.i} (user corrected the rate)`,
   );
   expect(mem.renderView()).toContain(`SUPERSEDED by #${neu.i} (user corrected the rate)`);
+  const lines = mem.viewLines();
+  const bodies = mem.view.reduce((s, p) => s + p.size, 0);
+  const header = `SUPERSEDED by #${neu.i} (user corrected the rate)`;
+  expect(lines.some((line) => line.startsWith(header))).toBe(true);
+  expect(mem.viewBytesUsed()).toBe(bodies + utf8Bytes(`${header}\n`));
+  expect(mem.viewBytesUsed()).toBeGreaterThan(bodies);
   expect(mem.log[old.i]?.text).toBe("member discount is 10 percent");
   expect(mem.log[old.i]?.supersedes).toBeUndefined();
 
@@ -46,7 +53,7 @@ test("zoom of a replaced message names the successor and keeps the original text
   expect(again.lines[1]).toBe(`${old.i}+0|user: member discount is 10 percent`);
 });
 
-test("a chain of replacements reports the latest successor", () => {
+test("a chain of replacements names the direct successor", () => {
   const mem = new Memory({
     dir: tmpDir("super-chain"),
     nodeBytes: 80,
@@ -73,7 +80,11 @@ test("a chain of replacements reports the latest successor", () => {
   const zoom = mem.zoom(a.i, 1);
   expect(zoom.ok).toBe(true);
   if (!zoom.ok) return;
-  expect(zoom.lines[0]).toBe(`SUPERSEDED by #${c.i} (second correction)`);
+  expect(zoom.lines[0]).toBe(`SUPERSEDED by #${b.i} (first correction)`);
+  const zoomB = mem.zoom(b.i, 1);
+  expect(zoomB.ok).toBe(true);
+  if (!zoomB.ok) return;
+  expect(zoomB.lines[0]).toBe(`SUPERSEDED by #${c.i} (second correction)`);
 });
 
 test("supersede MCP writes a note and zoom follows it after reload", async () => {
@@ -142,7 +153,7 @@ test("supersede rejects new<=old and cycles", async () => {
   }
 });
 
-test("supersede stays on the current space even when space names another project", async () => {
+test("supersede refuses a space argument with a clear error", async () => {
   const other = tmpDir("super-other");
   const { hub } = await makeHub();
   try {
@@ -157,9 +168,9 @@ test("supersede stays on the current space even when space names another project
       reason: "cross space",
       space: spaceFor(other),
     }, "main");
-    expect(out).toMatch(/^ok #\d+$/);
+    expect(out).toBe("supersede does not take space.");
     const currentZoom = await hub.callMcp("zoom", { id: 0, n: 1 }, "main");
-    expect(currentZoom).toContain("SUPERSEDED by #1 (cross space)");
+    expect(currentZoom).not.toContain("SUPERSEDED");
     const otherZoom = foreign.zoom(0, 1);
     expect(otherZoom.ok).toBe(true);
     if (otherZoom.ok) expect(otherZoom.lines.join("\n")).not.toContain("SUPERSEDED");

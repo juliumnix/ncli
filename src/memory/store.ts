@@ -173,7 +173,11 @@ export class Memory {
   }
 
   viewBytesUsed(): number {
-    return this.view.reduce((s, p) => s + p.size, 0);
+    const facts = factsOf(this.log);
+    return this.view.reduce((s, p) => {
+      const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
+      return s + p.size + (header ? utf8Bytes(`${header}\n`) : 0);
+    }, 0);
   }
 
   allBuilt(): boolean {

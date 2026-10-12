@@ -18,17 +18,12 @@ export interface SpaceRegistryOptions {
   compressTimeoutMs?: number;
 }
 
-const spaceByCwd = new Map<string, SpaceId>();
 const gitRootByCwd = new Map<string, string | null>();
 
 export function spaceFor(cwd: string): SpaceId {
   const abs = resolve(cwd);
-  const hit = spaceByCwd.get(abs);
-  if (hit) return hit;
   const root = gitProjectRoot(abs) ?? abs;
-  const id: SpaceId = `proj:${idOf(root)}`;
-  spaceByCwd.set(abs, id);
-  return id;
+  return `proj:${idOf(root)}`;
 }
 
 export function isSpaceId(value: string): value is SpaceId {
@@ -97,7 +92,8 @@ export class SpaceRegistry {
 
 function gitProjectRoot(cwd: string): string | null {
   const abs = resolve(cwd);
-  if (gitRootByCwd.has(abs)) return gitRootByCwd.get(abs) ?? null;
+  const cached = gitRootByCwd.get(abs);
+  if (cached) return cached;
   if (!existsSync(abs)) {
     gitRootByCwd.set(abs, null);
     return null;

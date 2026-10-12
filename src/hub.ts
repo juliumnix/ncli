@@ -596,6 +596,8 @@ export class Hub {
   }
 
   async callMcp(name: string, args: Record<string, unknown>, from: string): Promise<string> {
+    const denied = this.denySpace(name, from, args.space);
+    if (denied) return denied;
     const mem = this.memoryForTool(from, args.space);
     const space = this.spaceIdOf(from);
     switch (name) {
@@ -776,14 +778,25 @@ export class Hub {
     return this.spaces.of(spaceFor(cwd));
   }
 
+  private denySpace(name: string, from: string, space: unknown): string | undefined {
+    if (typeof space !== "string" || !space) return undefined;
+    if (name === "supersede") return "supersede does not take space.";
+    if (this.allowsSpace(from, space)) return undefined;
+    return `space ${space} is not this session.`;
+  }
+
+  private allowsSpace(from: string, space: string): boolean {
+    const sparkRt = this.sparks.get(from);
+    if (space === "global" || space === "current" || space === "main") return true;
+    if (!sparkRt && space === this.spaces.currentId) return true;
+    return Boolean(sparkRt && (space === `spark:${from}` || space === from));
+  }
+
   private memoryForTool(from: string, space: unknown): Memory {
     const sparkRt = this.sparks.get(from);
     const own = sparkRt?.memory ?? this.memory;
     if (typeof space !== "string" || !space) return own;
     if (space === "global") return this.spaces.global();
-    if (space === "current" || space === "main" || space === this.spaces.currentId) return own;
-    const ownSpark = sparkRt ? `spark:${from}` : undefined;
-    if (ownSpark && (space === ownSpark || space === from)) return own;
     return own;
   }
 

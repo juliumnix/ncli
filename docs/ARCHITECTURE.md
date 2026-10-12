@@ -12,8 +12,8 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
 | `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
 | `src/memory/store.ts` | log + OptChat tree; `pump()` builds nodes in the background; `settle()` waits for the visible cover only |
-| `src/memory/spaces.ts` | `SpaceId` + one `Memory` per project / global / inbox; worktrees share `git-common-dir`. `spaceFor` is cached. MCP zoom/recall/date stay on current, global, or own spark |
-| `src/memory/facts.ts` | append-only superseded index rebuilt from the log. Rejects `new<=old` and cycles. SUPERSEDED on zoom, recall, and n=1 view |
+| `src/memory/spaces.ts` | `SpaceId` + one `Memory` per project / global / inbox; worktrees share `git-common-dir`. A git-root miss re-probes. Other `space` args error. |
+| `src/memory/facts.ts` | append-only superseded index rebuilt from the log. Header names the direct successor. SUPERSEDED bytes count in the view. |
 | `src/memory/recall.ts` | RecallEvent from successful callMcp, with space. verifyCitations needs same space + existing id |
 | `src/memory/sdk-compact.ts` | compaction ONLY, via `@cursor/sdk`. Auth is `NCLI_CURSOR_API_KEY` from `~/.config/ncli/secrets.env` or the process env. Never used by the Cursor seat |
 | `src/memory/cursor-compact.ts` | batch / cache / 60k cap. Calls the SDK runner. CLI `--print` is a marked fallback |
