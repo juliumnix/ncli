@@ -50,6 +50,9 @@ deserve far less space than the user's words.
 fill most of the log and are mostly noise. Instead of copying them,
 describe each in a few words.
 
+If a later item replaces an earlier one, keep the final state and name
+what it replaced.
+
 Avoid dropping an item entirely: an absent item can never be found by
 zooming, while a word or two keeps it findable. Each line must make
 sense on its own. Tag items with source kind. Record faithfully: never

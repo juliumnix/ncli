@@ -14,7 +14,7 @@ import type { CompactInput, Compressor } from "./store";
 export { CompactDeferred };
 
 export const CURSOR_COMPACT_PROMPT =
-  "One-line memory for NCLI. Output only the line. Keep user words, decisions, ids. Drop tool noise.";
+  "One-line memory for NCLI. Output only the line. Keep user words, decisions, ids. If a later item replaces an earlier one, keep the final state and name what it replaced. Drop tool noise.";
 
 export type CompactRunner = (prompt: string, model: string) => Promise<string>;
 

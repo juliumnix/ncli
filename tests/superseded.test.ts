@@ -14,7 +14,7 @@ test("the system prompt says the view's latest word is the truth", () => {
   expect(assemble(mem).system).toContain("latest word on a thing is the truth");
 });
 
-test.failing("zoom of a superseded message names the replacement", async () => {
+test("zoom of a superseded message names the replacement", async () => {
   const mem = new Memory({
     dir: tmpDir("supersede-zoom"),
     nodeBytes: 200,
@@ -22,7 +22,7 @@ test.failing("zoom of a superseded message names the replacement", async () => {
     compressor: mockCompressor(),
   });
   mem.append({ kind: "user", text: "RATE=10" });
-  mem.append({ kind: "note", text: "RATE=7", supersedes: [0], reason: "user corrected the rate" } as never);
+  mem.append({ kind: "note", text: "RATE=7", supersedes: [0], reason: "user corrected the rate" });
   await mem.settle();
   const leaf = mem.zoom(0, 1);
   expect(leaf.ok).toBe(true);
