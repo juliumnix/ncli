@@ -18,6 +18,22 @@ test("isQuotaError matches rate-limit and quota text", () => {
   expect(isQuotaError("syntax error")).toBe(false);
 });
 
+test("quota skips a missing CLI and lands on the next present seat", async () => {
+  const { hub } = await makeHub({
+    harness: new QuotaClaude(),
+    backupHarness: "mock",
+    fallbackChain: ["claude", "codex", "mock"],
+  });
+  try {
+    hub.cfg.codexBin = "/no/such/ncli-codex";
+    await hub.send("continua o desconto");
+    expect(hub.harness.id).toBe("mock");
+    expect(hub.snapshot().usage.next).toBeUndefined();
+  } finally {
+    hub.close();
+  }
+});
+
 test("Claude quota switches main harness to the backup, announces it, and retries the turn", async () => {
   const { hub } = await makeHub({ harness: new QuotaClaude(), backupHarness: "mock", fallbackChain: ["claude", "mock"] });
   try {

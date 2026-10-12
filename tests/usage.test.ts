@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isQuotaError, parseQuota, parseResetAt } from "../src/harness/quota";
@@ -34,6 +34,8 @@ test("UsageBoard walks the chain and persists limited seats", () => {
   const board = new UsageBoard(dir, ["claude", "codex", "cursor"]);
   board.markLimited("claude", "429 quota exceeded, retry in 5 hours");
   expect(board.nextOpen("claude")).toBe("codex");
+  expect(board.nextOpen("claude", { claude: true, codex: false, cursor: true })).toBe("cursor");
+  expect(board.snapshot("claude", { claude: true, codex: true, cursor: false }).next).toBe("codex");
   board.markLimited("codex", "429 quota exceeded");
   expect(board.nextOpen("claude")).toBe("cursor");
   board.markLimited("cursor", "429 quota exceeded");
@@ -129,4 +131,10 @@ test("exhausted chain parks the next line and a resume reset drains it", async (
   } finally {
     hub.close();
   }
+});
+
+test("limit chip names the next open seat", () => {
+  const js = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+  expect(js).toContain("próximo");
+  expect(js).toContain("state.usage.next");
 });
