@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
-import { makeHub, tmpDir, waitUntil } from "./helpers";
+import { chromePath, launchChrome } from "../src/perf/cdp";
+import { makeHub, shotsDir, tmpDir, waitUntil } from "./helpers";
 
 function writeFatClaude(root: string, files = 40, lines = 80): { files: number; lines: number } {
   const proj = join(root, "-home-julio-ncli");
@@ -61,3 +62,49 @@ test("first oi token arrives while a fat Claude import is still applying", async
     booted.stop();
   }
 }, 20000);
+
+test("chrome: oi streams while the welcome chip is still importing", async () => {
+  if (!chromePath()) throw new Error("chrome not found");
+  const root = tmpDir("fat-oi");
+  writeFatClaude(root, 16, 40);
+  const { hub } = await makeHub({ importClaude: root });
+  hub.cfg.port = 18900 + Math.floor(Math.random() * 400);
+  const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
+  const driver = await launchChrome(9750 + Math.floor(Math.random() * 400));
+  try {
+    await driver.session.attachPage("about:blank");
+    await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
+    await waitUntil(
+      () => driver.session.evaluate(`Boolean(document.querySelector("[data-welcome-import='claude']"))`),
+      8000,
+      "welcome chip",
+    );
+    const t0 = Date.now();
+    await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
+    await driver.session.evaluate(`(() => {
+      const input = document.getElementById("input");
+      if (!input) return;
+      input.focus();
+      input.value = "oi";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      document.getElementById("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    })()`);
+    await waitUntil(
+      () => driver.session.evaluate(`(document.body.innerText || "").includes("Ok. oi")`),
+      8000,
+      "oi reply",
+    );
+    const ttft = Date.now() - t0;
+    const chip = await driver.session.evaluate<string>(
+      `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+    );
+    console.log(`import-turn chrome_ttft_ms=${ttft} chip=${JSON.stringify(chip)}`);
+    expect(ttft).toBeLessThan(3000);
+    const shots = shotsDir();
+    mkdirSync(shots, { recursive: true });
+    writeFileSync(join(shots, "import-oi.png"), await driver.session.screenshot());
+  } finally {
+    driver.close();
+    booted.stop();
+  }
+}, 30000);

@@ -36,7 +36,6 @@ import { prepareSpawn } from "./mcp/inject";
 import { sparkSkillPrompt } from "./views/manifest";
 import { TurnQueue, type QueueMode } from "./queue/turn-queue";
 import {
-  alreadyInLog,
   defaultImportRoots,
   formatApply,
   formatPreview,
@@ -45,6 +44,7 @@ import {
   listSessionFiles,
   parseImportArgv,
   rootFor,
+  type ImportLine,
   type ImportPreview,
   type ImportSource,
 } from "./import";
@@ -424,7 +424,14 @@ export class Hub {
     }
     this.importOffers = offers;
     if (!bestSource) return;
-    this.lastImport = this.importer.preview(bestSource);
+    this.lastImport = {
+      source: bestSource,
+      root: rootFor(bestSource, this.importer.roots),
+      sessions: bestSessions,
+      lines: [],
+      newCount: 0,
+      seenCount: 0,
+    };
     this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
   }
 
@@ -434,23 +441,37 @@ export class Hub {
     opts: { surface?: boolean } = {},
   ): Promise<Awaited<ReturnType<Importer["apply"]>>> {
     const surface = Boolean(opts.surface) && this.memory.T === 0;
-    const result = await this.importer.apply(
-      source,
-      since,
-      (line) => {
-        const mem = surface ? this.memory : this.memoryForImport(line.cwd);
-        const msg = mem.append({
+    let bucketMem = this.memory;
+    let bucket: ImportLine[] = [];
+    const flush = (): void => {
+      if (!bucket.length) return;
+      bucketMem.ingest(
+        bucket.map((line) => ({
           kind: line.kind,
           text: line.text,
           seat: line.seat,
           date: line.at,
           hops: `import:${line.source}`,
-        });
-        if (mem === this.memory) this.emit({ type: "message", session: "main", message: msg });
-        return msg;
+        })),
+      );
+      bucket = [];
+    };
+    const result = await this.importer.apply(
+      source,
+      since,
+      (line) => {
+        const mem = surface ? this.memory : this.memoryForImport(line.cwd);
+        if (mem !== bucketMem) {
+          flush();
+          bucketMem = mem;
+        }
+        bucket.push(line);
+        if (bucket.length >= 32) flush();
+        return undefined;
       },
-      (line) => alreadyInLog((surface ? this.memory : this.memoryForImport(line.cwd)).log, line),
+      () => false,
       (progress) => {
+        flush();
         this.emit({
           type: "import-progress",
           source: progress.source,
@@ -460,11 +481,11 @@ export class Hub {
         });
       },
     );
+    flush();
     this.lastImport = {
       ...result.preview,
       lines: [],
       newCount: 0,
-      seenCount: result.preview.seenCount + result.applied,
     };
     this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
     void this.memory.pump();

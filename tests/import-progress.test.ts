@@ -18,7 +18,7 @@ test("formatImportChip names the CLI then the live percent", () => {
   expect(formatImportChip("codex", { source: "codex", done: 21, total: 50 })).toBe("trazendo… 42%");
 });
 
-test("apply reports done/total on each line", async () => {
+test("apply reports done/total on each file", async () => {
   const ticks: Array<{ done: number; total: number }> = [];
   const dir = tmpDir("imp-prog");
   const importer = new Importer(dir, {
@@ -27,9 +27,9 @@ test("apply reports done/total on each line", async () => {
     cursor: tmpDir("empty-cursor"),
   });
   await importer.apply("claude", undefined, () => undefined, () => false, (p) => ticks.push({ done: p.done, total: p.total }));
-  expect(ticks[0]).toEqual({ done: 0, total: 4 });
-  expect(ticks.at(-1)).toEqual({ done: 4, total: 4 });
-  expect(ticks.map((t) => t.done)).toEqual([0, 1, 2, 3, 4]);
+  expect(ticks[0]).toEqual({ done: 0, total: 1 });
+  expect(ticks.at(-1)).toEqual({ done: 1, total: 1 });
+  expect(ticks.map((t) => t.done)).toEqual([0, 1]);
 });
 
 test("hub apply emits import-progress from the backend count", async () => {
@@ -40,9 +40,8 @@ test("hub apply emits import-progress from the backend count", async () => {
       if (ev.type === "import-progress") ticks.push({ done: ev.done, total: ev.total, pct: ev.pct });
     });
     await hub.applyImport("claude", undefined, { surface: true });
-    expect(ticks[0]).toEqual({ done: 0, total: 4, pct: 0 });
-    expect(ticks.at(-1)).toEqual({ done: 4, total: 4, pct: 100 });
-    expect(ticks.some((t) => t.pct === 50)).toBe(true);
+    expect(ticks[0]).toEqual({ done: 0, total: 1, pct: 0 });
+    expect(ticks.at(-1)).toEqual({ done: 1, total: 1, pct: 100 });
   } finally {
     hub.close();
   }
@@ -52,13 +51,15 @@ test("a fat project root still reports percent against the line total", async ()
   const root = tmpDir("fat-claude");
   const proj = join(root, "workspace");
   mkdirSync(proj, { recursive: true });
-  const lines = Array.from({ length: 20 }, (_, i) => JSON.stringify({
-    type: "user",
-    timestamp: `2026-10-12T00:00:${String(i).padStart(2, "0")}.000Z`,
-    cwd: "/workspace",
-    message: { content: `FACT_LINE_${i}` },
-  }));
-  writeFileSync(join(proj, "sess.jsonl"), `${lines.join("\n")}\n`);
+  for (let f = 0; f < 4; f++) {
+    const lines = Array.from({ length: 5 }, (_, i) => JSON.stringify({
+      type: "user",
+      timestamp: `2026-10-12T0${f}:00:${String(i).padStart(2, "0")}.000Z`,
+      cwd: "/workspace",
+      message: { content: `FACT_LINE_${f}_${i}` },
+    }));
+    writeFileSync(join(proj, `sess-${f}.jsonl`), `${lines.join("\n")}\n`);
+  }
   const ticks: number[] = [];
   const { hub } = await makeHub({ importClaude: root });
   try {

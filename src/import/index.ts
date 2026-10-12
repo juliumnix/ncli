@@ -1,6 +1,6 @@
 import type { Message } from "../types";
 import { ImportLedger } from "./ledger";
-import { listSessionFiles, parseSessionFile } from "./parse";
+import { listSessionFiles, parseSessionFile, parseSessionLines } from "./parse";
 import { defaultImportRoots, rootFor } from "./roots";
 import type { ImportProgress } from "./progress";
 import type { ImportApply, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
@@ -10,7 +10,7 @@ export type { ImportProgress } from "./progress";
 export { formatImportChip, importPct } from "./progress";
 export { isImportSource, parseImportArgv } from "./args";
 export { defaultImportRoots, rootFor } from "./roots";
-export { listSessionFiles, parseSessionFile, textOf } from "./parse";
+export { listSessionFiles, parseSessionFile, parseSessionLines, textOf } from "./parse";
 export { fingerprintOf, lineOf } from "./fingerprint";
 
 export class Importer {
@@ -69,25 +69,50 @@ export class Importer {
     already: (line: ImportLine) => boolean,
     onProgress?: (progress: ImportProgress) => void,
   ): Promise<ImportApply> {
-    const preview = this.preview(source, since);
-    const total = preview.lines.length;
+    const root = rootFor(source, this.roots);
+    const files = listSessionFiles(root, source);
+    const sinceMs = since ? Date.parse(since) : undefined;
+    const total = files.length;
     onProgress?.({ source, done: 0, total });
     let applied = 0;
+    let seenCount = 0;
+    let skipped = 0;
     const marked: string[] = [];
-    for (let i = 0; i < preview.lines.length; i++) {
-      const line = preview.lines[i]!;
-      if (already(line) || this.ledger.has(line.fingerprint)) {
-        marked.push(line.fingerprint);
-      } else {
+    for (let i = 0; i < files.length; i++) {
+      for (const line of parseSessionLines(source, files[i]!)) {
+        if (sinceMs !== undefined) {
+          const at = Date.parse(line.at);
+          if (!Number.isFinite(at) || at < sinceMs) {
+            skipped += 1;
+            continue;
+          }
+        }
+        if (already(line) || this.ledger.has(line.fingerprint)) {
+          marked.push(line.fingerprint);
+          seenCount += 1;
+          continue;
+        }
         append(line);
         marked.push(line.fingerprint);
         applied += 1;
       }
       onProgress?.({ source, done: i + 1, total });
-      if (onProgress) await Bun.sleep(0);
+      await Bun.sleep(8);
     }
     this.ledger.add(marked);
-    return { preview, applied };
+    return {
+      preview: {
+        source,
+        root,
+        sessions: files.length,
+        lines: [],
+        newCount: 0,
+        seenCount: seenCount + applied,
+        skipped,
+        since,
+      },
+      applied,
+    };
   }
 }
 
