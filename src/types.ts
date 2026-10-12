@@ -1,7 +1,7 @@
 import type { HarnessKind } from "./config";
 import type { QueueItem } from "./queue/turn-queue";
 import type { UsageSnapshot } from "./harness/usage";
-import type { ImportPreview } from "./import/types";
+import type { ImportPreview, ImportSource } from "./import/types";
 import type { SparkResult } from "./views/manifest";
 
 export type SeatId = "claude" | "codex" | "cursor";
@@ -202,7 +202,7 @@ export type HubEvent =
   | { type: "spark"; spark: Spark }
   | { type: "queue"; items: QueueItem[] }
   | { type: "usage"; usage: UsageSnapshot }
-  | { type: "import"; preview: ImportPreview }
+  | { type: "import"; preview: ImportPreview; offers?: { source: ImportSource; sessions: number }[] }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
   | { type: "recall"; session: string; turnId: string; events: RecallEvent[]; citations: Citation[] }

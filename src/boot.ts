@@ -87,6 +87,7 @@ export async function bootNcli(opts: {
     hub.close();
     throw new Error(`HTTP UI failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
+  hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const token = hub.mcp.mint("boot");
   try {

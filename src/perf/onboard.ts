@@ -54,30 +54,9 @@ export interface OnboardReport {
   samples: OnboardSample[];
 }
 
+const FIXTURE_CLAUDE = join(import.meta.dir, "../../fixtures/import/claude/projects");
 const PR_URL = "https://github.com/acme/shop/pull/482";
 const FIRST_Q = "oi, me responde rápido";
-
-export function writeOnboardClaude(root: string, cwd: string): number {
-  mkdirSync(join(root, "proj"), { recursive: true });
-  const rows = [
-    ["user", "como funciona o desconto FACT_MEMBER_DISCOUNT_BEFORE_TAX?"],
-    ["assistant", "O desconto de membro aplica antes do imposto."],
-    ["user", "e se o cupom vier depois?"],
-    ["assistant", "Cupom depois do desconto de membro."],
-  ];
-  const lines = rows.map(([type, text], i) =>
-    JSON.stringify({
-      uuid: `onboard-${i}`,
-      sessionId: "sess-onboard",
-      timestamp: new Date(Date.UTC(2026, 9, 8, 14, 2, i)).toISOString(),
-      type,
-      cwd,
-      message: { role: type === "user" ? "user" : "assistant", content: [{ type: "text", text }] },
-    }),
-  );
-  writeFileSync(join(root, "proj", "sess-onboard.jsonl"), lines.join("\n"));
-  return lines.length;
-}
 
 export function writeFatClaude(root: string, files: number, linesPer = 8): number {
   mkdirSync(join(root, "projects", "fat"), { recursive: true });
@@ -174,6 +153,7 @@ export async function measureHubStart(opts: { fatFiles?: number } = {}): Promise
   try {
     const t0 = performance.now();
     await ready.hub.start();
+    ready.hub.offerFirstImport();
     const ms = performance.now() - t0;
     const offered = ready.hub.lastImport?.sessions ?? 0;
     return {
@@ -269,9 +249,7 @@ async function timeUntil(session: CdpSession, expr: string, ms: number): Promise
 export async function measureOnboardChrome(opts: {
   screenshotDir?: string;
 }): Promise<OnboardSample[]> {
-  const claude = tmp("onboard-claude");
-  const ready = await makeOnboardHub({ port: nextPort(), claude, start: false });
-  writeOnboardClaude(claude, ready.repo);
+  const ready = await makeOnboardHub({ port: nextPort(), claude: FIXTURE_CLAUDE, start: false });
   const booted = await bootNcli({ cfg: ready.hub.cfg, hub: ready.hub, root: process.cwd() });
   const driver = await launchChrome(9222 + Math.floor(Math.random() * 400));
   const shot = async (name: string) => {
@@ -331,12 +309,25 @@ export async function measureOnboardChrome(opts: {
       input.focus();
       input.value = ${JSON.stringify(FIRST_Q)};
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      const before = document.querySelectorAll("#log .m").length;
+      const before = document.querySelectorAll("#log .u").length;
       const t0 = performance.now();
       form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      const replied = () => {
+        const users = [...document.querySelectorAll("#log .u")];
+        if (users.length <= before) return false;
+        let n = users.at(-1)?.nextElementSibling;
+        while (n) {
+          if (n.classList.contains("m") || n.classList.contains("live")) {
+            const text = (n.querySelector(".md")?.textContent || "").trim();
+            if (text && !/escrevendo a resposta/i.test(text)) return true;
+          }
+          n = n.nextElementSibling;
+        }
+        return false;
+      };
       await new Promise((resolve) => {
         const done = () => {
-          if (document.querySelectorAll("#log .m").length > before || document.querySelector("#log .live")) {
+          if (replied()) {
             obs.disconnect();
             resolve(true);
           }
@@ -346,7 +337,7 @@ export async function measureOnboardChrome(opts: {
         done();
         setTimeout(() => { obs.disconnect(); resolve(false); }, 8000);
       });
-      return { ms: performance.now() - t0, ok: document.querySelectorAll("#log .m").length > before || Boolean(document.querySelector("#log .live")) };
+      return { ms: performance.now() - t0, ok: replied() };
     })()`);
     samples.push({
       metric: "first_reply",
