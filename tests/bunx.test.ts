@@ -52,10 +52,11 @@ test("the package bin boots HTTP the way bunx would", async () => {
   })();
   try {
     await waitUntil(
-      () => out.includes(`NCLI rodando em http://localhost:${port}`) && /\bclis\b/.test(out),
+      () => /NCLI rodando em http:\/\/localhost:\d+ · [0-9a-f]{7}/.test(out) && /\bclis\b/.test(out),
       8000,
       "boot banner",
     );
+    expect(out).toContain(`NCLI rodando em http://localhost:${port}`);
     const ui = await fetch(`http://127.0.0.1:${port}/`);
     expect(ui.ok).toBe(true);
     expect(await ui.text()).toContain("<title>NCLI</title>");

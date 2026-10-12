@@ -12,6 +12,8 @@ import { compactSdkKey, loadNcliSecrets } from "./secrets";
 import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
 import { announceReady, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
+import { busyPortMessage, isAddrInUse, nextPorts, portPinned } from "./listen-port";
+import { resolveRevision } from "./revision";
 export { detectClis };
 
 export interface BootReport {
@@ -24,7 +26,7 @@ export interface BootReport {
   bus: string;
   views: string[];
   liveOrigin: string;
-  revision?: string;
+  revision: string;
 }
 
 export interface Booted {
@@ -88,16 +90,18 @@ export async function bootNcli(opts: {
   const live = startLiveOrigin({ port: cfg.livePort, publicDir });
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = serve(hub, cfg, publicDir);
+    server = listenUi(hub, cfg, publicDir);
   } catch (err) {
     live.stop();
     hub.close();
+    if (err instanceof Error && err.message.startsWith("A porta ")) throw err;
     throw new Error(`HTTP UI failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const clis = detectClis(cfg);
-  announceReady({ url: readyUrl(server.port), clis });
+  const revision = resolveRevision(root);
+  announceReady({ url: readyUrl(server.port), clis, revision: revision.short });
   if (opts.openBrowser) {
     openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
   }
@@ -129,6 +133,7 @@ export async function bootNcli(opts: {
     bus: hub.bus.socketPath,
     views: hub.views.list().map((v) => v.id),
     liveOrigin: live.origin,
+    revision: revision.short,
   };
   return {
     hub,
@@ -140,6 +145,23 @@ export async function bootNcli(opts: {
       hub.close();
     },
   };
+}
+
+function listenUi(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
+  const pinned = portPinned();
+  const ports = pinned ? [cfg.port] : nextPorts(cfg.port);
+  let last: unknown;
+  for (const port of ports) {
+    try {
+      cfg.port = port;
+      return serve(hub, cfg, publicDir);
+    } catch (err) {
+      last = err;
+      if (!isAddrInUse(err)) throw err;
+      if (pinned) throw new Error(busyPortMessage(port));
+    }
+  }
+  throw new Error(busyPortMessage(ports.at(-1) ?? cfg.port));
 }
 
 async function assertMcp(url: string, token: string): Promise<void> {

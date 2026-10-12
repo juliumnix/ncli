@@ -18,6 +18,11 @@ test("formatReady names localhost and detected CLIs", () => {
     url: "http://localhost:47231",
     clis: { claude: true, codex: false, cursor: true },
   })).toBe("NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok");
+  expect(formatReady({
+    url: "http://localhost:47231",
+    clis: { claude: true, codex: false, cursor: true },
+    revision: "b5f42a6",
+  })).toBe("NCLI rodando em http://localhost:47231 · b5f42a6\nclis  claude ok, codex missing, cursor ok");
 });
 
 test("shouldOpenBrowser honors NCLI_NO_OPEN and a prior open", () => {
