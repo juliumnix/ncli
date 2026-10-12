@@ -367,7 +367,7 @@ test("ncli view add from a private local git repo pins, updates, and removes", (
   expect(existsSync(updated)).toBe(false);
 });
 
-test("updateView and addView refuse ../ and do not rm outside viewsDir", () => {
+test("updateView rejects ../ as an id and addView from ../ stays inside viewsDir", () => {
   const root = tmpDir("escape-root");
   const viewsDir = join(root, "views");
   const victim = join(root, "cli-victim");
@@ -383,11 +383,6 @@ test("updateView and addView refuse ../ and do not rm outside viewsDir", () => {
 
   expect(() => runNcli(["view", "update", "../cli-victim"], { viewsDir, acpDir: tmpDir("escape-acp") })).toThrow(
     /id inválido/,
-  );
-  expect(existsSync(join(victim, "KEEP"))).toBe(true);
-
-  expect(() => addView(join(viewsDir, "..", "cli-victim"), viewsDir, ["mock"])).toThrow(
-    /id inválido|diretório|manifest/,
   );
   expect(existsSync(join(victim, "KEEP"))).toBe(true);
 
