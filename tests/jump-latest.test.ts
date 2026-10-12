@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { bootNcli } from "../src/boot";
 import { MockHarness } from "../src/harness/mock";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub } from "./helpers";
+import { makeHub, waitUntil } from "./helpers";
 
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 
@@ -38,18 +38,7 @@ test("chrome: the page opens on the floor and jump-to-latest finishes there", as
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitChatReady(driver);
-    const opened = await driver.session.evaluate<{ top: number; max: number; leftover: number }>(`(async () => {
-      const chat = document.getElementById("chat");
-      for (let i = 0; i < 40; i++) {
-        const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-        if (max > 200 && max - chat.scrollTop <= 64) {
-          return { top: chat.scrollTop, max, leftover: max - chat.scrollTop };
-        }
-        await new Promise((r) => requestAnimationFrame(() => r(true)));
-      }
-      const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-      return { top: chat.scrollTop, max, leftover: max - chat.scrollTop };
-    })()`);
+    const opened = await waitChatFloor(driver, (s) => s.max > 200 && s.leftover <= 64, "open on floor");
     expect(opened.max).toBeGreaterThan(200);
     expect(opened.leftover).toBeLessThanOrEqual(64);
 
@@ -58,24 +47,14 @@ test("chrome: the page opens on the floor and jump-to-latest finishes there", as
       chat.scrollTop = 0;
       chat.dispatchEvent(new Event("scroll"));
     })()`);
-    await driver.session.evaluate(`new Promise((r) => requestAnimationFrame(() => r(true)))`);
+    await waitUntil(
+      async () => (await chatFloor(driver)).top === 0,
+      8000,
+      "scrolled to top",
+    );
 
-    const jumped = await driver.session.evaluate<{ top: number; max: number; leftover: number; frames: number }>(`(async () => {
-      const jump = document.getElementById("jumpLatest");
-      if (jump) jump.click();
-      let frames = 0;
-      for (; frames < 90; frames++) {
-        await new Promise((r) => requestAnimationFrame(() => r(true)));
-        const chat = document.getElementById("chat");
-        const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-        if (max - chat.scrollTop <= 1) {
-          return { top: chat.scrollTop, max, leftover: max - chat.scrollTop, frames };
-        }
-      }
-      const chat = document.getElementById("chat");
-      const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-      return { top: chat.scrollTop, max, leftover: max - chat.scrollTop, frames };
-    })()`);
+    await driver.session.evaluate(`document.getElementById("jumpLatest")?.click()`);
+    const jumped = await waitChatFloor(driver, (s) => s.max > 200 && s.leftover <= 64, "jump to floor");
     expect(jumped.max).toBeGreaterThan(200);
     expect(jumped.leftover).toBeLessThanOrEqual(64);
     expect(jumped.top).toBeGreaterThan(jumped.max * 0.9);
@@ -98,25 +77,16 @@ test("chrome: wheel at the top then jump still reaches the floor", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitChatReady(driver);
-    const jumped = await driver.session.evaluate<{ leftover: number; max: number; top: number; hidden: boolean }>(`(async () => {
+    await driver.session.evaluate(`(() => {
       const chat = document.getElementById("chat");
       chat.scrollTop = 0;
       chat.dispatchEvent(new Event("scroll"));
       for (let i = 0; i < 12; i++) {
         chat.dispatchEvent(new WheelEvent("wheel", { deltaY: -80, bubbles: true }));
       }
-      const jump = document.getElementById("jumpLatest");
-      jump.click();
-      for (let i = 0; i < 90; i++) {
-        await new Promise((r) => requestAnimationFrame(() => r(true)));
-        const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-        if (max - chat.scrollTop <= 1) {
-          return { top: chat.scrollTop, max, leftover: max - chat.scrollTop, hidden: jump.hidden };
-        }
-      }
-      const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-      return { top: chat.scrollTop, max, leftover: max - chat.scrollTop, hidden: jump.hidden };
+      document.getElementById("jumpLatest")?.click();
     })()`);
+    const jumped = await waitChatFloor(driver, (s) => s.max > 200 && s.leftover <= 64 && s.hidden, "wheel then jump");
     expect(jumped.max).toBeGreaterThan(200);
     expect(jumped.leftover).toBeLessThanOrEqual(64);
     expect(jumped.hidden).toBe(true);
@@ -136,13 +106,11 @@ test("chrome: composer ring is Tab-only, not mouse click", async () => {
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
-    await driver.session.evaluate(`new Promise((resolve) => {
-      const ready = () => document.getElementById("form") && document.getElementById("input");
-      if (ready()) return resolve(true);
-      const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => resolve(Boolean(ready())), 4000);
-    })`);
+    await waitUntil(
+      () => driver.session.evaluate(`Boolean(document.getElementById("form") && document.getElementById("input"))`),
+      8000,
+      "composer",
+    );
     const mouse = await driver.session.evaluate<{ fromKey: boolean; ring: boolean }>(`(() => {
       const form = document.getElementById("form");
       const input = document.getElementById("input");
@@ -191,25 +159,24 @@ test("chrome: a finished turn while scrolled up keeps the jump button", async ()
       chat.dispatchEvent(new Event("scroll"));
     })()`);
     const send = hub.send("continua o texto longo");
-    const after = await driver.session.evaluate<{ leftover: number; hidden: boolean; stream: number; live: number; followClass: boolean }>(`(async () => {
-      const chat = document.getElementById("chat");
-      const jump = document.getElementById("jumpLatest");
-      for (let i = 0; i < 160; i++) {
-        await new Promise((r) => setTimeout(r, 40));
-        const live = document.querySelector(".live.quiet");
-        if (!live && document.querySelectorAll(".m").length > 6) break;
-      }
-      for (let i = 0; i < 20; i++) await new Promise((r) => requestAnimationFrame(() => r(true)));
-      const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
-      const log = document.getElementById("log");
-      return {
-        leftover: max - chat.scrollTop,
-        hidden: jump.hidden,
-        stream: log.querySelectorAll(":scope > .m.stream").length,
-        live: document.querySelectorAll(".live.quiet").length,
-        followClass: jump.classList.contains("show"),
-      };
-    })()`);
+    let after = { leftover: 0, hidden: true, stream: 1, live: 1, followClass: false };
+    await waitUntil(async () => {
+      after = await driver.session.evaluate<{ leftover: number; hidden: boolean; stream: number; live: number; followClass: boolean }>(`(() => {
+        const chat = document.getElementById("chat");
+        const jump = document.getElementById("jumpLatest");
+        const log = document.getElementById("log");
+        if (!chat || !jump || !log) return { leftover: 0, hidden: true, stream: 1, live: 1, followClass: false };
+        const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+        return {
+          leftover: max - chat.scrollTop,
+          hidden: jump.hidden,
+          stream: log.querySelectorAll(":scope > .m.stream").length,
+          live: document.querySelectorAll(".live.quiet").length,
+          followClass: jump.classList.contains("show"),
+        };
+      })()`);
+      return after.live === 0 && after.stream === 0 && after.leftover > 400 && after.hidden === false && after.followClass;
+    }, 15000, "jump stays after turn");
     await send;
     expect(after.leftover).toBeGreaterThan(400);
     expect(after.stream).toBe(0);
@@ -222,22 +189,39 @@ test("chrome: a finished turn while scrolled up keeps the jump button", async ()
   }
 }, 30000);
 
-async function waitChatReady(driver: { session: { evaluate: (expr: string) => Promise<unknown> } }): Promise<void> {
-  await driver.session.evaluate(`new Promise((resolve) => {
-    const ready = () => {
+type ChatFloor = { top: number; max: number; leftover: number; hidden: boolean };
+
+async function chatFloor(driver: { session: { evaluate: <T>(expr: string) => Promise<T> } }): Promise<ChatFloor> {
+  return driver.session.evaluate<ChatFloor>(`(() => {
+    const chat = document.getElementById("chat");
+    const jump = document.getElementById("jumpLatest");
+    if (!chat) return { top: 0, max: 0, leftover: 0, hidden: true };
+    const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+    return { top: chat.scrollTop, max, leftover: max - chat.scrollTop, hidden: jump ? jump.hidden : true };
+  })()`);
+}
+
+async function waitChatFloor(
+  driver: { session: { evaluate: <T>(expr: string) => Promise<T> } },
+  ok: (s: ChatFloor) => boolean,
+  what: string,
+): Promise<ChatFloor> {
+  let last: ChatFloor = { top: 0, max: 0, leftover: 0, hidden: true };
+  await waitUntil(async () => {
+    last = await chatFloor(driver);
+    return ok(last);
+  }, 8000, what);
+  return last;
+}
+
+async function waitChatReady(driver: { session: { evaluate: <T>(expr: string) => Promise<T> } }): Promise<void> {
+  await waitUntil(
+    () => driver.session.evaluate(`(() => {
       const chat = document.getElementById("chat");
       const log = document.getElementById("log");
-      return chat && log && log.children.length > 0 && chat.scrollHeight > chat.clientHeight + 80;
-    };
-    if (ready()) return resolve(true);
-    const root = document.documentElement || document.body;
-    if (!root) {
-      setTimeout(() => resolve(Boolean(ready())), 6000);
-      return;
-    }
-    const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-    obs.observe(root, { childList: true, subtree: true });
-    window.addEventListener("load", () => { if (ready()) resolve(true); }, { once: true });
-    setTimeout(() => resolve(Boolean(ready())), 6000);
-  })`);
+      return Boolean(chat && log && log.children.length > 0 && chat.scrollHeight > chat.clientHeight + 80);
+    })()`),
+    8000,
+    "chat ready",
+  );
 }
