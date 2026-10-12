@@ -172,6 +172,7 @@ const state = {
   queue: [],
   usage: { seats: [], chain: [] },
   import: null,
+  clis: { claude: false, codex: false, cursor: false },
 };
 
 const SEAT = {
@@ -967,6 +968,28 @@ function compactLabel(compact) {
     : `compact ${k}k/${b}k`;
 }
 
+function agentTrio(clis, mainHarness) {
+  const main = mainHarness === "codex" || mainHarness === "cursor" ? mainHarness : "claude";
+  return ["claude", "codex", "cursor"].map((seat) => ({
+    seat,
+    present: Boolean(clis && clis[seat]),
+    main: seat === main,
+  }));
+}
+
+function renderAgentTrio() {
+  const el = $("agentTrio");
+  if (!el) return;
+  const main = (state.main && state.main.harness) || "claude";
+  el.innerHTML = agentTrio(state.clis, main)
+    .map((row) => {
+      const name = (SEAT[row.seat] || SEAT.claude).name;
+      const klass = `trio-seat${row.main ? " on" : ""}${row.present ? "" : " off"}`;
+      return `<span class="${klass}" title="${escapeHtml(name)}" data-seat="${row.seat}">${avatar(row.seat)}</span>`;
+    })
+    .join("");
+}
+
 function sessionChrome(input) {
   const extraSeat = input.mainHarness !== "claude" && input.mainHarness !== "mock";
   const sparked = input.sparkCount > 0;
@@ -993,13 +1016,14 @@ function chromeNow() {
 
 function renderChrome() {
   const chrome = chromeNow();
+  renderAgentTrio();
   const sw = $("agentSwitch");
   if (sw) {
     const main = state.main || { harness: "claude" };
     const seat = main.harness === "mock" ? "claude" : main.harness;
     if (!chrome.showSwitcher) {
       state.switchOpen = false;
-      sw.innerHTML = `<div class="seat-label">${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span></div>`;
+      sw.innerHTML = `<div class="seat-label"><span>${escapeHtml(agentLabel(seat, main.model))}</span></div>`;
     } else {
       const opts = [
         ["claude", "Claude"],
@@ -2199,6 +2223,7 @@ async function boot() {
   if (!state.queue.length) state.queue = snap.queue || [];
   if (snap.usage) state.usage = snap.usage;
   if (snap.import) state.import = snap.import;
+  if (snap.clis) state.clis = snap.clis;
   renderImport();
   renderQueue();
   renderChat();

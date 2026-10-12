@@ -1,5 +1,25 @@
 export type CliPresence = { claude: boolean; codex: boolean; cursor: boolean };
 
+export type TrioSeatId = "claude" | "codex" | "cursor";
+
+export type TrioSeat = {
+  seat: TrioSeatId;
+  present: boolean;
+  main: boolean;
+};
+
+const TRIO_SEATS: TrioSeatId[] = ["claude", "codex", "cursor"];
+
+export function agentTrio(clis: CliPresence, mainHarness: string): TrioSeat[] {
+  const main: TrioSeatId =
+    mainHarness === "codex" || mainHarness === "cursor" ? mainHarness : "claude";
+  return TRIO_SEATS.map((seat) => ({
+    seat,
+    present: Boolean(clis[seat]),
+    main: seat === main,
+  }));
+}
+
 export function detectClis(cfg: { claudeBin: string; codexBin: string; cursorBin: string }): CliPresence {
   return {
     claude: Boolean(Bun.which(cfg.claudeBin)),
