@@ -42,11 +42,11 @@ test("url previews only allow http(s)", () => {
   expect(iframeTag({ kind: "url", source: "javascript:alert(1)" })).toContain("url bloqueada");
 });
 
-test("view://live holds five sandboxed previews and stays on the waiting rail", async () => {
+test("view://live holds six sandboxed previews and stays on the waiting rail", async () => {
   const { hub } = await makeHub();
   const rt = await hub.sparks.open("live", {});
   expect(rt.spark.hold).toBe(true);
-  expect(rt.spark.needsUser?.label).toBe("5 prévias");
+  expect(rt.spark.needsUser?.label).toBe("6 prévias");
   expect(hub.sparks.waitingOnUser().some((f) => f.id === rt.spark.id)).toBe(true);
   const html = live.render!(rt.spark);
   expect(html).toContain("live-frame");
@@ -55,6 +55,8 @@ test("view://live holds five sandboxed previews and stays on the waiting rail", 
   expect(html).toContain("REACT");
   expect(html).toContain("URL");
   expect(html).toContain("UI");
+  expect(html).toContain("3D");
+  expect(html).toContain("live-3d");
   expect(html).toContain("ui-card");
   expect(html).toContain("sandbox=");
   hub.close();

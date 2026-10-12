@@ -1,5 +1,6 @@
 import { iframeTag } from "../src/live/frame";
 import type { LiveBlock } from "../src/live/parse";
+import { DEMO_3D_SOURCE } from "../src/live/3d-demo";
 import { DEMO_UI_SOURCE } from "../src/live/ui-demo";
 import type { ViewPlugin } from "../src/views/types";
 
@@ -34,12 +35,16 @@ C --> D[total]`,
     kind: "ui",
     source: DEMO_UI_SOURCE,
   },
+  {
+    kind: "3d",
+    source: DEMO_3D_SOURCE,
+  },
 ];
 
 const live: ViewPlugin = {
   id: "live",
   label: "live",
-  description: "Demo das prévias ao vivo (mermaid, html, react, url, ui) em iframe sandboxed.",
+  description: "Demo das prévias ao vivo (mermaid, html, react, url, ui, 3d) em iframe sandboxed.",
   tabs: [],
   parseLink() {
     return {};
@@ -49,9 +54,9 @@ const live: ViewPlugin = {
       title: "prévias ao vivo",
       needsWorktree: false,
       hold: true,
-      needsUser: { kind: "review", label: "5 prévias", count: 5 },
+      needsUser: { kind: "review", label: "6 prévias", count: 6 },
       ui: { blocks: DEMOS },
-      prompt: "Modo live. As cinco prévias já estão no painel. Não feche o spark.",
+      prompt: "Modo live. As seis prévias já estão no painel. Não feche o spark.",
     };
   },
   render(spark) {
@@ -64,7 +69,7 @@ const live: ViewPlugin = {
       .join("");
     return `
       <div class="mh">
-        <b>live #${spark.seq}</b> cinco prévias
+        <b>live #${spark.seq}</b> seis prévias
         <button class="x" id="closeModal" type="button">✕</button>
       </div>
       <div class="mbody">${frames}</div>

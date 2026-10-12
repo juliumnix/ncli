@@ -83,7 +83,7 @@ test("ui fence persists in the log and still parses after reload", async () => {
 test("client chat parser stays in lockstep with the ui kind", () => {
   const js = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const css = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
-  expect(js).toContain("mermaid|html|react|url|ui");
+  expect(js).toContain("mermaid|html|react|url|ui|3d");
   expect(js).toContain("ncliChart");
   expect(js).toContain('op === "send"');
   expect(js).toContain("ui-expand");
@@ -105,7 +105,7 @@ test("assembled prompt and demo conversation teach the ui contract", async () =>
   mem.append({ kind: "note", text: "oi" });
   const ctx = assemble(mem);
   expect(ctx.system).toContain("ncli/skills/ncli-ui/SKILL.md");
-  expect(ctx.system).toContain("```ncli mermaid|html|react|url|ui");
+  expect(ctx.system).toContain("```ncli mermaid|html|react|url|ui|3d");
 
   const { hub } = await makeHub({ demo: true });
   const talk = hub.memory.log.find((m) => m.kind === "talk" && m.text.includes("```ncli ui"));

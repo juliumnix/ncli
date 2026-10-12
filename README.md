@@ -87,16 +87,16 @@ Child processes get a scrubbed env: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKE
 Chat and the `view://live` modal render fenced blocks:
 
 ````
-```ncli mermaid|html|react|url|ui
+```ncli mermaid|html|react|url|ui|3d
 source
 ```
 ````
 
-Or MCP `ncli.render({kind, source})`. `ui` is an interactive mini-app (tabs, metric cards, tables, charts). NCLI wraps it in a sandboxed iframe, injects the dark theme tokens, sizes the frame to the content via `postMessage`, and keeps an expand control in the parent. HTML/react use the same `sandbox="allow-scripts"` (no `allow-same-origin`) and a tight CSP (`default-src 'none'`). Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as a shimmer card, then the finished app. The fence is stored in the chat log, so reload and sparks restore it.
+Or MCP `ncli.render({kind, source})`. `ui` is an interactive mini-app (tabs, metric cards, tables, charts). NCLI wraps it in a sandboxed iframe, injects the dark theme tokens, sizes the frame to the content via `postMessage`, and keeps an expand control in the parent. HTML/react use `sandbox="allow-scripts"` without `allow-same-origin` and a tight CSP (`default-src 'none'`). `3d` is a first-party `/ncli3d.html` frame (vendored three.js, `ncli3d.desk()`) and needs `allow-same-origin` so that module can run. Mermaid is a tiny inline SVG so nothing is loaded from a CDN. `url` only allows `http:` / `https:`. Streaming draws a still-open fence as a shimmer card, then the finished app. The fence is stored in the chat log, so reload and sparks restore it.
 
 The in-repo skill is `ncli/skills/ncli-ui/SKILL.md`. Agents read it on spawn. Users just ask in plain language. Interactions stay inside the iframe. An optional `ncliUi.send(text)` posts a normal user message.
 
-`NCLI_DEMO=1 bun start` seeds a mermaid + html pair plus a tabbed `ui` card, and opens `view://live` (five previews). Open the modal from the right rail, or `?open=<spark-id>`.
+`NCLI_DEMO=1 bun start` seeds a mermaid + html pair plus a tabbed `ui` card, and opens `view://live` (six previews, including `3d`). Open the modal from the right rail, or `?open=<spark-id>`.
 
 ## Compaction (Cursor SDK only)
 
@@ -133,7 +133,7 @@ bun run ncli view add https://github.com/you/ncli-view-foo.git
 bun run ncli remove view foo
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (five sandboxed cards, including `ui`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR. The review view batches line comments to the spark seat, triages findings, re-reviews from the last head, and archives the worktree when `gh pr view` says MERGED (checked on open, act, or close).
+Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (six sandboxed cards, including `ui` and `3d`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR. The review view batches line comments to the spark seat, triages findings, re-reviews from the last head, and archives the worktree when `gh pr view` says MERGED (checked on open, act, or close).
 
 Import is opt-in. `/ncli import claude|codex|cursor` reads the official local JSONL (Claude `projects/<cwd>/*.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*.jsonl`, Cursor `agent-transcripts/<id>/<id>.jsonl`), shows a preview, and does not write until `/ncli import … --apply` or the chip. Fingerprints live in `data/import-seen.json`. NCLI never writes `~/.claude`, `~/.codex`, or `~/.cursor`.
 
