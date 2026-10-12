@@ -8,17 +8,17 @@ export const NCLI_TOOLS: McpToolDef[] = [
   {
     name: "zoom",
     description: "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.",
-    inputSchema: { type: "object", properties: { id: { type: "number" }, n: { type: "number" }, space: { type: "string" } }, required: ["id", "n"] },
+    inputSchema: { type: "object", properties: { id: { type: "number" }, n: { type: "number" } }, required: ["id", "n"] },
   },
   {
     name: "date",
     description: "The date and time of message id.",
-    inputSchema: { type: "object", properties: { id: { type: "number" }, space: { type: "string" } }, required: ["id"] },
+    inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
   },
   {
     name: "recall",
     description: "Search the raw log with a regex.",
-    inputSchema: { type: "object", properties: { pattern: { type: "string" }, space: { type: "string" } }, required: ["pattern"] },
+    inputSchema: { type: "object", properties: { pattern: { type: "string" } }, required: ["pattern"] },
   },
   {
     name: "ncli.render",

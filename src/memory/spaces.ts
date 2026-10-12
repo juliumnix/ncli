@@ -18,13 +18,21 @@ export interface SpaceRegistryOptions {
   compressTimeoutMs?: number;
 }
 
+const spaceByCwd = new Map<string, SpaceId>();
+const gitRootByCwd = new Map<string, string | null>();
+
 export function spaceFor(cwd: string): SpaceId {
-  const root = gitProjectRoot(cwd) ?? resolve(cwd);
-  return `proj:${idOf(root)}`;
+  const abs = resolve(cwd);
+  const hit = spaceByCwd.get(abs);
+  if (hit) return hit;
+  const root = gitProjectRoot(abs) ?? abs;
+  const id: SpaceId = `proj:${idOf(root)}`;
+  spaceByCwd.set(abs, id);
+  return id;
 }
 
 export function isSpaceId(value: string): value is SpaceId {
-  return value === "global" || value === "inbox" || value.startsWith("proj:") || value.startsWith("spark:");
+  return value === "global" || value === "inbox" || /^proj:[a-f0-9]{12}$/.test(value) || /^spark:[A-Za-z0-9._-]+$/.test(value);
 }
 
 export class SpaceRegistry {
@@ -39,12 +47,15 @@ export class SpaceRegistry {
   }
 
   of(id: string): Memory {
-    if (id === this.currentId || id === "main") return this.main;
-    const key = isSpaceId(id) ? id : `proj:${idOf(id)}`;
-    const hit = this.cache.get(key);
+    if (id === this.currentId || id === "main" || id === "current") return this.main;
+    if (!isSpaceId(id) || id.startsWith("spark:")) {
+      const hit = this.cache.get(id);
+      return hit ?? this.main;
+    }
+    const hit = this.cache.get(id);
     if (hit) return hit;
-    const mem = this.open(join(this.opts.dataDir, "spaces", dirOf(key)));
-    this.cache.set(key, mem);
+    const mem = this.open(join(this.opts.dataDir, "spaces", dirOf(id)));
+    this.cache.set(id, mem);
     return mem;
   }
 
@@ -86,16 +97,27 @@ export class SpaceRegistry {
 
 function gitProjectRoot(cwd: string): string | null {
   const abs = resolve(cwd);
-  if (!existsSync(abs)) return null;
+  if (gitRootByCwd.has(abs)) return gitRootByCwd.get(abs) ?? null;
+  if (!existsSync(abs)) {
+    gitRootByCwd.set(abs, null);
+    return null;
+  }
   const r = spawnSync("git", ["rev-parse", "--git-common-dir"], {
     cwd: abs,
     encoding: "utf8",
   });
-  if (r.status !== 0) return null;
+  if (r.status !== 0) {
+    gitRootByCwd.set(abs, null);
+    return null;
+  }
   const common = r.stdout.trim();
-  if (!common) return null;
-  const gitDir = resolve(abs, common);
-  return dirname(gitDir);
+  if (!common) {
+    gitRootByCwd.set(abs, null);
+    return null;
+  }
+  const root = dirname(resolve(abs, common));
+  gitRootByCwd.set(abs, root);
+  return root;
 }
 
 function idOf(root: string): string {
