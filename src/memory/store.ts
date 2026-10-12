@@ -1,7 +1,7 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
-import { cutUtf8, flattenLine, isPowerOfTwo, nowIso, utf8Bytes } from "../util";
+import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
 import { CompactDeferred } from "./compact-deferred";
 import { pairDue } from "./merge-order";
 
@@ -15,7 +15,7 @@ export interface MemoryOptions {
   deferBackoffMs?: number;
 }
 
-export type Compressor = (input: CompactInput) => Promise<string>;
+export type Compressor = ((input: CompactInput) => Promise<string>) & { flush?: () => void };
 
 export interface CompactInput {
   kind: "leaf" | "merge";
@@ -61,7 +61,7 @@ export class Memory {
   private readyQ: Slot[] = [];
   private queued = new Set<string>();
   private deferred = new Map<string, DeferRec>();
-  private waiters: Array<() => void> = [];
+  private waiters = new Set<() => void>();
   private pumping: Promise<void> | null = null;
   private muteChange = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -167,24 +167,20 @@ export class Memory {
   }
 
   settle(timeoutMs = 30_000): Promise<boolean> {
-    if (this.allBuilt()) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      const t = setTimeout(() => {
-        this.waiters = this.waiters.filter((w) => w !== on);
-        resolve(this.allBuilt());
-      }, timeoutMs);
-      const on = () => {
-        if (!this.allBuilt()) {
-          this.waiters.push(on);
-          return;
-        }
-        clearTimeout(t);
-        this.waiters = this.waiters.filter((w) => w !== on);
-        resolve(true);
-      };
-      this.waiters.push(on);
-      if (this.allBuilt()) on();
-    });
+    return this.waitUntil(() => this.allBuilt(), timeoutMs);
+  }
+
+  deferredCount(): number {
+    return this.deferred.size;
+  }
+
+  isQuiescent(): boolean {
+    return this.deferred.size === 0 && !this.hasInFlight();
+  }
+
+  settleQuiescent(timeoutMs = 30_000): Promise<boolean> {
+    void this.pump();
+    return this.waitUntil(() => this.isQuiescent() && this.allBuilt(), timeoutMs);
   }
 
   hasInFlight(): boolean {
@@ -198,26 +194,32 @@ export class Memory {
   waitForInFlight(opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<boolean> {
     const timeoutMs = opts.timeoutMs ?? 400;
     const signal = opts.signal;
-    if (signal?.aborted || !this.hasInFlight()) return Promise.resolve(this.allBuilt());
+    if (signal?.aborted) return Promise.resolve(false);
+    if (!this.hasInFlight()) return Promise.resolve(this.allBuilt());
+    return this.waitUntil(() => !this.hasInFlight(), timeoutMs, signal).then(() => this.allBuilt());
+  }
+
+  private waitUntil(ready: () => boolean, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return Promise.resolve(false);
+    if (ready()) return Promise.resolve(true);
     return new Promise((resolve) => {
+      let done = false;
       const finish = (ok: boolean) => {
+        if (done) return;
+        done = true;
         clearTimeout(t);
-        this.waiters = this.waiters.filter((w) => w !== on);
+        this.waiters.delete(on);
         signal?.removeEventListener("abort", onAbort);
         resolve(ok);
       };
-      const t = setTimeout(() => finish(this.allBuilt()), timeoutMs);
+      const t = setTimeout(() => finish(ready()), timeoutMs);
       const onAbort = () => finish(false);
       const on = () => {
-        if (this.hasInFlight()) {
-          this.waiters.push(on);
-          return;
-        }
-        finish(this.allBuilt());
+        if (ready()) finish(true);
       };
-      this.waiters.push(on);
+      this.waiters.add(on);
       signal?.addEventListener("abort", onAbort, { once: true });
-      if (!this.hasInFlight() || signal?.aborted) finish(this.allBuilt());
+      if (signal?.aborted || ready()) finish(ready() && !signal?.aborted);
     });
   }
 
@@ -364,11 +366,11 @@ export class Memory {
   private cutSource(l: number, i: number): string {
     if (l === 0) {
       const m = this.log[i];
-      return cutUtf8(flattenLine(`${m.kind}: ${m.text}`), this.nodeBytes);
+      return keepRecent(flattenLine(`${m.kind}: ${m.text}`), this.nodeBytes);
     }
     const left = this.nodeOf(l - 1, 2 * i)?.text ?? "";
     const right = this.nodeOf(l - 1, 2 * i + 1)?.text ?? "";
-    return cutUtf8(flattenLine(`${left} ${right}`), this.nodeBytes);
+    return keepRecent(flattenLine(`${left} ${right}`), this.nodeBytes);
   }
 
   private heldOff(key: string): boolean {
@@ -508,12 +510,21 @@ export class Memory {
     while (this.viewBytesUsed() > this.viewLow) {
       let bestAt = -1;
       let bestDue = Number.NEGATIVE_INFINITY;
+      let bestBuilt = false;
       for (let k = 0; k < this.view.length - 1; k++) {
         const a = this.view[k];
         const b = this.view[k + 1];
         if (a.l !== b.l || a.i % 2 !== 0 || b.i !== a.i + 1) continue;
-        if (!this.nodeOf(a.l + 1, Math.floor(a.i / 2))) continue;
+        const built = Boolean(this.nodeOf(a.l + 1, Math.floor(a.i / 2)));
         const due = pairDue(this.T, a.l, a.i);
+        if (built !== bestBuilt) {
+          if (built || bestAt < 0) {
+            bestBuilt = built;
+            bestDue = due;
+            bestAt = k;
+          }
+          continue;
+        }
         if (due > bestDue) {
           bestDue = due;
           bestAt = k;
@@ -543,11 +554,11 @@ export class Memory {
   private notify(): void {
     if (this.muteChange) return;
     this.onChange?.();
+    this.notifyWaiters();
   }
 
   private notifyWaiters(): void {
-    const ws = this.waiters.splice(0);
-    for (const w of ws) w();
+    for (const w of [...this.waiters]) w();
   }
 
   private load(): void {
@@ -694,23 +705,16 @@ export function mockCompressor(): Compressor {
     const uniq = [...new Set(keywords)];
     const base = flattenLine(raw);
     let line = base;
-    if (utf8Bytes(line) > limit) line = base.slice(0, Math.max(40, limit - 40));
+    if (utf8Bytes(line) > limit) line = keepRecent(base, Math.max(40, limit - 40));
     if (uniq.length) {
       const extra = uniq.join(" ");
       const room = limit - utf8Bytes(line) - 1;
-      if (room > 8) line = `${line} ${extra}`.slice(0, line.length + room);
-      else line = `${cutKeep(line, limit - utf8Bytes(extra) - 1)} ${extra}`;
+      if (room > 8) line = keepRecent(`${line} ${extra}`, limit);
+      else line = keepRecent(`${keepRecent(line, Math.max(0, limit - utf8Bytes(extra) - 1))} ${extra}`, limit);
     }
-    if (utf8Bytes(line) > limit) line = cutKeep(line, limit);
+    if (utf8Bytes(line) > limit) line = keepRecent(line, limit);
     return line || "…";
   };
-}
-
-function cutKeep(s: string, n: number): string {
-  if (utf8Bytes(s) <= n) return s;
-  let out = s;
-  while (utf8Bytes(out) > n && out.length) out = out.slice(0, -1);
-  return out;
 }
 
 export function writeSnapshot(mem: Memory): void {

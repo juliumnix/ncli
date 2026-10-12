@@ -169,6 +169,40 @@ test("estimateTokens is cheap and positive", () => {
   expect(estimateTokens("")).toBe(1);
 });
 
+test("a skipped merge keeps the recent right child, not the left prefix", async () => {
+  const dir = tmpDir("cskip-recent");
+  const compact = cursorCompressor(cfg(dir, { compactSkipTokens: 80 }), async () => {
+    throw new Error("runner should not run");
+  });
+  const left = "AAAA old left child text that would survive a prefix cut";
+  const right = "BBBB most recent ruling END_RIGHT_CHILD";
+  const line = await compact({
+    kind: "merge",
+    source: `${left}\n${right}`,
+    left,
+    right,
+    contextLines: [],
+    nodeBytes: 40,
+  });
+  expect(line).toContain("END_RIGHT_CHILD");
+  expect(line).not.toContain("AAAA");
+});
+
+test("flush runs a queued debounce job before the debounce timer", async () => {
+  const dir = tmpDir("cflush");
+  let calls = 0;
+  const compact = cursorCompressor(cfg(dir, { compactBatch: 8, compactDebounceMs: 2500, compactSkipTokens: 1 }), async () => {
+    calls += 1;
+    return "1. flushed";
+  });
+  const pending = compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
+  await Bun.sleep(20);
+  expect(calls).toBe(0);
+  compact.flush?.();
+  expect(await pending).toContain("flushed");
+  expect(calls).toBe(1);
+});
+
 test("a source under the skip token threshold never hits the runner", async () => {
   const dir = tmpDir("cskip-tokens");
   let calls = 0;

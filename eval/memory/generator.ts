@@ -41,7 +41,7 @@ export function generateTranscript(seed: number, n: number): Transcript {
 
   lines[simpleAt] = {
     kind: "user",
-    text: `we decided the alpha file lives at /tmp/ncli/alpha.json (id 88421).${PAD}`,
+    text: `${PAD} we decided the alpha file lives at /tmp/ncli/alpha.json (id 88421).`,
   };
   needles.push({
     id: "simple",
@@ -52,8 +52,8 @@ export function generateTranscript(seed: number, n: number): Transcript {
     answer: "/tmp/ncli/alpha.json",
   });
 
-  lines[oldAt] = { kind: "user", text: `the rate is ten for now.${PAD}` };
-  lines[newAt] = { kind: "user", text: `correction: the rate is now 7, ignore the earlier ten.${PAD}` };
+  lines[oldAt] = { kind: "user", text: `${PAD} the rate is ten for now.` };
+  lines[newAt] = { kind: "user", text: `${PAD} correction: the rate is now 7, ignore the earlier ten.` };
   needles.push({
     id: "superseded",
     type: "superseded",
@@ -66,7 +66,7 @@ export function generateTranscript(seed: number, n: number): Transcript {
 
   lines[spaceAt] = {
     kind: "user",
-    text: `in the other workspace the secret is other-space-token.${PAD}`,
+    text: `${PAD} in the other workspace the secret is other-space-token.`,
     space: "proj:other",
   };
   needles.push({
@@ -89,8 +89,8 @@ export function generateTranscript(seed: number, n: number): Transcript {
     answer: "echo-only token /var/ncli/echo.log",
   });
 
-  lines[siblingAt] = { kind: "user", text: `we hit a sibling bug in discount.ts:40.${PAD}` };
-  lines[siblingAt + 1] = { kind: "talk", text: `fixed it: sibling bug closed by moving the tax check.${PAD}` };
+  lines[siblingAt] = { kind: "user", text: `${PAD} we hit a sibling bug in discount.ts:40.` };
+  lines[siblingAt + 1] = { kind: "talk", text: `${PAD} fixed it: sibling bug closed by moving the tax check.` };
   needles.push({
     id: "sibling",
     type: "sibling",

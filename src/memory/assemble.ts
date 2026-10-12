@@ -75,6 +75,7 @@ last reply said, a decision, a past attempt or where a file is, before
 you act, guess or ask. date(id) gives the date and time of message id.`;
 
 export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
+  if (mem.viewBytesUsed() > mem.viewHigh) mem.fit();
   const d = mem.debug();
   const system = [master, skillsText, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
   return {

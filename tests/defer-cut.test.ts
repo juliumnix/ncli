@@ -27,8 +27,9 @@ test("a 281-byte line is cut locally after N deferrals instead of staying pendin
   await mem.pump();
   const node = mem.nodeOf(0, 0);
   expect(node).toBeDefined();
-  expect(node!.text.startsWith("user:")).toBe(true);
+  expect(node!.text.endsWith("x") || node!.text.includes("x")).toBe(true);
   expect(node!.size).toBeLessThanOrEqual(280);
+  expect(node!.text.startsWith("user:")).toBe(false);
   expect(calls).toBeGreaterThan(0);
   expect(calls).toBeLessThan(6);
 });

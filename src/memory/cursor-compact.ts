@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
-import { flattenLine, utf8Bytes } from "../util";
+import { flattenLine, keepRecent, utf8Bytes } from "../util";
 import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
 import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
 import { COMPACT_PROMPT } from "./compact";
@@ -86,7 +86,7 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
     })();
   };
 
-  return async (input) => {
+  const compress: Compressor = async (input) => {
     const hash = nodeHash(input);
     const hit = cache.get(hash);
     if (hit) {
@@ -108,6 +108,14 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
       else if (!timer) timer = setTimeout(flush, cfg.compactDebounceMs || 2500);
     });
   };
+  compress.flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (queue.length) flush();
+  };
+  return compress;
 }
 
 export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
@@ -322,7 +330,5 @@ function logCall(dir: string, row: CompactLog): void {
 }
 
 function cut(s: string, n: number): string {
-  let out = s;
-  while (utf8Bytes(out) > n && out.length) out = out.slice(0, -1);
-  return out || "…";
+  return keepRecent(s, n);
 }
