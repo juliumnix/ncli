@@ -566,7 +566,7 @@ function avatar(seat) {
 function renderChat() {
   if (chromeNow().showWelcome) {
     if (!log.querySelector(".welcome")) {
-      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta ou /help</p></div>`;
+      log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p></div>`;
     }
     measureComposer();
     paintScrollHints();
@@ -999,7 +999,7 @@ function renderChrome() {
   if (input) {
     input.placeholder = state.turn && state.turn.status === "running"
       ? "Ajustar o turno… Enter entra · fila ao lado"
-      : "Pergunta ou /help";
+      : "Pergunta, URL de PR ou /help";
   }
 }
 
