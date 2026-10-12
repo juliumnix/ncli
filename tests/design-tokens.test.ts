@@ -39,7 +39,8 @@ test("focus-visible exists and every outline:none sits next to a ring", () => {
 
 test("iframes and mermaid arrows use the token accent, not terracotta", () => {
   expect(appJs).not.toContain("#c2603d");
-  expect(appJs).toContain('accent: "#6ea4ff"');
+  expect(appJs).not.toContain("#0f0f11");
+  expect(appJs).toContain('v("--accent")');
 });
 
 test("refino question card uses the accent surface, not a light leftover", () => {

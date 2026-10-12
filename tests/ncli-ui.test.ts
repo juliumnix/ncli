@@ -19,7 +19,9 @@ test("ui fence is a live kind and render tool keeps it", () => {
 test("wrap injects NCLI tokens, CSP, chart helper and height reporter", () => {
   const html = wrapUiSource("<div class='tabs'><button class='on'>Visão</button></div>");
   expect(html).toContain("default-src 'none'");
-  expect(html).toContain("frame-ancestors 'none'");
+  expect(html).toContain("form-action 'none'");
+  expect(html).toContain("RTCPeerConnection");
+  expect(html).toContain("navigate-to 'none'");
   expect(html).toContain("--accent:#6ea4ff");
   expect(html).toContain("ncliChart");
   expect(html).toContain("ncliUi");
@@ -40,7 +42,7 @@ test("ui iframe is sandboxed, auto-keyed, and expand chrome stays in the parent"
   expect(tag).toContain(`data-ui-key="${uiKey(DEMO_UI_SOURCE)}"`);
   expect(tag).toContain("sandbox=\"allow-scripts\"");
   expect(tag).not.toContain("allow-same-origin");
-  expect(tag).toContain("srcdoc=");
+  expect(tag.includes("srcdoc=") || tag.includes("/shell#")).toBe(true);
 });
 
 test("host messages accept height and send, reject junk", () => {

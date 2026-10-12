@@ -13,7 +13,7 @@ description: Add a ```ncli <kind> fence and ncli.render kind. Use when the user 
 - `src/mcp/memory-zoom.ts` — `ncli.render` description
 - `views/live.ts` — optional demo block
 
-No CDN. HTML/react/3d stay on `sandbox="allow-scripts"` without `allow-same-origin`. 3d CSP is `script-src 'self' blob:`. `url` only `http:`/`https:`.
+No CDN. HTML/react/3d stay on `sandbox="allow-scripts"` without `allow-same-origin`, `allow-forms`, or `allow-top-navigation`. Live html/ui/3d load from the live origin (`NCLI_LIVE_PORT`, default ephemeral), not the hub origin. Document CSP includes `navigate-to 'none'`. Fence scripts run inside `ncliFakes`. `url` asks before loading `http:`/`https:`.
 
 ## Do
 
