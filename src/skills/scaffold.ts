@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { addView, packView } from "../views/pack";
+import { addView, packView, updateView } from "../views/pack";
 import { availableHarnesses } from "../views/manifest";
 import { loadConfig } from "../config";
 import { defaultSkillsDir, listSkills, readSkill } from "./catalog";
@@ -155,15 +155,24 @@ function runRemove(kind: string | undefined, id: string | undefined, paths: Scaf
 }
 
 function runView(op: string | undefined, a: string | undefined, b: string | undefined, paths: ScaffoldPaths): string {
+  const have = availableHarnesses({ harness: loadConfig().harness });
   if (op === "add") {
     if (!a) throw new Error("uso: ncli view add <path|git-url>");
-    return `instalou ${addView(a, paths.viewsDir, availableHarnesses({ harness: loadConfig().harness }))}`;
+    return `instalou ${addView(a, paths.viewsDir, have)}`;
+  }
+  if (op === "update") {
+    if (!a) throw new Error("uso: ncli view update <id> [ref]");
+    return `atualizou ${updateView(a, paths.viewsDir, b, have)}`;
+  }
+  if (op === "remove") {
+    if (!a) throw new Error("uso: ncli view remove <id>");
+    return `removeu ${removeView(a, paths)}`;
   }
   if (op === "pack") {
     if (!a) throw new Error("uso: ncli view pack <id> [out]");
     return `empacotou ${packView(a, paths.viewsDir, b ?? join(paths.viewsDir, "..", "dist"))}`;
   }
-  throw new Error("uso: ncli view add <path|git-url> | ncli view pack <id> [out]");
+  throw new Error("uso: ncli view add <path|git-url> | ncli view update <id> [ref] | ncli view remove <id> | ncli view pack <id> [out]");
 }
 
 function readRequiredSkill(id: string, paths: ScaffoldPaths): string {
@@ -187,6 +196,8 @@ function usage(): string {
   bun run ncli new harness <id>
   bun run ncli view pack <id> [out]
   bun run ncli view add <path|git-url>
+  bun run ncli view update <id> [ref]
+  bun run ncli view remove <id>
   bun run ncli remove view <id>
   bun run ncli remove harness <id>
   /ncli …  (mesmo comando no chat principal)`;

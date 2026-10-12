@@ -5,8 +5,7 @@ description: Exclusive flow for the team spark. Not loaded in the main chat.
 
 # Team flow
 
-You are inside an isolated `view://team` spark. Do not use main-session skills (ncli-bus, add-view, pstack).
+You are inside an isolated `view://team` spark. This package is an example. Real company views are installed with `ncli view add <private git url>`.
 
-1. `spark` — the board already lists open pull requests of this repo, including private ones.
-2. Point the user at a PR with `view://review?pr=N`. Do not invent files.
-3. `result` — finish when they are done looking.
+1. `spark` — point the user at `ncli view add` / `view update` / `remove view`.
+2. `result` — finish.

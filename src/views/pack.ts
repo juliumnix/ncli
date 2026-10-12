@@ -3,12 +3,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { assertRunnable, loadManifest, validateManifest, type ViewManifest } from "./manifest";
 
-export interface ViewSource {
-  kind: "dir" | "git";
-  path?: string;
-  url?: string;
-  ref?: string;
-}
+export const VIEW_SOURCE_FILE = ".ncli-source.json";
+
+export type ViewSource =
+  | { kind: "dir"; path: string }
+  | { kind: "git"; url: string; ref?: string };
+
+export type ViewOrigin = ViewSource & { pin?: string };
+
+export type GitCloneOpts = {
+  env?: NodeJS.ProcessEnv;
+  uploadPack?: string;
+};
 
 export function parseViewSource(raw: string): ViewSource {
   const t = raw.trim();
@@ -21,18 +27,60 @@ export function parseViewSource(raw: string): ViewSource {
   return { kind: "dir", path: base };
 }
 
-export function addView(src: string, viewsDir: string, available?: Iterable<string>): string {
-  const staged = stageSource(src);
+export function userGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...env, GIT_TERMINAL_PROMPT: "0" };
+}
+
+export function readViewOrigin(dest: string): ViewOrigin | null {
+  const file = join(dest, VIEW_SOURCE_FILE);
+  if (!existsSync(file)) return null;
   try {
-    const packDir = findPackDir(staged.dir);
-    const manifest = loadManifest(packDir);
-    if (available) assertRunnable(manifest, available);
-    const dest = join(viewsDir, manifest.name);
-    if (existsSync(dest)) throw new Error(`${dest} já existe`);
-    mkdirSync(viewsDir, { recursive: true });
-    cpSync(packDir, dest, { recursive: true });
-    loadManifest(dest);
-    return dest;
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<ViewOrigin>;
+    if (raw.kind === "git" && typeof raw.url === "string") {
+      return { kind: "git", url: raw.url, ref: raw.ref, pin: raw.pin };
+    }
+    if (raw.kind === "dir" && typeof raw.path === "string") {
+      return { kind: "dir", path: raw.path, pin: raw.pin };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeViewOrigin(dest: string, origin: ViewOrigin): void {
+  writeFileSync(join(dest, VIEW_SOURCE_FILE), JSON.stringify(origin, null, 2), "utf8");
+}
+
+export function addView(
+  src: string,
+  viewsDir: string,
+  available?: Iterable<string>,
+  opts?: GitCloneOpts,
+): string {
+  const staged = stageSource(src, opts);
+  try {
+    return installStaged(staged, viewsDir, available);
+  } finally {
+    staged.cleanup?.();
+  }
+}
+
+export function updateView(
+  id: string,
+  viewsDir: string,
+  ref?: string,
+  available?: Iterable<string>,
+  opts?: GitCloneOpts,
+): string {
+  const dest = join(viewsDir, id);
+  const origin = readViewOrigin(dest);
+  if (origin?.kind !== "git") throw new Error(`${id} não veio de git; ncli view add <git-url>`);
+  const next = ref || origin.ref ? `${origin.url}#${ref || origin.ref}` : origin.url;
+  const staged = stageSource(next, opts);
+  try {
+    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+    return installStaged(staged, viewsDir, available);
   } finally {
     staged.cleanup?.();
   }
@@ -64,18 +112,39 @@ export function readPackedManifest(dir: string): ViewManifest {
   return validateManifest(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")), dir);
 }
 
-function stageSource(raw: string): { dir: string; cleanup?: () => void } {
+function installStaged(
+  staged: { dir: string; origin: ViewOrigin },
+  viewsDir: string,
+  available?: Iterable<string>,
+): string {
+  const packDir = findPackDir(staged.dir);
+  const manifest = loadManifest(packDir);
+  if (available) assertRunnable(manifest, available);
+  const dest = join(viewsDir, manifest.name);
+  if (existsSync(dest)) throw new Error(`${dest} já existe`);
+  mkdirSync(viewsDir, { recursive: true });
+  cpSync(packDir, dest, { recursive: true });
+  if (staged.origin.kind === "git") writeViewOrigin(dest, staged.origin);
+  loadManifest(dest);
+  return dest;
+}
+
+function stageSource(raw: string, opts?: GitCloneOpts): { dir: string; origin: ViewOrigin; cleanup?: () => void } {
   const src = parseViewSource(raw);
   if (src.kind === "dir") {
-    const abs = resolve(src.path ?? raw);
+    const abs = resolve(src.path);
     if (!existsSync(abs) || !statSync(abs).isDirectory()) {
       throw new Error(`view add espera um diretório ou git url: ${raw}`);
     }
-    return { dir: abs };
+    return { dir: abs, origin: { kind: "dir", path: abs } };
   }
   const dest = mkdtempSync(join(tmpdir(), "ncli-view-"));
-  cloneGit(src.url ?? raw, dest, src.ref);
-  return { dir: dest, cleanup: () => rmSync(dest, { recursive: true, force: true }) };
+  const pin = cloneGit(src.url, dest, src.ref, opts);
+  return {
+    dir: dest,
+    origin: { kind: "git", url: src.url, ref: src.ref, pin },
+    cleanup: () => rmSync(dest, { recursive: true, force: true }),
+  };
 }
 
 function findPackDir(root: string): string {
@@ -93,13 +162,32 @@ function findPackDir(root: string): string {
   throw new Error(`manifest.json ausente em ${root}`);
 }
 
-function cloneGit(url: string, dest: string, ref?: string): void {
-  const args = ["clone", "--depth", "1"];
+function cloneGit(url: string, dest: string, ref: string | undefined, opts: GitCloneOpts = {}): string {
+  const env = userGitEnv(opts.env);
+  const args = ["-c", "credential.useHttpPath=true"];
+  if (useGhCredential(url)) {
+    args.push("-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential");
+  }
+  args.push("clone", "--depth", "1");
+  if (opts.uploadPack) args.push("--upload-pack", opts.uploadPack);
   if (ref) args.push("--branch", ref);
   args.push(url, dest);
-  const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", ...args], { env, stdout: "pipe", stderr: "pipe" });
   if (r.exitCode !== 0) {
     rmSync(dest, { recursive: true, force: true });
-    throw new Error(`não deu pra clonar ${url}: ${(r.stderr.toString() || r.stdout.toString()).trim()}`);
+    throw new Error(cloneFail(url, (r.stderr.toString() || r.stdout.toString()).trim()));
   }
+  const pin = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: dest, stdout: "pipe", stderr: "pipe" });
+  return pin.stdout.toString().trim();
+}
+
+function useGhCredential(url: string): boolean {
+  return /^https?:\/\/([^/]*\.)?github\.com[:/]/i.test(url) && Boolean(Bun.which("gh"));
+}
+
+function cloneFail(url: string, stderr: string): string {
+  const safe = url.replace(/^(https?:\/\/)([^/@]+)@/i, "$1***@");
+  const auth = /auth|denied|403|401|Username|Permission|could not read/i.test(stderr);
+  const hint = auth ? " (repo privado: git/gh já logado, GH_TOKEN ou ssh-agent)" : "";
+  return `não deu pra clonar ${safe}${hint}: ${stderr}`;
 }
