@@ -136,6 +136,54 @@ export function escapeHtml(s: string): string {
     .replaceAll('"', "&quot;");
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  quot: '"',
+  lt: "<",
+  gt: ">",
+  apos: "'",
+  colon: ":",
+};
+
+export function decodeHtmlEntities(raw: string): string {
+  return String(raw).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, ent: string) => {
+    if (/^#x/i.test(ent)) {
+      const n = Number.parseInt(ent.slice(2), 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : all;
+    }
+    if (ent.startsWith("#")) {
+      const n = Number.parseInt(ent.slice(1), 10);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : all;
+    }
+    return NAMED_ENTITIES[ent.toLowerCase()] ?? all;
+  });
+}
+
+export function safeHref(raw: string): string | null {
+  const t = decodeHtmlEntities(String(raw)).trim();
+  if (!t || t.startsWith("//")) return null;
+  if (t.startsWith("#") || t.startsWith("/") || t.startsWith("view://")) return t;
+  try {
+    const u = new URL(t);
+    if (u.protocol === "https:" || u.protocol === "http:") return u.toString();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const VIEW_URL_ATTR =
+  /\b(href|src|action|formaction|poster|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+export function sanitizeViewHtml(html: string): string {
+  return String(html).replace(VIEW_URL_ATTR, (_all, attr: string, dq?: string, sq?: string, bare?: string) => {
+    const raw = dq ?? sq ?? bare ?? "";
+    const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : '"';
+    const href = safeHref(raw);
+    return href ? `${attr}=${quote}${escapeHtml(href)}${quote}` : `${attr}=${quote}${quote}`;
+  });
+}
+
 export function formatInline(s: string): string {
   return escapeHtml(s).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
