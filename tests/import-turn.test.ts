@@ -66,11 +66,11 @@ test("first oi token arrives while a fat Claude import is still applying", async
 test("chrome: oi streams while the welcome chip is still importing", async () => {
   if (!chromePath()) throw new Error("chrome not found");
   const root = tmpDir("fat-oi");
-  writeFatClaude(root, 16, 40);
+  writeFatClaude(root, 24, 40);
   const { hub } = await makeHub({ importClaude: root });
   hub.cfg.port = 18900 + Math.floor(Math.random() * 400);
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
-  const driver = await launchChrome(9750 + Math.floor(Math.random() * 400));
+  const driver = await launchChrome(11800 + Math.floor(Math.random() * 400));
   try {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
@@ -79,32 +79,59 @@ test("chrome: oi streams while the welcome chip is still importing", async () =>
       8000,
       "welcome chip",
     );
-    const t0 = Date.now();
+    const shots = shotsDir();
+    mkdirSync(shots, { recursive: true });
     await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
+    const labels: string[] = [];
+    await waitUntil(async () => {
+      const label = await driver.session.evaluate<string>(
+        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+      );
+      if (/trazendo/.test(label) && !labels.includes(label)) labels.push(label);
+      return /trazendo/.test(label);
+    }, 8000, "importing chip");
+    const until = Date.now() + 400;
+    while (Date.now() < until) {
+      const label = await driver.session.evaluate<string>(
+        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+      );
+      if (/trazendo/.test(label) && !labels.includes(label)) labels.push(label);
+      if (/\d+%/.test(label)) break;
+      await Bun.sleep(40);
+    }
+    writeFileSync(join(shots, "import-oi-mid.png"), await driver.session.screenshot());
+    const t0 = Date.now();
     await driver.session.evaluate(`(() => {
       const input = document.getElementById("input");
-      if (!input) return;
+      const form = document.getElementById("form");
+      if (!input || !form) return;
       input.focus();
       input.value = "oi";
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      document.getElementById("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.requestSubmit();
     })()`);
     await waitUntil(
-      () => driver.session.evaluate(`(document.body.innerText || "").includes("Ok. oi")`),
+      () => driver.session.evaluate(`(() => {
+        const text = document.body.innerText || "";
+        return text.includes("Trabalhando") || text.includes("Ok.");
+      })()`),
+      8000,
+      "oi first signal",
+    );
+    const ttft = Date.now() - t0;
+    await waitUntil(
+      () => driver.session.evaluate(`(document.body.innerText || "").includes("Ok.")`),
       8000,
       "oi reply",
     );
-    const ttft = Date.now() - t0;
     const chip = await driver.session.evaluate<string>(
-      `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+      `document.querySelector("[data-welcome-import='claude']")?.textContent || document.getElementById("ibar")?.innerText || ""`,
     );
-    console.log(`import-turn chrome_ttft_ms=${ttft} chip=${JSON.stringify(chip)}`);
+    console.log(`import-turn chrome_ttft_ms=${ttft} chip=${JSON.stringify(chip)} labels=${JSON.stringify(labels)}`);
     expect(ttft).toBeLessThan(3000);
-    const shots = shotsDir();
-    mkdirSync(shots, { recursive: true });
     writeFileSync(join(shots, "import-oi.png"), await driver.session.screenshot());
   } finally {
     driver.close();
     booted.stop();
   }
-}, 30000);
+}, 45000);

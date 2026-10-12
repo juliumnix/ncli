@@ -7,6 +7,7 @@ interface LedgerFile {
 
 export class ImportLedger {
   private seen = new Set<string>();
+  private unsaved = 0;
   private readonly file: string;
 
   constructor(dir: string) {
@@ -20,13 +21,20 @@ export class ImportLedger {
   }
 
   add(fingerprints: string[]): void {
-    let grew = false;
     for (const fp of fingerprints) {
       if (this.seen.has(fp)) continue;
       this.seen.add(fp);
-      grew = true;
+      this.unsaved += 1;
     }
-    if (grew) this.save();
+    if (this.unsaved >= 256) this.save();
+  }
+
+  flush(): void {
+    if (this.unsaved) this.save();
+  }
+
+  get path(): string {
+    return this.file;
   }
 
   size(): number {
@@ -46,7 +54,8 @@ export class ImportLedger {
   }
 
   private save(): void {
-    const body: LedgerFile = { fingerprints: [...this.seen].sort() };
-    writeFileSync(this.file, JSON.stringify(body, null, 2) + "\n", "utf8");
+    const body: LedgerFile = { fingerprints: [...this.seen] };
+    writeFileSync(this.file, `${JSON.stringify(body)}\n`, "utf8");
+    this.unsaved = 0;
   }
 }

@@ -55,8 +55,12 @@ test("compact tokens turn the chip on", () => {
   expect(sessionChrome(empty).showCompact).toBe(false);
 });
 
-test("an in-flight import keeps the welcome chips up", () => {
-  expect(sessionChrome({ ...empty, messageCount: 3, importing: true }).showWelcome).toBe(true);
+test("an empty in-flight import keeps the welcome chips up", () => {
+  expect(sessionChrome({ ...empty, importing: true }).showWelcome).toBe(true);
+});
+
+test("a first turn hides welcome even while import still runs", () => {
+  expect(sessionChrome({ ...empty, messageCount: 1, importing: true }).showWelcome).toBe(false);
 });
 
 test("userHelp lists /help and import and skips scaffold", () => {

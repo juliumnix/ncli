@@ -10,7 +10,9 @@ export type { ImportProgress } from "./progress";
 export { formatImportChip, importPct } from "./progress";
 export { isImportSource, parseImportArgv } from "./args";
 export { defaultImportRoots, rootFor } from "./roots";
-export { listSessionFiles, parseSessionFile, parseSessionLines, textOf } from "./parse";
+export { listSessionFiles, parseSessionFile, parseSessionLines, parseSessionStream, textOf } from "./parse";
+export { runImportJob } from "./job";
+export { IMPORT_BATCH_BYTES, IMPORT_BATCH_LINES, IMPORT_YIELD_MS } from "./protocol";
 export { fingerprintOf, lineOf } from "./fingerprint";
 
 export class Importer {

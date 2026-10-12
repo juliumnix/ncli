@@ -40,6 +40,33 @@ function walk(dir: string, visit: (abs: string) => void): void {
   }
 }
 
+const MAX_ROW = 256 * 1024;
+
+function rowParser(source: ImportSource, file: string): (row: string) => ImportLine | undefined {
+  const session = sessionIdOf(file);
+  const fallbackAt = fileMtime(file);
+  let sessionMeta = session;
+  return (row: string) => {
+    const trimmed = row.trim();
+    if (!trimmed || trimmed.length > MAX_ROW) return undefined;
+    let json: unknown;
+    try {
+      json = JSON.parse(trimmed);
+    } catch {
+      return undefined;
+    }
+    if (!json || typeof json !== "object") return undefined;
+    const rec = json as Record<string, unknown>;
+    if (source === "codex" && rec.type === "session_meta") {
+      const payload = asRecord(rec.payload);
+      const id = typeof payload?.id === "string" ? payload.id : "";
+      if (id) sessionMeta = id;
+      return undefined;
+    }
+    return parseRow(source, rec, sessionMeta, fallbackAt, file);
+  };
+}
+
 export function* parseSessionLines(source: ImportSource, file: string): Generator<ImportLine> {
   let raw: string;
   try {
@@ -47,29 +74,31 @@ export function* parseSessionLines(source: ImportSource, file: string): Generato
   } catch {
     return;
   }
-  const session = sessionIdOf(file);
-  const fallbackAt = fileMtime(file);
-  let sessionMeta = session;
+  const parse = rowParser(source, file);
   for (const row of raw.split("\n")) {
-    const trimmed = row.trim();
-    if (!trimmed) continue;
-    let json: unknown;
-    try {
-      json = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    if (!json || typeof json !== "object") continue;
-    const rec = json as Record<string, unknown>;
-    if (source === "codex" && rec.type === "session_meta") {
-      const payload = asRecord(rec.payload);
-      const id = typeof payload?.id === "string" ? payload.id : "";
-      if (id) sessionMeta = id;
-      continue;
-    }
-    const parsed = parseRow(source, rec, sessionMeta, fallbackAt, file);
+    const parsed = parse(row);
     if (parsed) yield parsed;
   }
+}
+
+export async function* parseSessionStream(source: ImportSource, file: string): AsyncGenerator<ImportLine> {
+  const parse = rowParser(source, file);
+  const stream = Bun.file(file).stream();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for await (const chunk of stream) {
+    buf += decoder.decode(chunk, { stream: true });
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      const parsed = parse(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+      if (parsed) yield parsed;
+      nl = buf.indexOf("\n");
+    }
+    if (buf.length > MAX_ROW * 2) buf = "";
+  }
+  const tail = parse(buf);
+  if (tail) yield tail;
 }
 
 export function parseSessionFile(source: ImportSource, file: string): ImportLine[] {
