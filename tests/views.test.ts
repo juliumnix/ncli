@@ -21,7 +21,7 @@ test("loadAll registers review, refino, and live from views/", async () => {
   const reg = new ViewRegistry(join(import.meta.dir, "../views"));
   await reg.loadAll();
   const ids = reg.list().map((v) => v.id).sort();
-  expect(ids).toEqual(["live", "refino", "review"]);
+  expect(ids).toEqual(["live", "refino", "review", "team"]);
 });
 
 test("writing views/hello.ts is picked up without constructing a new registry (hot load)", async () => {

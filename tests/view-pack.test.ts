@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assemble } from "../src/memory/assemble";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { prepareSpawn } from "../src/mcp/inject";
-import { addView, packView } from "../src/views/pack";
+import { removeView, runNcli } from "../src/skills/scaffold";
+import { addView, packView, parseViewSource, readViewOrigin, updateView, userGitEnv } from "../src/views/pack";
 import { assertRunnable, formatSparkResult, validateManifest } from "../src/views/manifest";
 import { ViewRegistry } from "../src/views/registry";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
@@ -287,4 +288,107 @@ test("ncli view add from a local git url installs the pack and runs the mock flo
   } finally {
     hub.close();
   }
+});
+
+test("userGitEnv keeps GH_TOKEN and disables the TTY prompt", () => {
+  const env = userGitEnv({ GH_TOKEN: "ghs_test", PATH: "/bin" });
+  expect(env.GH_TOKEN).toBe("ghs_test");
+  expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+  expect(parseViewSource("git@github.com:acme/ncli-views.git#v1")).toEqual({
+    kind: "git",
+    url: "git@github.com:acme/ncli-views.git",
+    ref: "v1",
+  });
+});
+
+function git(dir: string, args: string[]): void {
+  const r = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+  if (r.exitCode !== 0) throw new Error(r.stderr.toString() || r.stdout.toString());
+}
+
+function writeGuard(dir: string): string {
+  const file = join(dir, "upload-pack");
+  writeFileSync(
+    file,
+    `#!/bin/sh
+if [ -z "$NCLI_VIEW_TOKEN" ]; then
+  echo "fatal: Authentication failed" >&2
+  exit 1
+fi
+exec git upload-pack "$@"
+`,
+  );
+  chmodSync(file, 0o755);
+  return file;
+}
+
+test("ncli view add from a private local git repo pins, updates, and removes", () => {
+  const src = writeEcho(tmpDir("acme-views"));
+  gitCommit(src);
+  git(src, ["tag", "v1.0.0"]);
+  const raw = JSON.parse(readFileSync(join(src, "manifest.json"), "utf8")) as { version: string };
+  raw.version = "1.1.0";
+  writeFileSync(join(src, "manifest.json"), JSON.stringify(raw), "utf8");
+  writeFileSync(join(src, "NOTE.md"), "v2\n");
+  git(src, ["add", "-A"]);
+  git(src, ["commit", "-m", "v2"]);
+  git(src, ["tag", "v1.1.0"]);
+
+  const guard = writeGuard(tmpDir("acme-guard"));
+  const url = `file://${src}`;
+  const viewsDir = tmpDir("acme-install");
+  const denied = { ...process.env };
+  delete denied.NCLI_VIEW_TOKEN;
+  expect(() => addView(`${url}#v1.0.0`, viewsDir, ["mock"], { env: denied, uploadPack: guard })).toThrow(
+    /Authentication failed|privad|clonar/,
+  );
+
+  const installed = addView(`${url}#v1.0.0`, viewsDir, ["mock"], {
+    env: { ...process.env, NCLI_VIEW_TOKEN: "secret" },
+    uploadPack: guard,
+  });
+  const origin = readViewOrigin(installed);
+  expect(origin?.url).toBe(url);
+  expect(origin?.ref).toBe("v1.0.0");
+  expect(origin?.pin).toMatch(/^[0-9a-f]{40}$/);
+  expect(JSON.parse(readFileSync(join(installed, "manifest.json"), "utf8")).version).toBe("1.0.0");
+
+  const updated = updateView("echo", viewsDir, "v1.1.0", ["mock"], {
+    env: { ...process.env, NCLI_VIEW_TOKEN: "secret" },
+    uploadPack: guard,
+  });
+  const next = readViewOrigin(updated);
+  expect(next?.ref).toBe("v1.1.0");
+  expect(next?.pin).toMatch(/^[0-9a-f]{40}$/);
+  expect(next?.pin).not.toBe(origin?.pin);
+  expect(JSON.parse(readFileSync(join(updated, "manifest.json"), "utf8")).version).toBe("1.1.0");
+
+  removeView("echo", { viewsDir, acpDir: tmpDir("acme-acp") });
+  expect(existsSync(updated)).toBe(false);
+});
+
+test("updateView rejects ../ as an id and addView from ../ stays inside viewsDir", () => {
+  const root = tmpDir("escape-root");
+  const viewsDir = join(root, "views");
+  const victim = join(root, "cli-victim");
+  mkdirSync(viewsDir, { recursive: true });
+  mkdirSync(victim);
+  writeFileSync(join(victim, "KEEP"), "alive");
+  const src = writeEcho(tmpDir("escape-src"));
+  gitCommit(src);
+  writeFileSync(join(victim, ".ncli-source.json"), JSON.stringify({ kind: "git", url: `file://${src}` }));
+
+  expect(() => updateView("../cli-victim", viewsDir, undefined, ["mock"])).toThrow(/id inválido/);
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
+
+  expect(() => runNcli(["view", "update", "../cli-victim"], { viewsDir, acpDir: tmpDir("escape-acp") })).toThrow(
+    /id inválido/,
+  );
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
+
+  const pack = writeEcho(join(root, "packsrc"));
+  const installed = addView(join(viewsDir, "..", "packsrc", "echo"), viewsDir, ["mock"]);
+  expect(installed.startsWith(viewsDir + "/")).toBe(true);
+  expect(existsSync(join(pack, "manifest.json"))).toBe(true);
+  expect(existsSync(join(victim, "KEEP"))).toBe(true);
 });

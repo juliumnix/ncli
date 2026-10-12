@@ -1,0 +1,16 @@
+{
+  "name": "team",
+  "version": "1.0.0",
+  "description": "Example company view. Install real ones with ncli view add <private git url>.",
+  "requires": {
+    "harnesses": ["claude", "mock"]
+  },
+  "agents": [
+    { "id": "lead", "role": "lead", "harness": "claude" }
+  ],
+  "skills": ["skills"],
+  "flow": [
+    { "id": "spark", "title": "Brief", "agent": "lead", "kind": "spark", "next": "result" },
+    { "id": "result", "title": "Return", "agent": "lead", "kind": "result" }
+  ]
+}

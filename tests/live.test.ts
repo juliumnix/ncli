@@ -74,5 +74,5 @@ test("demo conversation includes live fences in chat", async () => {
 test("registry ships live alongside review and refino", async () => {
   const reg = new ViewRegistry(join(import.meta.dir, "../views"));
   await reg.loadAll();
-  expect(reg.list().map((v) => v.id).sort()).toEqual(["live", "refino", "review"]);
+  expect(reg.list().map((v) => v.id).sort()).toEqual(["live", "refino", "review", "team"]);
 });

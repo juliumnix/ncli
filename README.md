@@ -130,10 +130,24 @@ bun run ncli new view foo     # writes views/foo/ (manifest + view.ts + exclusiv
 bun run ncli view pack foo    # shareable folder <name>-<version>
 bun run ncli view add ./foo-1.0.0
 bun run ncli view add https://github.com/you/ncli-view-foo.git
-bun run ncli remove view foo
+bun run ncli view add git@github.com:acme/ncli-views.git#v1
+bun run ncli view update checkout
+bun run ncli view update checkout v2
+bun run ncli remove view checkout
 ```
 
-Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90). `live` is a loose preview (six sandboxed cards, including `ui` and `3d`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR. The review view batches line comments to the spark seat, triages findings, re-reviews from the last head, and archives the worktree when `gh pr view` says MERGED (checked on open, act, or close).
+Same commands as a slash in chat: `/ncli new view foo`. Shipped view packages: `review` (guided review), `refino` (pareceres + chips, merge at score ≥ 0.90), `team` (example company view). `live` is a loose preview (six sandboxed cards, including `ui` and `3d`). A package declares agents, exclusive skills, and a spark→result flow. When it ends, a structured result lands on the main memory tree. Example data is a fictional `acme/shop` PR. The review view batches line comments to the spark seat, triages findings, re-reviews from the last head, and archives the worktree when `gh pr view` says MERGED (checked on open, act, or close).
+
+### Views da empresa (repo git privado)
+
+Keep company views in a private git repo. Each package is still `views/<id>/` with `manifest.json`. On the public NCLI tree, install with the `git` / `gh` login you already have:
+
+```bash
+bun run ncli view add git@github.com:acme/ncli-views.git#v1
+bun run ncli view add https://github.com/acme/ncli-views.git#v1
+```
+
+NCLI clones with your environment (`GH_TOKEN`, `GIT_ASKPASS`, `ssh-agent`). HTTPS GitHub uses `gh auth git-credential` when `gh` is installed. The clone does not prompt on the TTY. The install records the commit in `views/<id>/.ncli-source.json`. `view update <id> [ref]` reclones that pin. `remove view <id>` deletes the package. `view://team` in this repo is only an example of the package shape.
 
 Import is opt-in. `/ncli import claude|codex|cursor` reads the official local JSONL (Claude `projects/<cwd>/*.jsonl`, Codex `sessions/YYYY/MM/DD/rollout-*.jsonl`, Cursor `agent-transcripts/<id>/<id>.jsonl`), shows a preview, and does not write until `/ncli import … --apply` or the chip. Fingerprints live in `data/import-seen.json`. NCLI never writes `~/.claude`, `~/.codex`, or `~/.cursor`.
 
@@ -197,6 +211,8 @@ bun test
 | `tests/compaction.test.ts` | view stays under budget; short lines skip Haiku | mock compressor |
 | `tests/context.test.ts` | cover tiles `[0,T)`; zoom | mock compressor |
 | `tests/views.test.ts` | registry + hot load of `hello.ts`; review chapter order | fixtures, no `gh` |
+| `tests/view-pack.test.ts` | dir/git add, private pin/update/remove, harness gate | temp git + upload-pack guard |
+| `tests/team.test.ts` | `view://team` example package points at `ncli view add` | fixtures |
 | `tests/view-actions.test.ts` | refino chips → score ≥ 0.90 merge | mock CLI |
 | `tests/spark-merge.test.ts` | `view://review?pr=482` waits, then `review #N` | mock CLI, fixture PR |
 | `tests/concurrent-sparks.test.ts` | three refinos at once, isolated worktrees and logs, all merge | real `git worktree`, mock CLI |

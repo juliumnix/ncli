@@ -5,6 +5,7 @@ import type { NcliConfig } from "./config";
 import type { HarnessKind } from "./config";
 import type { HubEvent } from "./types";
 import { handleMcpHttp } from "./mcp/http";
+import { sanitizeViewHtml } from "./util";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -144,19 +145,21 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           value: body.value,
         });
         const plugin = hub.views.get(spark.view);
-        return Response.json({ ok: true, spark, fork: spark, html: plugin?.render?.(spark) });
+        const raw = plugin?.render?.(spark);
+        return Response.json({ ok: true, spark, fork: spark, html: raw === undefined ? undefined : sanitizeViewHtml(raw) });
       }
       const sparkGet = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)$/);
       if (sparkGet && req.method === "GET") {
         const rt = hub.sparks.get(decodeURIComponent(sparkGet[1]));
         if (!rt) return new Response("not found", { status: 404 });
         const plugin = hub.views.get(rt.spark.view);
+        const raw = plugin?.render?.(rt.spark);
         return Response.json({
           spark: rt.spark,
           fork: rt.spark,
           messages: rt.memory.log,
           debug: rt.memory.debug(),
-          html: plugin?.render?.(rt.spark),
+          html: raw === undefined ? undefined : sanitizeViewHtml(raw),
         });
       }
       if (url.pathname === "/api/memory" && req.method === "GET") {
