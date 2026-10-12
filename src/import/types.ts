@@ -9,6 +9,7 @@ export interface ImportLine {
   kind: "user" | "talk";
   text: string;
   seat?: SeatId;
+  cwd?: string;
   fingerprint: string;
 }
 

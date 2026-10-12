@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { alreadyInLog, defaultImportRoots, formatPreview, Importer, parseImportArgv, parseSessionFile } from "../src/import";
 import { listSessionFiles } from "../src/import/parse";
+import { spaceFor } from "../src/memory/spaces";
 import { makeHub, tmpDir } from "./helpers";
 
 const FIX = join(import.meta.dir, "../fixtures/import");
@@ -150,11 +151,14 @@ test("hub slash previews and apply writes the log then pumps", async () => {
   expect(hub.lastImport?.newCount).toBe(4);
   expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
   await hub.send("/ncli import claude --apply");
-  const imported = hub.memory.log.filter((m) => m.hops === "import:claude");
+  const dest = hub.spaces.of(spaceFor("/workspace"));
+  const imported = dest.log.filter((m) => m.hops === "import:claude");
+  expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
+  expect(hub.spaces.inbox().log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
   expect(imported.map((m) => m.text)).toContain("como funciona o desconto FACT_MEMBER_DISCOUNT_BEFORE_TAX?");
   expect(imported).toHaveLength(4);
   await hub.send("/ncli import claude --apply");
-  expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(4);
+  expect(dest.log.filter((m) => m.hops === "import:claude")).toHaveLength(4);
   expect(hub.lastImport?.newCount).toBe(0);
 });
 

@@ -56,7 +56,7 @@ export function contextRows(mem: Memory, userName: string): ContextRow[] {
   });
 }
 
-export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: string): ContextSnapshot {
+export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: string, space?: string): ContextSnapshot {
   return {
     type: "context",
     session: "main",
@@ -67,6 +67,7 @@ export function contextSnapshot(mem: Memory, compact: CompactStatus, userName: s
     T: mem.T,
     compact,
     userName,
+    space,
   };
 }
 

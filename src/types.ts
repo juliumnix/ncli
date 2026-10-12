@@ -127,6 +127,7 @@ export interface ContextSnapshot {
   T: number;
   compact: CompactStatus;
   userName: string;
+  space?: string;
 }
 
 export interface NeedsUser {
