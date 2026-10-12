@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { addView, packView, updateView } from "../views/pack";
+import { addView, packView, parseId, rmViewDir, updateView, viewSlot } from "../views/pack";
 import { availableHarnesses } from "../views/manifest";
 import { loadConfig } from "../config";
 import { defaultSkillsDir, listSkills, readSkill } from "./catalog";
+
+export { parseId };
 
 export const SHIPPED_VIEWS = ["live", "refino", "review", "team"] as const;
 
@@ -14,14 +16,6 @@ export interface ScaffoldPaths {
   force?: boolean;
 }
 
-export function parseId(raw: string): string {
-  const id = raw.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9]*$/.test(id)) {
-    throw new Error(`id inválido: ${raw} (use [a-z][a-z0-9]*, sem hífen)`);
-  }
-  return id;
-}
-
 export function fillTemplate(raw: string, id: string): string {
   const Id = id[0].toUpperCase() + id.slice(1);
   return raw.replaceAll("{{id}}", id).replaceAll("{{Id}}", Id);
@@ -29,7 +23,7 @@ export function fillTemplate(raw: string, id: string): string {
 
 export function newView(idRaw: string, paths: ScaffoldPaths, kind: "view" | "mode" = "view"): string {
   const id = parseId(idRaw);
-  const dest = join(paths.viewsDir, id);
+  const dest = viewSlot(paths.viewsDir, id);
   const loose = join(paths.viewsDir, `${id}.ts`);
   if ((existsSync(dest) || existsSync(loose)) && !paths.force) throw new Error(`${dest} já existe`);
   const skillId = kind === "mode" ? "add-mode" : "add-view";
@@ -58,10 +52,10 @@ export function removeView(idRaw: string, paths: ScaffoldPaths): string {
   if ((SHIPPED_VIEWS as readonly string[]).includes(id) && !paths.force) {
     throw new Error(`view ${id} é shipped; passe --force se o usuário pediu pra apagar`);
   }
-  const pack = join(paths.viewsDir, id);
+  const pack = viewSlot(paths.viewsDir, id);
   const loose = join(paths.viewsDir, `${id}.ts`);
   if (existsSync(pack)) {
-    rmSync(pack, { recursive: true, force: true });
+    rmViewDir(paths.viewsDir, pack);
     return pack;
   }
   if (existsSync(loose)) {
