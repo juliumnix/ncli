@@ -212,7 +212,7 @@ function escapeHtml(s) {
 
 function bodyHtml(text, streaming) {
   const segs = [];
-  const re = /```ncli[ \t]+(mermaid|html|react|url|ui)[ \t]*\n([\s\S]*?)```/g;
+  const re = /```ncli[ \t]+(mermaid|html|react|url|ui|3d)[ \t]*\n([\s\S]*?)```/g;
   let last = 0;
   let m;
   while ((m = re.exec(text))) {
@@ -221,7 +221,7 @@ function bodyHtml(text, streaming) {
     last = m.index + m[0].length;
   }
   const rest = text.slice(last);
-  const open = rest.match(/```ncli[ \t]+(mermaid|html|react|url|ui)[ \t]*\n([\s\S]*)$/);
+  const open = rest.match(/```ncli[ \t]+(mermaid|html|react|url|ui|3d)[ \t]*\n([\s\S]*)$/);
   if (open && !open[2].includes("```")) segs.push(shimmerFor(open[1], open[2]));
   else if (rest) segs.push(md(rest, streaming));
   return segs.join("") || md(text, streaming);
@@ -240,8 +240,8 @@ function md(text, streaming) {
 }
 
 function shimmerFor(kind, source) {
-  const shape = kind === "mermaid" ? "diagram" : kind === "url" ? "page" : kind === "react" || kind === "ui" ? "card" : /chart|canvas|svg|bar|plot/i.test(source || "") ? "chart" : "card";
-  const label = shape === "diagram" ? "desenhando diagrama…" : shape === "chart" ? "desenhando gráfico…" : kind === "ui" ? "montando o card…" : kind === "react" ? "montando componente…" : shape === "page" ? "carregando página…" : "montando prévia…";
+  const shape = kind === "mermaid" ? "diagram" : kind === "url" ? "page" : kind === "3d" ? "scene" : kind === "react" || kind === "ui" ? "card" : /chart|canvas|svg|bar|plot/i.test(source || "") ? "chart" : "card";
+  const label = shape === "diagram" ? "desenhando diagrama…" : shape === "chart" ? "desenhando gráfico…" : kind === "ui" ? "montando o card…" : kind === "react" ? "montando componente…" : kind === "3d" ? "montando a cena…" : shape === "page" ? "carregando página…" : "montando prévia…";
   const body = shape === "diagram" ? "<i></i><i></i><i></i>" : shape === "chart" ? "<b></b><b></b><b></b><b></b>" : shape === "page" ? "<s></s><em></em><em></em><em></em>" : "<s></s><em></em><em></em>";
   return `<div class="live-ph" data-kind="${kind}" data-shape="${shape}" aria-busy="true"><div class="live-ph-label">${label}</div><div class="live-ph-body ${shape}">${body}</div></div>`;
 }
@@ -271,6 +271,10 @@ function iframeFor(kind, source) {
       const key = uiKey(source);
       const srcdoc = wrapUiSource(source).replaceAll("&", "&amp;").replaceAll('"', "&quot;");
       return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button><iframe class="live-frame live-ui" title="live ui" data-ui-key="${key}" sandbox="allow-scripts" srcdoc="${srcdoc}"></iframe></div>`;
+    }
+    if (kind === "3d") {
+      const src = `/ncli3d.html#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
+      return `<div class="live-wrap in"><iframe class="live-frame live-3d" title="live 3d" sandbox="allow-scripts allow-same-origin" src="${escapeHtml(src)}"></iframe></div>`;
     }
     const inner =
       kind === "mermaid"
@@ -306,6 +310,22 @@ function extractUiBody(source) {
 function wrapUiSource(source) {
   const body = extractUiBody(source);
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'"><style>${uiThemeCss()}</style><script>${uiLibScript()}</script></head><body>${body}<script>${uiHeightScript()}</script></body></html>`;
+}
+
+function bind3dPause() {
+  if (!("IntersectionObserver" in window) || !log) return;
+  if (!log._ncli3dObs) {
+    log._ncli3dObs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        const win = e.target.contentWindow;
+        if (!win) continue;
+        win.postMessage({ type: "ncli-3d", op: e.isIntersecting ? "resume" : "pause" }, "*");
+      }
+    }, { threshold: 0.08 });
+  }
+  for (const iframe of log.querySelectorAll("iframe.live-3d")) {
+    log._ncli3dObs.observe(iframe);
+  }
 }
 
 function liveDocCss() {
@@ -642,6 +662,7 @@ function renderChat() {
   const keep = chat.scrollTop;
   log.innerHTML = parts.join("");
   reattachUi();
+  bind3dPause();
   markEnter();
   measureComposer();
   if (stick.follow) snapToFloor();

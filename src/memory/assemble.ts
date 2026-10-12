@@ -35,11 +35,11 @@ isolated sparks with their own worktree). Examples:
 
 Rich previews in chat use a fenced block:
 
-\`\`\`ncli mermaid|html|react|url|ui
+\`\`\`ncli mermaid|html|react|url|ui|3d
 source
 \`\`\`
 
-Or the MCP tool ncli.render({kind, source}). kind=ui is an interactive mini-app (tabs, charts, tables). NCLI draws them in a sandboxed iframe. Follow ncli/skills/ncli-ui/SKILL.md.
+Or the MCP tool ncli.render({kind, source}). kind=ui is an interactive mini-app (tabs, charts, tables). kind=3d is an in-chat three.js scene (ncli3d.desk()). NCLI draws them in a sandboxed iframe. Follow ncli/skills/ncli-ui/SKILL.md.
 
 When a spark finishes it comes back here as a single merge line; zoom the
 spark id if you need its full log.
