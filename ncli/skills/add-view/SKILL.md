@@ -49,9 +49,17 @@ Writes `<name>-<version>/` plus `PACK.json` (name, version, requires, agents). T
 bun run ncli view add ./echo-1.0.0
 bun run ncli view add https://github.com/you/ncli-view-echo.git
 bun run ncli view add https://github.com/you/ncli-view-echo.git#v1.2.0
+bun run ncli view add git@github.com:acme/ncli-views.git#v1
+bun run ncli view update checkout
+bun run ncli view update checkout v2
+bun run ncli view remove checkout
 ```
 
-`add` clones a git URL (optional `#ref`) or copies a directory, finds `manifest.json` (root or a single `views/<id>/`), validates, and copies into `views/<name>/`. Install and open fail with a clear error if none of `requires.harnesses` exist on this host (`view echo@1.0.0 exige cursor; neste host: mock`).
+`add` clones a git URL (optional `#ref`) or copies a directory, finds `manifest.json` (root or a single `views/<id>/`), validates, and copies into `views/<name>/`. A git install writes `.ncli-source.json` with the url, ref, and commit pin. `update` reclones that origin (same ref, or a new one). `remove` deletes the package.
+
+Private git uses the caller's `git` / `gh` credentials (`GH_TOKEN`, `GIT_ASKPASS`, `ssh-agent`). HTTPS GitHub URLs go through `gh auth git-credential` when `gh` is on PATH. The clone sets `GIT_TERMINAL_PROMPT=0` so a missing login fails instead of hanging. Install and open fail with a clear error if none of `requires.harnesses` exist on this host (`view echo@1.0.0 exige cursor; neste host: mock`).
+
+`render()` HTML is sanitized at the hub: `href` / `src` / `action` keep only `http(s)`, `#`, `/`, or `view://`. `escapeHtml` is for text, not URLs. `javascript:` is stripped.
 
 Or drop the folder into `views/<name>/` yourself. Same schema check on the next load.
 

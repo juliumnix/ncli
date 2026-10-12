@@ -1,25 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { addView, packView } from "../views/pack";
+import { addView, packView, parseId, rmViewDir, updateView, viewSlot } from "../views/pack";
 import { availableHarnesses } from "../views/manifest";
 import { loadConfig } from "../config";
 import { defaultSkillsDir, listSkills, readSkill } from "./catalog";
 
-export const SHIPPED_VIEWS = ["live", "refino", "review"] as const;
+export { parseId };
+
+export const SHIPPED_VIEWS = ["live", "refino", "review", "team"] as const;
 
 export interface ScaffoldPaths {
   viewsDir: string;
   acpDir: string;
   skillsDir?: string;
   force?: boolean;
-}
-
-export function parseId(raw: string): string {
-  const id = raw.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9]*$/.test(id)) {
-    throw new Error(`id inválido: ${raw} (use [a-z][a-z0-9]*, sem hífen)`);
-  }
-  return id;
 }
 
 export function fillTemplate(raw: string, id: string): string {
@@ -29,7 +23,7 @@ export function fillTemplate(raw: string, id: string): string {
 
 export function newView(idRaw: string, paths: ScaffoldPaths, kind: "view" | "mode" = "view"): string {
   const id = parseId(idRaw);
-  const dest = join(paths.viewsDir, id);
+  const dest = viewSlot(paths.viewsDir, id);
   const loose = join(paths.viewsDir, `${id}.ts`);
   if ((existsSync(dest) || existsSync(loose)) && !paths.force) throw new Error(`${dest} já existe`);
   const skillId = kind === "mode" ? "add-mode" : "add-view";
@@ -58,10 +52,10 @@ export function removeView(idRaw: string, paths: ScaffoldPaths): string {
   if ((SHIPPED_VIEWS as readonly string[]).includes(id) && !paths.force) {
     throw new Error(`view ${id} é shipped; passe --force se o usuário pediu pra apagar`);
   }
-  const pack = join(paths.viewsDir, id);
+  const pack = viewSlot(paths.viewsDir, id);
   const loose = join(paths.viewsDir, `${id}.ts`);
   if (existsSync(pack)) {
-    rmSync(pack, { recursive: true, force: true });
+    rmViewDir(paths.viewsDir, pack);
     return pack;
   }
   if (existsSync(loose)) {
@@ -155,15 +149,24 @@ function runRemove(kind: string | undefined, id: string | undefined, paths: Scaf
 }
 
 function runView(op: string | undefined, a: string | undefined, b: string | undefined, paths: ScaffoldPaths): string {
+  const have = availableHarnesses({ harness: loadConfig().harness });
   if (op === "add") {
     if (!a) throw new Error("uso: ncli view add <path|git-url>");
-    return `instalou ${addView(a, paths.viewsDir, availableHarnesses({ harness: loadConfig().harness }))}`;
+    return `instalou ${addView(a, paths.viewsDir, have)}`;
+  }
+  if (op === "update") {
+    if (!a) throw new Error("uso: ncli view update <id> [ref]");
+    return `atualizou ${updateView(a, paths.viewsDir, b, have)}`;
+  }
+  if (op === "remove") {
+    if (!a) throw new Error("uso: ncli view remove <id>");
+    return `removeu ${removeView(a, paths)}`;
   }
   if (op === "pack") {
     if (!a) throw new Error("uso: ncli view pack <id> [out]");
     return `empacotou ${packView(a, paths.viewsDir, b ?? join(paths.viewsDir, "..", "dist"))}`;
   }
-  throw new Error("uso: ncli view add <path|git-url> | ncli view pack <id> [out]");
+  throw new Error("uso: ncli view add <path|git-url> | ncli view update <id> [ref] | ncli view remove <id> | ncli view pack <id> [out]");
 }
 
 function readRequiredSkill(id: string, paths: ScaffoldPaths): string {
@@ -187,6 +190,8 @@ function usage(): string {
   bun run ncli new harness <id>
   bun run ncli view pack <id> [out]
   bun run ncli view add <path|git-url>
+  bun run ncli view update <id> [ref]
+  bun run ncli view remove <id>
   bun run ncli remove view <id>
   bun run ncli remove harness <id>
   /ncli …  (mesmo comando no chat principal)`;
