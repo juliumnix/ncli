@@ -125,21 +125,20 @@ test("chrome: a memory question during import shows the fact and the migrating n
       input.value = "qual o desconto do member?";
       form.requestSubmit();
     })()`);
-    await waitUntil(
-      () => driver.session.evaluate(`(() => {
-        const text = document.body.innerText || "";
-        return text.includes("FACT_MEMBER") && /trazendo o histórico/.test(text);
-      })()`),
-      10000,
-      "memory answer with note",
+    const chatText = () => driver.session.evaluate<string>(
+      `[...document.querySelectorAll(".m .md, .u")].map((el) => el.textContent || "").join("\\n")`,
     );
+    await waitUntil(async () => {
+      const text = await chatText();
+      return text.includes("FACT_MEMBER") && /trazendo o histórico/.test(text);
+    }, 10000, "memory answer with note");
     const shots = shotsDir();
     mkdirSync(shots, { recursive: true });
     writeFileSync(join(shots, "import-during.png"), await driver.session.screenshot());
-    const body = await driver.session.evaluate<string>(`(document.body.innerText || "")`);
-    console.log(`import-during chrome_has_fact=${body.includes("FACT_MEMBER")} chrome_has_note=${/histórico/.test(body)}`);
-    expect(body).toContain("FACT_MEMBER");
-    expect(body).toMatch(/histórico/);
+    const text = await chatText();
+    console.log(`import-during chrome_has_fact=${text.includes("FACT_MEMBER")} chrome_has_note=${/trazendo o histórico/.test(text)}`);
+    expect(text).toContain("FACT_MEMBER");
+    expect(text).toMatch(/trazendo o histórico/);
   } finally {
     driver.close();
     booted.stop();

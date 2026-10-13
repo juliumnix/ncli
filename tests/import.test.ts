@@ -139,20 +139,32 @@ test("--since keeps only later lines", () => {
 
 test("empty hub offers claude import when sessions exist", async () => {
   const { hub } = await makeHub({ importClaude: CLAUDE });
-  expect(hub.snapshot().import?.source).toBe("claude");
-  expect(hub.snapshot().import?.sessions).toBe(1);
-  expect(hub.snapshot().import?.lines).toEqual([]);
+  try {
+    expect(hub.snapshot().import?.source).toBe("claude");
+    expect(hub.snapshot().import?.sessions).toBe(1);
+    expect(hub.snapshot().import?.lines).toEqual([]);
+  } finally {
+    hub.close();
+  }
 });
 
 test("empty hub stays quiet when claude has no sessions", async () => {
   const { hub } = await makeHub();
-  expect(hub.snapshot().import).toBe(null);
+  try {
+    expect(hub.snapshot().import).toBe(null);
+  } finally {
+    hub.close();
+  }
 });
 
 test("demo seed does not auto-offer import", async () => {
   const { hub } = await makeHub({ demo: true, importClaude: CLAUDE });
-  expect(hub.memory.T).toBeGreaterThan(0);
-  expect(hub.snapshot().import).toBe(null);
+  try {
+    expect(hub.memory.T).toBeGreaterThan(0);
+    expect(hub.snapshot().import).toBe(null);
+  } finally {
+    hub.close();
+  }
 });
 
 test("hub slash previews and apply writes the log then pumps", async () => {
@@ -161,23 +173,27 @@ test("hub slash previews and apply writes the log then pumps", async () => {
     importCodex: CODEX,
     importCursor: CURSOR,
   });
-  await hub.send("/ncli import claude");
-  const note = hub.memory.log.find((m) => m.kind === "note" && m.text.startsWith("import claude"));
-  expect(note?.text).toContain("4 novas");
-  expect(note?.text).toContain("--apply");
-  expect(note?.text).not.toContain(CLAUDE);
-  expect(hub.lastImport?.newCount).toBe(4);
-  expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
-  await hub.send("/ncli import claude --apply");
-  const dest = hub.spaces.of(spaceFor("/workspace"));
-  const imported = dest.log.filter((m) => m.hops === "import:claude");
-  expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
-  expect(hub.spaces.inbox().log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
-  expect(imported.map((m) => m.text)).toContain("como funciona o desconto FACT_MEMBER_DISCOUNT_BEFORE_TAX?");
-  expect(imported).toHaveLength(4);
-  await hub.send("/ncli import claude --apply");
-  expect(dest.log.filter((m) => m.hops === "import:claude")).toHaveLength(4);
-  expect(hub.lastImport?.newCount).toBe(0);
+  try {
+    await hub.send("/ncli import claude");
+    const note = hub.memory.log.find((m) => m.kind === "note" && m.text.startsWith("import claude"));
+    expect(note?.text).toContain("4 novas");
+    expect(note?.text).toContain("--apply");
+    expect(note?.text).not.toContain(CLAUDE);
+    expect(hub.lastImport?.newCount).toBe(4);
+    expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
+    await hub.send("/ncli import claude --apply");
+    const dest = hub.spaces.of(spaceFor("/workspace"));
+    const imported = dest.log.filter((m) => m.hops === "import:claude");
+    expect(hub.memory.log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
+    expect(hub.spaces.inbox().log.filter((m) => m.hops === "import:claude")).toHaveLength(0);
+    expect(imported.map((m) => m.text)).toContain("como funciona o desconto FACT_MEMBER_DISCOUNT_BEFORE_TAX?");
+    expect(imported).toHaveLength(4);
+    await hub.send("/ncli import claude --apply");
+    expect(dest.log.filter((m) => m.hops === "import:claude")).toHaveLength(4);
+    expect(hub.lastImport?.newCount).toBe(0);
+  } finally {
+    hub.close();
+  }
 });
 
 test("import never writes the source jsonl", async () => {

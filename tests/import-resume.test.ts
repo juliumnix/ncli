@@ -2,8 +2,18 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isResumeOpen, loadCheckpoint } from "../src/import/checkpoint";
-import { Memory, mockCompressor } from "../src/memory/store";
+import { Memory, mockCompressor, type Compressor } from "../src/memory/store";
 import { makeHub, tmpDir, waitUntil } from "./helpers";
+
+function watchCompact(hub: { memory: { compressor: Compressor } }): () => number {
+  let n = 0;
+  const orig = hub.memory.compressor;
+  hub.memory.compressor = async (input) => {
+    n += 1;
+    return orig(input);
+  };
+  return () => n;
+}
 
 function writeClaudeTree(root: string, files: number, lines: number, factAt = 0): number {
   const proj = join(root, "workspace");
@@ -33,20 +43,24 @@ test("a killed import leaves a checkpoint and the next boot only finishes the re
   const total = writeClaudeTree(root, 8, 40);
   const dataDir = tmpDir("resume-data");
   const first = await makeHub({ importClaude: root, dataDir });
+  const firstCompact = watchCompact(first.hub);
   void first.hub.applyImport("claude", undefined, { surface: true });
   await waitUntil(() => first.hub.memory.T >= 64 && isResumeOpen(loadCheckpoint(dataDir)), 8000, "first lots");
   const midT = first.hub.memory.T;
+  const compactBeforeKill = firstCompact();
   first.hub.close();
   expect(isResumeOpen(loadCheckpoint(dataDir))).toBe(true);
   expect(midT).toBeLessThan(total);
 
   const second = await makeHub({ importClaude: root, dataDir });
+  const secondCompact = watchCompact(second.hub);
   try {
     await waitUntil(() => second.hub.memory.T >= total && !isResumeOpen(loadCheckpoint(dataDir)), 15000, "resume finished");
     expect(loadCheckpoint(dataDir)).toBeNull();
     expect(second.hub.memory.log.some((m) => m.text.includes("FACT_MEMBER"))).toBe(true);
     expect(second.hub.memory.log.some((m) => m.text.includes("ROW_7_"))).toBe(true);
     expect(second.hub.memory.T).toBeGreaterThanOrEqual(total);
+    console.log(`import-resume-kill mid=${midT} total=${total} after=${second.hub.memory.T} compact_before=${compactBeforeKill} compact_after=${secondCompact()}`);
   } finally {
     second.hub.close();
   }
@@ -104,4 +118,5 @@ test("a reloaded tree does not call the compressor for nodes it already built", 
   await mem2.pump();
   expect(replay).toEqual([]);
   expect([...mem2.nodes.keys()].sort()).toEqual(built);
+  console.log(`resume-compact before=${firstCalls.length} after=${replay.length}`);
 });

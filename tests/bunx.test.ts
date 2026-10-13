@@ -59,7 +59,9 @@ test("the package bin boots HTTP the way bunx would", async () => {
     const ui = await fetch(`http://127.0.0.1:${port}/`);
     expect(ui.ok).toBe(true);
     expect(await ui.text()).toContain("<title>NCLI</title>");
-    expect(out).toContain("mcp");
+    expect(out).not.toContain("mcp");
+    expect(out).not.toContain("compact:");
+    expect((out.match(/clis/g) || []).length).toBe(1);
   } finally {
     proc.kill();
     await proc.exited;

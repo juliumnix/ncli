@@ -2137,6 +2137,12 @@ function applyEvent(ev) {
     case "import":
       state.import = ev.preview || null;
       if (ev.offers) state.importOffers = ev.offers;
+      if (Array.isArray(ev.messages)) {
+        const incoming = new Map(ev.messages.map((m) => [m.i, m]));
+        const extra = state.messages.filter((m) => !incoming.has(m.i));
+        state.messages = [...ev.messages, ...extra].sort((a, b) => a.i - b.i);
+        scheduleFullPaint();
+      }
       if (ev.preview && ev.preview.source && state.importProgress && state.importProgress[ev.preview.source]) {
         const prev = state.importProgress[ev.preview.source];
         const total = prev.total || 1;

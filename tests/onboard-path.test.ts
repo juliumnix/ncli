@@ -28,13 +28,13 @@ test("a fat Claude tree makes Importer.preview slower than an empty root", () =>
   expect(fat.ms - empty.ms).toBeGreaterThan(10);
 });
 
-test("a fat Claude tree makes hub.start slower than empty roots", async () => {
+test("a fat Claude tree does not slurp on hub.start", async () => {
   const empty = await measureHubStart({});
   const fat = await measureHubStart({ fatFiles: 400 });
   expect(empty.ok).toBe(true);
   expect(fat.ok).toBe(true);
   expect(fat.work).toBe(400);
-  expect(fat.ms).toBeGreaterThan(empty.ms);
+  expect(fat.ms).toBeLessThan(500);
 });
 
 test("summarizeOnboard counts errors apart from work", () => {
