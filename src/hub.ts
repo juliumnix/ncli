@@ -74,6 +74,7 @@ export class Hub {
   private importing = false;
   private importProgress: ImportProgress | null = null;
   private importAbort: AbortController | null = null;
+  private closed = false;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -617,6 +618,7 @@ export class Hub {
   }
 
   private pumpWhenIdle(): void {
+    if (this.closed) return;
     if (this.turning || this.importing) {
       setTimeout(() => this.pumpWhenIdle(), 250);
       return;
@@ -1026,7 +1028,9 @@ export class Hub {
   }
 
   close(): void {
+    this.closed = true;
     this.importAbort?.abort();
+    this.memory.paused = true;
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.usage.close();
     this.views.close();
