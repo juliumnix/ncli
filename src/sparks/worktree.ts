@@ -185,6 +185,6 @@ export async function initTempRepo(prefix = "ncli-repo"): Promise<string> {
   await git(["config", "core.fsmonitor", "false"]);
   await Bun.write(join(dir, "README.md"), "# ncli test repo\n");
   await git(["add", "."]);
-  await git(["-c", "commit.gpgsign=false", "commit", "-m", "init"]);
+  await git(["commit", "-m", "init"]);
   return dir;
 }

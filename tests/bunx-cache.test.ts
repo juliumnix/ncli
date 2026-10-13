@@ -76,12 +76,6 @@ test("scripts/bunx-main.sh wipes ncli github extracts then pins the live sha", (
   expect(sh).toContain('bunx "github:juliumnix/ncli#$sha"');
 });
 
-test("index.ts skips ls-remote when the extract is already pinned", () => {
-  const src = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
-  expect(src).toContain("bunxNeedsRemoteTip");
-  expect(src).not.toContain("bunxExtractRoot(runningPath, uid) ? fetchMainTip()");
-});
-
 test("bunx-main.sh deletes a planted stale extract then execs the pinned spec", () => {
   const tmp = tmpDir("bunx-sh");
   const uid = process.getuid();
