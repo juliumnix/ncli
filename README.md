@@ -6,7 +6,7 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning runs in the hub process and yields between batches. It is not a thread `Worker` and not a bun child that would inherit sqlite fds, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
+You need [Bun](https://bun.sh) 1.4.3+ (`package.json` `engines.bun`). Boot prints a warning if the running bun is older. The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning runs in the hub process and yields between batches. It is not a thread `Worker` and not a bun child that would inherit sqlite fds. Spawn never passes a numeric stdio fd. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`. bun 1.3.3 on macOS can still `EXC_GUARD` inside the runtime on a guarded close. Use 1.4.3+.
 
 ```bash
 bunx github:juliumnix/ncli
@@ -234,6 +234,9 @@ bun test
 | `tests/bus.test.ts` | idle = 0 extra processes; ask/wait promise; post→next prompt; depth/cycle | mock CLI |
 | `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude | temp dirs |
 | `tests/mcp-http.test.ts` | initialize, tools/list, tools/call with a spawn token | in-process HTTP |
+| `tests/fd-guard.test.ts` | no Worker/openSync/closeSync/numeric stdio in `src/`; 6.6k-line in-process import | temp dirs |
+| `tests/bun-version.test.ts` | bun 1.3.3 is below engines `>=1.4.3`; 1.4.3 is not | in-process |
+| `tests/macos-bunx-import.test.ts` | 66×100 Claude lines, kill at half, resume on restart; CI matrix 1.3.3 and 1.4.3 | local extract + workflow |
 | `tests/startup.test.ts` | `bootNcli` listens for UI, SSE, MCP, bus; favicon; summary | mock hub |
 | `tests/stream.test.ts` | POST /api/message returns at once; SSE deltas; harness switch | mock |
 | `tests/live-turn.test.ts` | Turn timeline, still-working, Claude stream-json parse | in-process |

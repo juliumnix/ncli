@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { ncliExtractPrefix } from "../src/bunx-cache";
 import { ncliSpecAt, parseRevision, readGitHead, shortSha } from "../src/revision";
 
-const LINES = 40;
-const FILES = 40;
+export const LINES = 100;
+export const FILES = 66;
 const BANNER = /NCLI rodando em http:\/\/localhost:(\d+) · ([0-9a-f]{7})\b/;
 
 function plantClaude(root: string): number {
@@ -53,6 +53,22 @@ async function waitBanner(proc: ReturnType<typeof Bun.spawn>, timeoutMs: number)
   throw new Error(`banner missing sha\n${text}`);
 }
 
+async function waitT(url: string, want: number, timeoutMs: number, proc: ReturnType<typeof Bun.spawn>, log: string): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let t = 0;
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) throw new Error(`ncli died during import: ${proc.exitCode}\n${log}`);
+    const state = await fetch(`${url}/api/state`).then((r) => r.json()) as {
+      debug?: { T?: number };
+      import?: { seenCount?: number };
+    };
+    t = Math.max(state.debug?.T ?? 0, state.import?.seenCount ?? 0);
+    if (t >= want) return t;
+    await Bun.sleep(100);
+  }
+  throw new Error(`import T=${t} want ${want}`);
+}
+
 async function main(): Promise<void> {
   const repo = join(import.meta.dir, "..");
   const uid = process.getuid?.() ?? 0;
@@ -80,9 +96,11 @@ async function main(): Promise<void> {
   const cmd = viaBunx
     ? ["bunx", ncliSpecAt(sha)]
     : [process.execPath, join(plantExtract(repo, uid, work), "src/index.ts")];
-  const proc = Bun.spawn(cmd, { cwd: env.NCLI_REPO, env, stdout: "pipe", stderr: "pipe" });
+  const bannerMs = viaBunx ? 180_000 : 20_000;
+  const spawnHub = () => Bun.spawn(cmd, { cwd: env.NCLI_REPO, env, stdout: "pipe", stderr: "pipe" });
+  const first = spawnHub();
   try {
-    const ready = await waitBanner(proc, viaBunx ? 180_000 : 20_000);
+    const ready = await waitBanner(first, bannerMs);
     if (ready.short !== shortSha(sha)) {
       throw new Error(`banner sha ${ready.short} != ${shortSha(sha)}\n${ready.text}`);
     }
@@ -95,23 +113,28 @@ async function main(): Promise<void> {
     });
     const started = await apply.json() as { ok?: boolean; started?: boolean };
     if (!started.ok || !started.started) throw new Error(`import did not start: ${JSON.stringify(started)}`);
-    const deadline = Date.now() + 60_000;
-    let t = 0;
-    while (Date.now() < deadline) {
-      if (proc.exitCode !== null) throw new Error(`ncli died during import: ${proc.exitCode}\n${ready.text}`);
-      const state = await fetch(`${url}/api/state`).then((r) => r.json()) as {
-        debug?: { T?: number };
-        import?: { seenCount?: number };
-      };
-      t = Math.max(state.debug?.T ?? 0, state.import?.seenCount ?? 0);
-      if (t >= expectLines) break;
-      await Bun.sleep(100);
+    const half = Math.floor(expectLines / 2);
+    await waitT(url, half, 60_000, first, ready.text);
+    first.kill();
+    await first.exited;
+    const second = spawnHub();
+    try {
+      const again = await waitBanner(second, bannerMs);
+      if (again.short !== shortSha(sha)) {
+        throw new Error(`restart banner sha ${again.short} != ${shortSha(sha)}\n${again.text}`);
+      }
+      const t = await waitT(url, expectLines, 90_000, second, again.text);
+      if (t < expectLines) throw new Error(`import T=${t} want ${expectLines}`);
+      if (second.exitCode !== null) throw new Error(`ncli died after import: ${second.exitCode}`);
+    } finally {
+      second.kill();
+      await second.exited;
     }
-    if (t < expectLines) throw new Error(`import T=${t} want ${expectLines}`);
-    if (proc.exitCode !== null) throw new Error(`ncli died after import: ${proc.exitCode}`);
   } finally {
-    proc.kill();
-    await proc.exited;
+    if (first.exitCode === null) {
+      first.kill();
+      await first.exited;
+    }
   }
 }
 

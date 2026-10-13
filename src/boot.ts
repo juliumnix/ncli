@@ -10,7 +10,8 @@ import { compactSdkStatus } from "./memory/sdk-compact";
 import { compactSdkKey, loadNcliSecrets } from "./secrets";
 import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
-import { announceReady, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
+import { announceReady, flushText, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
+import { bunVersionWarning } from "./bun-version";
 import { busyPortMessage, isAddrInUse, nextPorts, portPinned } from "./listen-port";
 import { readBootRevision, type NcliRevision } from "./revision";
 export { detectClis };
@@ -111,6 +112,8 @@ export async function bootNcli(opts: {
     clis,
     revision: revision.short === "unknown" ? undefined : revision.short,
   });
+  const bunWarn = bunVersionWarning();
+  if (bunWarn) flushText(bunWarn);
   if (opts.openBrowser) {
     openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
   }
@@ -134,10 +137,13 @@ export async function bootNcli(opts: {
       budget: cfg.compactBudgetTokens,
       sdk: compactSdkStatus(),
     },
-    warning: cursorPollutionWarning({
-      cliConfigPath: cursorCliConfigPath(homedir()),
-      compactModel: cfg.compactModel,
-    }) ?? undefined,
+    warning: [
+      cursorPollutionWarning({
+        cliConfigPath: cursorCliConfigPath(homedir()),
+        compactModel: cfg.compactModel,
+      }) ?? "",
+      bunWarn ?? "",
+    ].filter(Boolean).join("\n") || undefined,
     clis,
     bus: hub.bus.socketPath,
     views: hub.views.list().map((v) => v.id),
