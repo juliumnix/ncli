@@ -45,6 +45,33 @@ test("a 6592-line ingest is recallable before compact and seeds the tree in unde
   console.log(`fat-ingest ingest_ms=${ingestMs.toFixed(0)} seed_ms=${seedMs.toFixed(0)} lines=${mem.T} cover=${mem.view.length} bytes=${mem.viewBytesUsed()}`);
 }, 60_000);
 
+test("coverOnly seed notifies with the cover, not every leaf", () => {
+  const mem = new Memory({
+    dir: tmpDir("cover-notify"),
+    nodeBytes: 80,
+    viewBytes: 2500,
+    compressor: async () => {
+      throw new CompactDeferred();
+    },
+    compressTimeoutMs: 20,
+    deferBackoffMs: 30_000,
+    deferCutAfter: 8,
+  });
+  mem.ingest(fatLines(512), { quiet: true });
+  const leaves = mem.view.length;
+  expect(leaves).toBe(512);
+  const seen: number[] = [];
+  mem.onChange = () => {
+    seen.push(mem.view.length);
+  };
+  mem.seed({ coverOnly: true });
+  expect(mem.view.length).toBeGreaterThan(0);
+  expect(mem.view.length).toBeLessThan(leaves);
+  expect(seen.length).toBe(1);
+  expect(seen[0]).toBe(mem.view.length);
+  mem.paused = true;
+});
+
 test("SDK refine prefers recent lines over the oldest", async () => {
   const seen: string[] = [];
   const mem = new Memory({
