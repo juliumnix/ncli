@@ -231,6 +231,7 @@ bun test
 | `tests/self-hack.test.ts` | skills in system prompt; add-view appears live; remove-view drops it | mock agent, real watch |
 | `tests/runtime-skills.test.ts` | assembled system + spawn AGENTS omit pstack; add-dir is runtime + emil | in-process |
 | `tests/motion.test.ts` | overlay/drawer exit class; ease-out; reduced motion | source |
+| `tests/ux-mac.test.ts` | Reviewed paint under 16 ms; send keeps scroll when not at the floor; open/close/open a spark 3× | Chrome CDP |
 | `tests/bus.test.ts` | idle = 0 extra processes; ask/wait promise; post→next prompt; depth/cycle | mock CLI |
 | `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude; Claude `--allowedTools mcp__ncli__*`; Codex `default_tools_approval_mode=approve` + `enabled_tools` | temp dirs |
 | `tests/mcp-recall-e2e.test.ts` | Claude, Codex, and Cursor answer the memory-index question from recall with the import percent | fake CLIs + HTTP MCP |
