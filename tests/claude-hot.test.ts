@@ -13,7 +13,7 @@ import {
 } from "../src/acp/claude";
 import { loadConfig } from "../src/config";
 import { AcpHarness } from "../src/harness/acp";
-import { shotsDir, tmpDir } from "./helpers";
+import { tmpDir } from "./helpers";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FAKE = join(import.meta.dir, "fixtures/fake-claude");
@@ -140,9 +140,6 @@ test("NCLI hot second token is faster than a cold spawn of the same fake CLI", a
       ...rows.map((r) => `| ${r.path} | ${r.initMs}ms | ${r.tokenMs}ms |`),
     ].join("\n");
     writeFileSync(join(dataDir, "out", "ttft.md"), table);
-    const shots = shotsDir();
-    mkdirSync(shots, { recursive: true });
-    writeFileSync(join(shots, "first-oi-ttft.md"), `${table}\n`);
     expect(table).toContain("hot");
   } finally {
     adapter.close();

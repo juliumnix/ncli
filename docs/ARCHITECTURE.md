@@ -26,7 +26,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/views/manifest.ts` | `ViewManifest` schema, exclusive skills, `FlowStep`, `SparkResult` |
 | `src/views/pack.ts` | `ncli view add <path|git-url>` / `view update` / `view pack` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
-| `src/acp/*.ts` | CLI wrappers (`claude -p`, `cursor-agent --model NCLI_CURSOR_MODEL acp`, `codex exec --json` with `--model` only when `NCLI_CODEX_MODEL` is set). The Cursor seat never imports `@cursor/sdk` |
+| `src/acp/*.ts` | CLI wrappers (`claude -p --input-format stream-json` kept hot, `cursor-agent --model NCLI_CURSOR_MODEL acp` kept on one JSON-RPC process, `codex exec --json -` pre-warmed with `resume <thread_id>`). `--model` on Codex only when `NCLI_CODEX_MODEL` is set. Each seat rotates jsonl over 256 KB and records spawn→init→token. The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
 | `src/live/parse.ts` + `frame.ts` + `ui-frame.ts` | ` ```ncli kind ` fences → sandboxed iframe. `ui` injects theme tokens, `ncliChart`, height/`send` host messages |
 | `src/live/turn.ts` | one `Turn` / `TurnStep` timeline from harness events |

@@ -11,6 +11,10 @@ const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8")
 test("composer keystrokes skip layout and the live turn says Pensando immediately", () => {
   expect(appJs).toContain('if (!step) return "Pensando…"');
   expect(appJs).toContain("Sem resposta do Claude");
+  expect(appJs).toContain("Sem resposta do Codex");
+  expect(appJs).toContain("Sem resposta do Cursor");
+  expect(appJs).toContain('codex: { name: "Codex"');
+  expect(appJs).toContain('cursor: { name: "Cursor"');
   expect(appJs).toContain("typeof window.__ncliComposerMeasures === \"number\"");
   expect(appJs).toContain("if (space === lastComposerSpace) return");
   expect(appJs).toContain("if (!value || !/github\\.com\\//i.test(value))");

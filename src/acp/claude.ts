@@ -6,6 +6,7 @@ import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import { persistSeatModel, readSeatModel } from "./session";
 
 export const DEFAULT_CLAUDE_SESSION_CAP = 256 * 1024;
 
@@ -334,16 +335,11 @@ export function claudeSessionBytes(id: string, cwd?: string, projectsDir?: strin
 }
 
 export function persistClaudeModel(dataDir: string, name: string, model: string): void {
-  const dir = join(dataDir, "sessions");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${safeSession(name)}.model`), model, "utf8");
+  persistSeatModel(dataDir, name, "claude", model);
 }
 
 export function readClaudeModel(dataDir: string, name: string): string | undefined {
-  const path = join(dataDir, "sessions", `${safeSession(name)}.model`);
-  if (!existsSync(path)) return undefined;
-  const model = readFileSync(path, "utf8").trim();
-  return model || undefined;
+  return readSeatModel(dataDir, name, "claude");
 }
 
 export function formatClaudeTrace(trace: ClaudeTurnTrace): string {

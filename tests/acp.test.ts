@@ -155,7 +155,8 @@ test("codex exec omits --model unless NCLI_CODEX_MODEL is set", () => {
   const args = buildCodexArgs(cfg, { prompt: "confirma" });
   expect(args.slice(0, 3)).toEqual(["codex", "exec", "--json"]);
   expect(args).not.toContain("--model");
-  expect(args.at(-1)).toBe("confirma");
+  expect(args.at(-1)).toBe("-");
+  expect(args).not.toContain("confirma");
   const pinned = loadConfig({ codexBin: "codex", codexModel: "gpt-6.1-sol" });
   expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 5)).toEqual([
     "codex",
@@ -164,6 +165,7 @@ test("codex exec omits --model unless NCLI_CODEX_MODEL is set", () => {
     "--model",
     "gpt-6.1-sol",
   ]);
+  expect(buildCodexArgs(pinned, { prompt: "confirma" }).at(-1)).toBe("-");
 });
 
 test("codex model comes from exec json or a read-only config.toml", () => {

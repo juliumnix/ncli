@@ -14,7 +14,7 @@ import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
-import { persistClaudeModel, readClaudeModel } from "./acp/claude";
+import { isLiveSeat, persistSeatModel, readSeatModel } from "./acp/session";
 import { displaySeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
 import { isSeatKind, UsageBoard, type LimitPolicy } from "./harness/usage";
@@ -135,7 +135,8 @@ export class Hub {
       codex: cfg.importCodex || defaults.codex,
       cursor: cfg.importCursor || defaults.cursor,
     });
-    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind) ?? readClaudeModel(cfg.dataDir, "main");
+    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind)
+      ?? (isLiveSeat(this.harness.id) ? readSeatModel(cfg.dataDir, "main", this.harness.id) : undefined);
     this.bus = new Bus({
       cfg,
       cwdFor: (spark) => (spark ? this.sparks.get(spark)?.worktree?.path ?? cfg.repo : cfg.repo),
@@ -184,7 +185,8 @@ export class Hub {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.sparks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
-    this.model = displaySeatModel(this.cfg, kind) ?? (kind === "claude" ? readClaudeModel(this.cfg.dataDir, "main") : undefined);
+    this.model = displaySeatModel(this.cfg, kind)
+      ?? (isLiveSeat(kind) ? readSeatModel(this.cfg.dataDir, "main", kind) : undefined);
     this.spawnMain = null;
     this.spawnHarness = "";
     this.emit({ type: "main", main: this.mainAgent() });
@@ -244,10 +246,11 @@ export class Hub {
         mcpConfigPath: inj.mcpConfigPath,
         mcpServers: inj.mcpServers,
         addDir: this.harness.id === "claude" ? inj.addDir : undefined,
+        extraArgs: this.harness.id === "codex" ? inj.extraArgs : undefined,
       });
     } catch (err) {
       if (process.env.NCLI_DEBUG === "1" || process.env.NCLI_CLAUDE_DEBUG === "1") {
-        console.error("claude warm failed", err);
+        console.error(`${this.harness.id} warm failed`, err);
       }
     }
   }
@@ -962,7 +965,7 @@ export class Hub {
   private handle(ev: HarnessEvent, tools: string[]): void {
     if (ev.type === "model") {
       this.model = ev.model;
-      if (this.harness.id === "claude") persistClaudeModel(this.cfg.dataDir, "main", ev.model);
+      if (isLiveSeat(this.harness.id)) persistSeatModel(this.cfg.dataDir, "main", this.harness.id, ev.model);
       this.emit({ type: "main", main: this.mainAgent() });
     }
     const applied = this.live?.apply(ev);
