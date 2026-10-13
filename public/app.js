@@ -1896,9 +1896,11 @@ function diffContext(prev, next) {
 }
 
 async function openSpark(id) {
-  const keepTab = state.openSpark === id && !overlay.hidden;
+  overlayGen += 1;
+  const gen = overlayGen;
+  const keepTab = state.openSpark === id && !overlay.hidden && overlay.classList.contains("in");
   const res = await fetch(`/api/sparks/${encodeURIComponent(id)}`);
-  if (!res.ok) return;
+  if (!res.ok || gen !== overlayGen) return;
   state.sparkDetail = await res.json();
   state.openSpark = id;
   const f = state.sparkDetail.spark || state.sparkDetail.fork;
@@ -1911,14 +1913,14 @@ async function openSpark(id) {
     if (qTab === "Overview" || qTab === "Guide" || qTab === "Diff") state.sparkTab = qTab;
     else state.sparkTab = (f.ui && f.ui.tab) || (state.views.find((v) => v.id === f.view)?.tabs?.[0]) || "Guide";
   }
-  const already = !overlay.hidden && overlay.classList.contains("in");
+  if (gen !== overlayGen) return;
   overlay.hidden = false;
   document.body.classList.toggle("rv-open", f.view === "review");
   drawModal();
-  if (!already) {
-    overlayGen += 1;
-    requestAnimationFrame(() => overlay.classList.add("in"));
-  }
+  requestAnimationFrame(() => {
+    if (gen !== overlayGen) return;
+    overlay.classList.add("in");
+  });
 }
 
 async function postAct(action) {
@@ -1958,16 +1960,37 @@ function cssId(path) {
   return String(path || "").replace(/[^a-zA-Z0-9]+/g, "-");
 }
 
+function paintReviewedButton(btn) {
+  const on = !btn.classList.contains("on");
+  btn.classList.toggle("on", on);
+  const box = btn.querySelector(".box");
+  if (box) box.textContent = on ? "✓" : "";
+}
+
+function flipReviewedLocal(kind, id) {
+  const spark = state.sparkDetail && (state.sparkDetail.spark || state.sparkDetail.fork);
+  const ui = spark && spark.ui;
+  if (!ui) return;
+  if (kind === "chapter") {
+    const ch = (ui.chapters || []).find((c) => c.id === id);
+    if (ch) ch.reviewed = !ch.reviewed;
+    return;
+  }
+  const file = (ui.fileState || []).find((s) => s.path === id);
+  if (file) file.reviewed = !file.reviewed;
+}
+
 function hideOverlay() {
+  overlayGen += 1;
   const gen = overlayGen;
   overlay.classList.remove("in");
+  document.body.classList.remove("rv-open");
+  state.openSpark = null;
   waitMotion(overlay).then(() => {
     if (gen !== overlayGen) return;
     overlay.hidden = true;
     overlay.classList.remove("rv");
     modal.classList.remove("rv");
-    document.body.classList.remove("rv-open");
-    state.openSpark = null;
   });
 }
 
@@ -2474,6 +2497,19 @@ overlay.addEventListener("click", (e) => {
       if (body && body.trim()) postAct({ type: "comment-add", id: actEarly.dataset.id, value: body.trim() });
       return;
     }
+    if (act === "review-file" || act === "review-chapter") {
+      paintReviewedButton(actEarly);
+      flipReviewedLocal(act === "review-chapter" ? "chapter" : "file", actEarly.dataset.id);
+      const sparkId = state.openSpark;
+      void fetch(`/api/sparks/${encodeURIComponent(sparkId)}/act`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: act, id: actEarly.dataset.id }),
+      }).then((r) => r.ok ? r.json() : null).then((data) => {
+        if ((data?.spark || data?.fork)?.status === "merged") hideOverlay();
+      });
+      return;
+    }
     if (act === "other") {
       const id = actEarly.dataset.id;
       const input = document.createElement("input");
@@ -2563,8 +2599,12 @@ async function sendUser(text, mode) {
       lastEventAt: pending.date,
       steps: [],
     };
+    const atFloor = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
+    const keepTop = chat ? chat.scrollTop : 0;
+    if (atFloor) stick.follow = true;
+    else stick.follow = false;
     renderChat();
-    pinNewAnswer();
+    if (!atFloor) setChatTop(keepTop);
     paintTick();
   }
   const res = await fetch("/api/message", {
