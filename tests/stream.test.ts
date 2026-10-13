@@ -79,7 +79,9 @@ test("claude -p requests partial messages so tokens can stream", () => {
   const cfg = loadConfig({ dataDir: tmpDir("partial"), claudeBin: "claude" });
   const args = buildClaudeArgs(cfg, { prompt: "oi" });
   expect(args).toContain("--include-partial-messages");
+  expect(args).toContain("--input-format");
   expect(args.slice(0, 5)).toEqual(["claude", "-p", "--output-format", "stream-json", "--verbose"]);
+  expect(args).not.toContain("oi");
 });
 
 test("POST /api/harness switches the main agent and snapshot shows it", async () => {

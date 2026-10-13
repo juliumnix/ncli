@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { quietStatus, workedLabel } from "../src/live/quiet";
+import { formatElapsed, quietStatus, workedLabel } from "../src/live/quiet";
 import type { Turn } from "../src/types";
 
 function turn(partial: Partial<Turn> & Pick<Turn, "steps">): Turn {
@@ -47,7 +47,7 @@ test("ask to Codex says Consultando o Codex, never Cursor", () => {
         to: "codex",
       },
     ],
-  }));
+  }), Date.parse("2026-10-09T20:00:12.000Z"));
   expect(q.phrase).toBe("Consultando o Codex…");
   expect(q.phrase).not.toContain("Cursor");
   expect(q.chips).toEqual([{ seat: "codex", label: "consultou Codex" }]);
@@ -67,9 +67,25 @@ test("quietStatus shows a Cursor chip and hides the tool dump", () => {
         to: "cursor",
       },
     ],
-  }));
+  }), Date.parse("2026-10-09T20:00:12.000Z"));
   expect(q.phrase).toBe("Consultando o Cursor…");
   expect(q.chips).toEqual([{ seat: "cursor", label: "consultou Cursor" }]);
+});
+
+test("an empty running turn says Pensando, then stuck after 5s of silence", () => {
+  const empty = turn({
+    startedAt: "2026-10-09T20:00:00.000Z",
+    lastEventAt: "2026-10-09T20:00:00.000Z",
+    steps: [],
+  });
+  expect(quietStatus(empty, Date.parse("2026-10-09T20:00:00.080Z")).phrase).toBe("Pensando…");
+  expect(quietStatus(empty, Date.parse("2026-10-09T20:00:05.000Z")).phrase).toContain("Sem resposta do Claude");
+});
+
+test("formatElapsed shows tenths under 10s", () => {
+  expect(formatElapsed(80)).toBe("0.0s");
+  expect(formatElapsed(340)).toBe("0.3s");
+  expect(formatElapsed(12_000)).toBe("12s");
 });
 
 test("workedLabel counts seconds and steps", () => {

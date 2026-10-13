@@ -7,7 +7,7 @@ import { loadMcpRegistry, resolveServers, spawnVars } from "../src/mcp/registry"
 import { asClaudeMap, codexMcpFlags, prepareSpawn } from "../src/mcp/inject";
 import { NCLI_TOOLS } from "../src/mcp/tools";
 import { buildClaudeArgs } from "../src/acp/claude";
-import { buildCodexArgs } from "../src/acp/codex";
+import { buildCodexArgs, codexStdinPrompt } from "../src/acp/codex";
 import { busRpc } from "../src/bus/client";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -76,8 +76,9 @@ test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prom
   const cfg = loadConfig({ dataDir: tmpDir("cx2"), ncliRoot: process.cwd(), codexBin: "codex" });
   const args = buildCodexArgs(cfg, { prompt: "ping", system: "You are NCLI.", extraArgs: flags });
   expect(args.slice(0, 3)).toEqual(["codex", "exec", "--json"]);
-  expect(args.at(-1)).toContain("You are NCLI.");
-  expect(args.at(-1)).toContain("ping");
+  expect(args.at(-1)).toBe("-");
+  expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("You are NCLI.");
+  expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("ping");
   expect(args).toContain("-c");
 });
 

@@ -1,9 +1,20 @@
 import { homedir } from "node:os";
+import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import { cursorCliConfigPath, holdFile } from "../memory/cli-config";
 import { NdjsonRpc } from "./rpc";
+import {
+  debugSeat,
+  DEFAULT_SESSION_CAP,
+  fileBytes,
+  formatSeatTrace,
+  persistSeatId,
+  persistSeatModel,
+  sessionCap,
+  type SeatTurnTrace,
+} from "./session";
 import type { AcpAdapter, AcpUpdate } from "./types";
 
 export function cursorAcpSpawn(cfg: NcliConfig): { command: string; args: string[] } {
@@ -50,28 +61,124 @@ function nameValues(rec?: Record<string, string>): Array<{ name: string; value: 
     .map(([name, value]) => ({ name, value }));
 }
 
+interface HotAcp {
+  proc: ReturnType<typeof Bun.spawn>;
+  rpc: NdjsonRpc;
+  fingerprint: string;
+  sessionId: string;
+  spawnAt: number;
+  initAt: number;
+  bytes: number;
+  rotated: boolean;
+  release: () => void;
+  q: AcpUpdate[];
+  wake: (() => void) | null;
+}
+
 export class CursorAcpAdapter implements AcpAdapter {
   readonly id = "cursor";
+  lastTrace: SeatTurnTrace | null = null;
+  private hot: HotAcp | null = null;
+  private opening: Promise<HotAcp> | null = null;
+
   constructor(private readonly cfg: NcliConfig) {}
 
+  async warm(opts: RunOpts): Promise<void> {
+    await this.ensureHot(opts);
+  }
+
+  close(): void {
+    this.killHot();
+  }
+
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
-    const spawn = cursorAcpSpawn(this.cfg);
-    const env = childEnv(process.env, { allowAnthropicKey: false });
-    const cliConfig = cursorCliConfigPath(homedir());
-    yield { sessionUpdate: "model", model: this.cfg.cursorModel };
-    const release = holdFile(cliConfig);
+    if (this.cfg.cursorModel) {
+      persistSeatModel(this.cfg.dataDir, opts.session ?? "main", "cursor", this.cfg.cursorModel);
+      yield { sessionUpdate: "model", model: this.cfg.cursorModel };
+    }
+    const { hot, reused } = await this.ensureHot(opts);
+    let rotated = reused ? false : hot.rotated;
+    if (reused && this.shouldRotate(hot, opts)) {
+      await this.openSession(hot, opts);
+      hot.bytes = 0;
+      hot.rotated = true;
+      rotated = true;
+    }
+    const trace: SeatTurnTrace = {
+      seat: "cursor",
+      spawnAt: hot.spawnAt,
+      turnAt: performance.now(),
+      initAt: reused ? performance.now() : hot.initAt,
+      sessionId: hot.sessionId,
+      rotated,
+      hot: reused,
+    };
+    const promptText = opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
+    const promptP = hot.rpc.request("session/prompt", {
+      sessionId: hot.sessionId,
+      prompt: [{ type: "text", text: promptText }],
+    });
+    let done = false;
+    promptP.finally(() => {
+      done = true;
+      hot.wake?.();
+    });
     try {
-      yield* this.drive(opts, spawn, env);
+      while (!done || hot.q.length) {
+        if (opts.signal?.aborted) {
+          this.killHot();
+          break;
+        }
+        if (hot.q.length) {
+          const update = hot.q.shift()!;
+          if (!trace.firstTokenAt && isTokenUpdate(update)) trace.firstTokenAt = performance.now();
+          if (update.sessionUpdate === "model") {
+            persistSeatModel(this.cfg.dataDir, opts.session ?? "main", "cursor", update.model);
+          }
+          yield update;
+          continue;
+        }
+        await new Promise<void>((r) => {
+          hot.wake = r;
+        });
+      }
+      await promptP;
+      hot.bytes += promptText.length;
     } finally {
-      release();
+      trace.resultAt = performance.now();
+      this.lastTrace = trace;
+      debugSeat(formatSeatTrace(trace));
     }
   }
 
-  private async *drive(
-    opts: RunOpts,
+  private async ensureHot(opts: RunOpts): Promise<{ hot: HotAcp; reused: boolean }> {
+    const spawn = cursorAcpSpawn(this.cfg);
+    const fp = liveFingerprint(this.cfg, opts, spawn);
+    if (this.hot && this.hot.fingerprint === fp && this.hot.proc.exitCode === null) {
+      return { hot: this.hot, reused: true };
+    }
+    if (this.opening) {
+      const hot = await this.opening;
+      return { hot, reused: this.hot === hot && hot.fingerprint === fp };
+    }
+    this.opening = this.spawnHot(spawn, fp, opts);
+    try {
+      this.hot = await this.opening;
+      return { hot: this.hot, reused: false };
+    } finally {
+      this.opening = null;
+    }
+  }
+
+  private async spawnHot(
     spawn: { command: string; args: string[] },
-    env: Record<string, string>,
-  ): AsyncIterable<AcpUpdate> {
+    fingerprint: string,
+    opts: RunOpts,
+  ): Promise<HotAcp> {
+    this.killHot();
+    const spawnAt = performance.now();
+    const env = childEnv(process.env, { allowAnthropicKey: false });
+    const release = holdFile(cursorCliConfigPath(homedir()));
     const proc = Bun.spawn([spawn.command, ...spawn.args], {
       cwd: opts.cwd ?? this.cfg.repo,
       stdin: "pipe",
@@ -79,71 +186,112 @@ export class CursorAcpAdapter implements AcpAdapter {
       stderr: "pipe",
       env,
     });
-    const rpc = new NdjsonRpc(proc.stdin, proc.stdout);
-    const q: AcpUpdate[] = [];
-    let wake: (() => void) | null = null;
+    const stdin = proc.stdin;
+    if (!stdin || typeof stdin === "number") {
+      release();
+      throw new Error("cursor stdin is closed");
+    }
+    const rpc = new NdjsonRpc(stdin, proc.stdout);
+    const hot: HotAcp = {
+      proc,
+      rpc,
+      fingerprint,
+      sessionId: "",
+      spawnAt,
+      initAt: spawnAt,
+      bytes: 0,
+      rotated: false,
+      release,
+      q: [],
+      wake: null,
+    };
     rpc.onNotification = (method, params) => {
       if (method !== "session/update") return;
       const update = (params as { update?: Record<string, unknown> }).update;
-      if (update) q.push(...cursorUpdate(update));
-      wake?.();
+      if (update) hot.q.push(...cursorUpdate(update));
+      hot.wake?.();
     };
     rpc.onRequest = (id, method, params) => {
       if (method !== "session/request_permission") return;
       const tool = (params as { toolCall?: { toolCallId?: string; title?: string } }).toolCall;
-      q.push({
+      hot.q.push({
         sessionUpdate: "permission_request",
         toolCallId: tool?.toolCallId ?? "perm",
         title: tool?.title ?? "permission",
       });
       rpc.respond(id, { outcome: { outcome: "selected", optionId: "allow-once" } });
-      wake?.();
+      hot.wake?.();
     };
-    try {
-      await rpc.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
-        clientInfo: { name: "ncli", version: "0.2.0" },
-      });
-      const { sessionId } = (await rpc.request("session/new", {
-        cwd: opts.cwd ?? this.cfg.repo,
-        mcpServers: cursorAcpServers(opts.mcpServers ?? []),
-      })) as { sessionId: string };
-      const promptText = opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
-      const promptP = rpc.request("session/prompt", {
-        sessionId,
-        prompt: [{ type: "text", text: promptText }],
-      });
-      let done = false;
-      promptP.finally(() => {
-        done = true;
-        wake?.();
-      });
-      while (!done || q.length) {
-        if (q.length) {
-          yield q.shift()!;
-          continue;
-        }
-        await new Promise<void>((r) => {
-          wake = r;
-        });
-      }
-      await promptP;
-    } finally {
-      rpc.close();
-      proc.kill();
-    }
+    await rpc.request("initialize", {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      clientInfo: { name: "ncli", version: "0.2.0" },
+    });
+    hot.initAt = performance.now();
+    await this.openSession(hot, opts);
+    this.hot = hot;
+    debugSeat(`cursor spawn session=${hot.sessionId}`);
+    return hot;
   }
+
+  private async openSession(hot: HotAcp, opts: RunOpts): Promise<void> {
+    const { sessionId } = (await hot.rpc.request("session/new", {
+      cwd: opts.cwd ?? this.cfg.repo,
+      mcpServers: cursorAcpServers(opts.mcpServers ?? []),
+    })) as { sessionId: string };
+    hot.sessionId = sessionId;
+    persistSeatId(this.cfg.dataDir, opts.session ?? "main", "cursor", sessionId);
+  }
+
+  private shouldRotate(hot: HotAcp, opts: RunOpts): boolean {
+    const cap = sessionCap("NCLI_CURSOR_SESSION_CAP", DEFAULT_SESSION_CAP);
+    if (hot.bytes > cap) return true;
+    return cursorSessionBytes(hot.sessionId, opts.cwd ?? this.cfg.repo) > cap;
+  }
+
+  private killHot(): void {
+    const hot = this.hot;
+    this.hot = null;
+    if (!hot) return;
+    try {
+      hot.rpc.close();
+    } catch {}
+    try {
+      hot.proc.kill();
+    } catch {}
+    try {
+      hot.release();
+    } catch {}
+  }
+}
+
+export function cursorProjectSlug(cwd: string): string {
+  return cwd.replaceAll("/", "-");
+}
+
+export function defaultCursorProjectsDir(): string {
+  return process.env.NCLI_CURSOR_PROJECTS?.trim() || join(homedir(), ".cursor", "projects");
+}
+
+export function cursorSessionBytes(id: string, cwd?: string, projectsDir?: string): number {
+  if (!id) return 0;
+  const root = projectsDir ?? defaultCursorProjectsDir();
+  const slug = cursorProjectSlug(cwd ?? process.cwd());
+  const nested = join(root, slug, "agent-transcripts", id, `${id}.jsonl`);
+  const flat = join(root, slug, "agent-transcripts", `${id}.jsonl`);
+  return Math.max(fileBytes(nested), fileBytes(flat));
 }
 
 export function cursorUpdate(update: Record<string, unknown>): AcpUpdate[] {
   const kind = String(update.sessionUpdate ?? "");
+  const model = pickCursorModel(update);
+  if (model) return [{ sessionUpdate: "model", model }];
   switch (kind) {
     case "agent_message_chunk":
     case "agent_thought_chunk": {
       const content = update.content as { type?: string; text?: string } | undefined;
       if (content?.type === "text" && content.text) {
-        return [{ sessionUpdate: "agent_message_chunk", text: content.text }];
+        return [{ sessionUpdate: kind === "agent_thought_chunk" ? "agent_thought_chunk" : "agent_message_chunk", text: content.text }];
       }
       return [];
     }
@@ -171,4 +319,32 @@ export function cursorUpdate(update: Record<string, unknown>): AcpUpdate[] {
     default:
       return [];
   }
+}
+
+function pickCursorModel(update: Record<string, unknown>): string {
+  const kind = String(update.sessionUpdate ?? "");
+  if (kind !== "model" && kind !== "current_mode_update") return "";
+  for (const key of ["model", "currentMode"]) {
+    const v = update[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function liveFingerprint(
+  cfg: NcliConfig,
+  opts: RunOpts,
+  spawn: { command: string; args: string[] },
+): string {
+  return [
+    spawn.command,
+    spawn.args.join(" "),
+    cfg.cursorModel,
+    opts.cwd ?? cfg.repo,
+    JSON.stringify(opts.mcpServers ?? []),
+  ].join("\0");
+}
+
+function isTokenUpdate(update: AcpUpdate): boolean {
+  return update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk";
 }

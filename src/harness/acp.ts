@@ -9,6 +9,14 @@ export class AcpHarness implements Harness {
     this.id = adapter.id;
   }
 
+  async warm(opts: RunOpts): Promise<void> {
+    await this.adapter.warm?.(opts);
+  }
+
+  close(): void {
+    this.adapter.close?.();
+  }
+
   async *run(opts: RunOpts): AsyncIterable<HarnessEvent> {
     let text = "";
     try {

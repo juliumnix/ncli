@@ -4,7 +4,7 @@ import type { SeatId, Turn, TurnStep } from "../types";
 import { nowIso } from "../util";
 import { joinText } from "./join-text";
 
-const STILL_MS = 5000;
+export const STILL_MS = 5000;
 
 export class LiveTurn {
   readonly turn: Turn;
