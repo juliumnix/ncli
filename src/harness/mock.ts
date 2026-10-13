@@ -13,12 +13,18 @@ export interface MockScript {
 }
 
 export class MockHarness implements Harness {
-  readonly id = "mock";
+  readonly id: string;
   readonly lastCwds: string[] = [];
   readonly lastPrompts: string[] = [];
   readonly lastSystems: string[] = [];
+  readonly lastAddDirs: string[][] = [];
   private steers: string[] = [];
-  constructor(private readonly scriptFor: (prompt: string, session?: string) => MockScript = defaultScript) {}
+  constructor(
+    private readonly scriptFor: (prompt: string, session?: string) => MockScript = defaultScript,
+    id = "mock",
+  ) {
+    this.id = id;
+  }
 
   steer(text: string): boolean {
     const t = text.trim();
@@ -31,6 +37,7 @@ export class MockHarness implements Harness {
     this.lastCwds.push(opts.cwd ?? "");
     this.lastPrompts.push(opts.prompt);
     this.lastSystems.push(opts.system ?? "");
+    this.lastAddDirs.push(opts.addDir ?? []);
     const script = this.scriptFor(opts.prompt, opts.session);
     let extras = "";
     const drain = async function* (this: MockHarness): AsyncGenerator<HarnessEvent> {
