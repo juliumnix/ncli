@@ -56,7 +56,7 @@ test("chrome: empty session shows the three-agent trio", async () => {
     })()`);
     expect(facts.seats).toEqual(["claude", "codex", "cursor"]);
     expect(facts.clash).toBe(0);
-    expect(facts.switcher).toBe(false);
+    expect(facts.switcher).toBe(true);
     if (facts.claude.includes("off")) expect(facts.main).toBe("");
     else expect(facts.main).toBe("claude");
     const dir = shotsDir();

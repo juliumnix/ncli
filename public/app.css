@@ -73,8 +73,11 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
   padding: 4px 8px 4px 4px;
   color: var(--fg); font-size: 12.5px; font-weight: 600;
 }
+.switch-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: left; }
+.switch-copy b { font-weight: 600; font-size: 13px; }
+.switch-copy small { color: var(--muted); font-size: 11px; font-weight: 500; }
 .switch-menu {
-  position: absolute; top: calc(100% + 8px); left: 0; min-width: 196px;
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 220px;
   background: var(--card); border: 1px solid var(--line); border-radius: 14px;
   padding: 6px; z-index: 6;
   box-shadow: 0 16px 40px rgba(0,0,0,.45);
@@ -458,6 +461,15 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
   color: var(--fg); font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch;
 }
+.qitem .qacts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.qitem .qnow, .qitem .qedit {
+  border: 0; background: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 0;
+}
+.qitem .qedit-input {
+  flex: 1; min-width: 12ch; border: 0; background: transparent;
+  color: var(--fg); font: inherit; font-size: 12px; outline: none;
+}
 .qitem .qx {
   border: 0; background: none; color: var(--fg-3); cursor: pointer;
   font: inherit; padding: 0 2px;
@@ -467,11 +479,6 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
   font: inherit; padding: 0 2px;
 }
 .qitem .qx:hover { color: var(--fg); }
-.qbtn {
-  border: 0; background: none; color: var(--fg-3); cursor: pointer;
-  font: inherit; font-size: 12px; padding: 0 4px;
-}
-.qbtn:hover { color: var(--fg); }
 .composer input {
   flex: 1; border: 0; outline: none; font: inherit; background: transparent; padding: 8px 0; color: var(--fg);
 }
@@ -1328,7 +1335,6 @@ code, .md pre, .tool, .diff, .rv-diff, .rv-raw, #debugView { font-family: var(--
 .composer input { font-size: var(--text-base); color: var(--fg); }
 .composer input::placeholder { color: var(--fg-4); }
 .send, .go { width: 32px; height: 32px; background: var(--fg); color: var(--bg); }
-.qbtn { font-size: var(--text-md); color: var(--fg-3); }
 .qitem { font-size: var(--text-md); color: var(--fg-3); background: var(--surface); border-color: var(--border); }
 .jump-latest { font-size: var(--text-md); background: var(--raised); border-color: var(--border-strong); color: var(--fg); }
 .shortcuts { right: var(--s-6); gap: var(--s-4); }

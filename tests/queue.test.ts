@@ -69,6 +69,57 @@ test("steer strips an existing ajuste/ajusta prefix so it is not doubled", async
   hub.close();
 });
 
+test("a send while the turn runs queues by default, not steer", async () => {
+  const { hub } = await makeHub();
+  try {
+    const first = hub.send("turno longo");
+    await waitUntil(() => hub.snapshot().turning);
+    await hub.send("depois");
+    expect(hub.queue.list("main").map((i) => i.text)).toEqual(["depois"]);
+    expect(hub.memory.log.filter((m) => m.kind === "user").map((m) => m.text)).toEqual(["turno longo"]);
+    await first;
+    await waitUntil(() => hub.memory.log.some((m) => m.kind === "user" && m.text === "depois"));
+    expect(hub.queue.list("main")).toEqual([]);
+  } finally {
+    hub.close();
+  }
+});
+
+test("editQueued rewrites the parked text", async () => {
+  const dir = tmpDir("q-edit");
+  const q = new TurnQueue(dir);
+  const item = q.enqueue({ session: "main", text: "rascunho", mode: "queue" });
+  expect(q.update(item.id, "  texto final  ")).toBe(true);
+  expect(q.list("main")[0]?.text).toBe("texto final");
+});
+
+test("sendNow promotes a queued line and interrupts the running turn", async () => {
+  const harness = new MockHarness();
+  const orig = harness.run.bind(harness);
+  harness.run = async function* (opts) {
+    await Bun.sleep(400);
+    yield* orig(opts);
+  };
+  const { hub } = await makeHub({ harness });
+  try {
+    const first = hub.send("turno longo");
+    await waitUntil(() => hub.snapshot().turning);
+    await hub.send("espera", { mode: "queue" });
+    await hub.send("agora", { mode: "queue" });
+    const now = hub.queue.list("main").find((i) => i.text === "agora");
+    expect(now).toBeTruthy();
+    expect(hub.sendNow(now!.id)).toBe(true);
+    await first;
+    await waitUntil(() => hub.memory.log.some((m) => m.kind === "user" && m.text === "agora"));
+    const users = hub.memory.log.filter((m) => m.kind === "user").map((m) => m.text);
+    expect(users[0]).toBe("turno longo");
+    expect(users[1]).toBe("agora");
+    expect(users).toContain("espera");
+  } finally {
+    hub.close();
+  }
+});
+
 test("removing a queued item drops it before drain", async () => {
   const { hub } = await makeHub();
   const first = hub.send("turno longo");

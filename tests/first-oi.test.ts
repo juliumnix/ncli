@@ -43,11 +43,11 @@ test("chrome: Pensando and elapsed appear in under 100ms, header keeps the model
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver!.session.evaluate(`(document.querySelector(".seat-label")?.innerText || document.querySelector(".switch-btn")?.innerText || "").includes("Opus")`),
+      () => driver!.session.evaluate(`(document.querySelector(".switch-btn")?.innerText || "").includes("Opus")`),
       8000,
       "header model",
     );
-    const header = await driver.session.evaluate<string>(`document.querySelector(".seat-label")?.innerText || document.querySelector(".switch-btn")?.innerText || ""`);
+    const header = await driver.session.evaluate<string>(`document.querySelector(".switch-btn")?.innerText || ""`);
     expect(header).toContain("Opus");
 
     const typeFacts = await driver.session.evaluate<{ before: number; after: number }>(`(() => {
@@ -94,7 +94,7 @@ test("chrome: Pensando and elapsed appear in under 100ms, header keeps the model
     const still = await driver.session.evaluate<{ phrase: string; elapsed: string; header: string }>(`({
       phrase: document.querySelector(".live.quiet .shimmer-text")?.textContent || "",
       elapsed: document.querySelector(".live.quiet .tdur")?.textContent || "",
-      header: document.querySelector(".seat-label")?.innerText || "",
+      header: document.querySelector(".switch-btn")?.innerText || "",
     })`);
     expect(still.phrase).toBe("Pensando…");
     expect(still.header).toContain("Opus");

@@ -86,6 +86,11 @@ export interface MainAgent {
   model?: string;
 }
 
+export interface SeatChoice {
+  harness: "claude" | "codex" | "cursor";
+  model?: string;
+}
+
 export interface CompactStatus {
   running: boolean;
   lastNodes: number;

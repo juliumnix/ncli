@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatId, Turn, ViewInfo } from "./types";
+import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatChoice, SeatId, Turn, ViewInfo } from "./types";
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
@@ -200,6 +200,17 @@ export class Hub {
     };
   }
 
+  seatChoices(): SeatChoice[] {
+    const live = this.harness.id;
+    return (["claude", "codex", "cursor"] as const).map((h) => ({
+      harness: h,
+      model:
+        (h === live ? this.model : undefined)
+        ?? displaySeatModel(this.cfg, h)
+        ?? (isLiveSeat(h) ? readSeatModel(this.cfg.dataDir, "main", h) : undefined),
+    }));
+  }
+
   mcpSession(who: { session: string; ticket?: string }): McpSession {
     return {
       session: who.session,
@@ -293,6 +304,7 @@ export class Hub {
     usage: ReturnType<UsageBoard["snapshot"]>;
     import: ImportPreview | null;
     clis: CliPresence;
+    seats: SeatChoice[];
   } {
     return {
       messages: this.memory.log,
@@ -311,6 +323,7 @@ export class Hub {
       import: this.lastImport,
       importOffers: this.importOffers,
       clis: detectClis(this.cfg),
+      seats: this.seatChoices(),
     };
   }
 
@@ -318,7 +331,7 @@ export class Hub {
     const trimmed = text.trim();
     if (!trimmed) return;
     const session = opts.session ?? "main";
-    const mode = opts.mode ?? (this.isBusy(session) ? "steer" : "queue");
+    const mode = opts.mode ?? "queue";
     if (session !== "main") {
       await this.sendSpark(session, trimmed, mode);
       return;
@@ -328,8 +341,10 @@ export class Hub {
       return;
     }
     if (this.turning) {
-      const opened = await this.openLinks(trimmed);
-      if (opened.length) return;
+      if (isLonePrUrl(trimmed) || parseViewLink(trimmed).length) {
+        const opened = await this.openLinks(trimmed);
+        if (opened.length) return;
+      }
       this.park(session, trimmed, mode);
       return;
     }
@@ -359,6 +374,24 @@ export class Hub {
     const ok = this.queue.remove(id);
     if (ok) this.emitQueue();
     return ok;
+  }
+
+  editQueued(id: string, text: string): boolean {
+    const ok = this.queue.update(id, text);
+    if (ok) this.emitQueue();
+    return ok;
+  }
+
+  sendNow(id: string): boolean {
+    const item = this.queue.promote(id);
+    if (!item) return false;
+    this.emitQueue();
+    if (this.isBusy(item.session)) {
+      this.stopTurn(item.session);
+      return true;
+    }
+    void this.drainSession(item.session);
+    return true;
   }
 
   private isBusy(session: string): boolean {

@@ -69,6 +69,16 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         void hub.send(body.text ?? "", { mode: body.mode, session: body.session });
         return Response.json({ ok: true, queue: hub.queue.list() });
       }
+      const queueNow = url.pathname.match(/^\/api\/queue\/([^/]+)\/now$/);
+      if (queueNow && req.method === "POST") {
+        const id = decodeURIComponent(queueNow[1]!);
+        return Response.json({ ok: hub.sendNow(id), queue: hub.queue.list() });
+      }
+      if (url.pathname.startsWith("/api/queue/") && req.method === "PATCH") {
+        const id = decodeURIComponent(url.pathname.slice("/api/queue/".length));
+        const body = (await req.json()) as { text?: string };
+        return Response.json({ ok: hub.editQueued(id, body.text ?? ""), queue: hub.queue.list() });
+      }
       if (url.pathname.startsWith("/api/queue/") && req.method === "DELETE") {
         const id = decodeURIComponent(url.pathname.slice("/api/queue/".length));
         return Response.json({ ok: hub.dropQueued(id), queue: hub.queue.list() });
