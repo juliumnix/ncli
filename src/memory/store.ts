@@ -67,6 +67,7 @@ export class Memory {
   private waiters = new Set<() => void>();
   private pumping: Promise<void> | null = null;
   private muteChange = false;
+  paused = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: MemoryOptions) {
@@ -120,6 +121,38 @@ export class Memory {
     reason?: string;
     recall?: Citation[];
   }): Message {
+    const msg = this.writeLine(partial, true);
+    this.saveView();
+    this.notify();
+    void this.pump();
+    return msg;
+  }
+
+  ingest(partials: Array<Parameters<Memory["append"]>[0]>, opts: { quiet?: boolean } = {}): Message[] {
+    if (!partials.length) return [];
+    this.muteChange = true;
+    const out: Message[] = [];
+    try {
+      for (const partial of partials) out.push(this.writeLine(partial, false));
+      persistLines(join(this.dir, "log.jsonl"), out, !opts.quiet);
+      if (!opts.quiet) {
+        if (this.viewBytesUsed() > this.viewHigh) this.fit();
+        else this.saveView();
+      }
+    } finally {
+      this.muteChange = false;
+    }
+    if (!opts.quiet) this.notify();
+    return out;
+  }
+
+  publish(): void {
+    this.saveView();
+    syncFile(join(this.dir, "log.jsonl"));
+    this.notify();
+  }
+
+  private writeLine(partial: Parameters<Memory["append"]>[0], persist: boolean): Message {
     if (!MEMORY_KINDS.has(partial.kind)) {
       throw new Error(`memory does not store ${partial.kind} steps`);
     }
@@ -145,13 +178,9 @@ export class Memory {
       recall: partial.recall,
     };
     this.log.push(msg);
-    persistLine(join(this.dir, "log.jsonl"), msg);
+    if (persist) persistLine(join(this.dir, "log.jsonl"), msg);
     this.view.push(this.partFromLevel(0, msg.i));
     this.enqueue(0, msg.i);
-    if (this.viewBytesUsed() > this.viewHigh) this.fit();
-    else this.saveView();
-    this.notify();
-    void this.pump();
     return msg;
   }
 
@@ -338,6 +367,7 @@ export class Memory {
   }
 
   async pump(): Promise<void> {
+    if (this.paused) return;
     if (this.pumping) {
       return this.pumping.then(() => {
         if (this.hasInFlight()) return this.pump();
@@ -732,9 +762,24 @@ function isPair(item: unknown): item is [number, number] {
 }
 
 function persistLine(path: string, obj: unknown): void {
+  persistLines(path, [obj]);
+}
+
+function persistLines(path: string, objs: unknown[], sync = true): void {
+  if (!objs.length) return;
   const fd = openSync(path, "a");
   try {
-    writeSync(fd, `${JSON.stringify(obj)}\n`, null, "utf8");
+    for (const obj of objs) writeSync(fd, `${JSON.stringify(obj)}\n`, null, "utf8");
+    if (sync) fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function syncFile(path: string): void {
+  if (!existsSync(path)) return;
+  const fd = openSync(path, "r+");
+  try {
     fsyncSync(fd);
   } finally {
     closeSync(fd);

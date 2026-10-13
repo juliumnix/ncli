@@ -36,17 +36,29 @@ import { prepareSpawn } from "./mcp/inject";
 import { sparkSkillPrompt } from "./views/manifest";
 import { TurnQueue, type QueueMode } from "./queue/turn-queue";
 import {
-  alreadyInLog,
+  applyCursor,
+  clearCheckpoint,
   defaultImportRoots,
   formatApply,
   formatPreview,
   Importer,
+  importPct,
+  isResumeOpen,
   listSessionFiles,
+  loadCheckpoint,
+  mergeCheckpoint,
   parseImportArgv,
   rootFor,
+  saveCheckpoint,
+  importKnownLines,
+  importTalkNote,
+  withImportTalkNote,
+  type ImportLine,
   type ImportPreview,
+  type ImportProgress,
   type ImportSource,
 } from "./import";
+import { runImportJob } from "./import/job";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 
 export class Hub {
@@ -59,6 +71,10 @@ export class Hub {
   readonly importer: Importer;
   lastImport: ImportPreview | null = null;
   importOffers: { source: ImportSource; sessions: number }[] = [];
+  private importing = false;
+  private importProgress: ImportProgress | null = null;
+  private importAbort: AbortController | null = null;
+  private closed = false;
   harness: Harness;
   readonly bus: Bus;
   readonly mcp = new McpGate();
@@ -66,6 +82,7 @@ export class Hub {
   model?: string;
   live: LiveTurn | null = null;
   compact: CompactStatus;
+  private compactWave = 0;
   private listeners = new Set<(ev: HubEvent) => void>;
   readonly compressor: Compressor;
   private turning = false;
@@ -84,9 +101,9 @@ export class Hub {
   ) {
     mkdirSync(cfg.dataDir, { recursive: true });
     this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
-    this.compact = compactSnapshot(cfg);
+    this.compact = compactStatusOf(compactSnapshot(cfg));
     this.compressor = pickCompressor(cfg, (ev) => {
-      this.compact = { running: ev.running, lastNodes: ev.nodes, tokensToday: ev.tokensToday, budget: ev.budget, model: ev.model };
+      this.compact = this.foldCompact(ev);
       this.emit({ type: "compact", compact: this.compact });
     });
     this.spaces = new SpaceRegistry({
@@ -215,11 +232,12 @@ export class Hub {
     if (this.cfg.demo && this.memory.T === 0) {
       await seedDemo(this);
     }
-    void this.memory.pump();
+    this.pumpWhenIdle();
     this.emitDebug();
     this.emitQueue();
     this.emitUsage();
     if (!this.turning) void this.drainSession("main");
+    void this.resumeImport();
   }
 
   subscribe(fn: (ev: HubEvent) => void): () => void {
@@ -374,7 +392,7 @@ export class Hub {
       const argv = m[1].trim().split(/\s+/);
       try {
         if (argv[0] === "import") {
-          note = this.runImport(argv.slice(1));
+          note = await this.runImport(argv.slice(1));
         } else {
           note = runNcli(argv, {
             viewsDir: this.viewsDir,
@@ -394,9 +412,9 @@ export class Hub {
     return true;
   }
 
-  private runImport(argv: string[]): string {
+  private async runImport(argv: string[]): Promise<string> {
     const cmd = parseImportArgv(argv);
-    if (cmd.apply) return formatApply(this.applyImport(cmd.source, cmd.since));
+    if (cmd.apply) return formatApply(await this.applyImport(cmd.source, cmd.since));
     return formatPreview(this.previewImport(cmd.source, cmd.since), cmd.verbose);
   }
 
@@ -423,43 +441,194 @@ export class Hub {
     }
     this.importOffers = offers;
     if (!bestSource) return;
-    this.lastImport = this.importer.preview(bestSource);
+    this.lastImport = {
+      source: bestSource,
+      root: rootFor(bestSource, this.importer.roots),
+      sessions: bestSessions,
+      lines: [],
+      newCount: 0,
+      seenCount: 0,
+    };
     this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
   }
 
-  applyImport(
+  async applyImport(
     source: ImportPreview["source"],
     since?: string,
     opts: { surface?: boolean } = {},
-  ): ReturnType<Importer["apply"]> {
-    const surface = Boolean(opts.surface) && this.memory.T === 0;
-    const result = this.importer.apply(
-      source,
-      since,
-      (line) => {
-        const mem = surface ? this.memory : this.memoryForImport(line.cwd);
-        const msg = mem.append({
+  ): Promise<Awaited<ReturnType<Importer["apply"]>>> {
+    const saved = loadCheckpoint(this.importer.dir);
+    const files = listSessionFiles(rootFor(source, this.importer.roots), source);
+    const surface = saved?.source === source
+      ? saved.surface
+      : Boolean(opts.surface) && this.memory.T === 0;
+    let checkpoint = mergeCheckpoint(saved?.source === source ? saved : null, source, files, { since, surface });
+    saveCheckpoint(this.importer.dir, checkpoint);
+    this.importing = true;
+    this.importProgress = { source, done: checkpoint.done, total: checkpoint.total };
+    this.memory.paused = true;
+    this.importAbort?.abort();
+    this.importAbort = new AbortController();
+    const touched = new Set<Memory>();
+    try {
+      const result = await runImportJob({
+        source,
+        roots: this.importer.roots,
+        since,
+        seenFile: this.importer.ledger.path,
+        cursors: checkpoint.files,
+        signal: this.importAbort.signal,
+        onProgress: (progress) => {
+          this.importProgress = progress;
+          this.emit({
+            type: "import-progress",
+            source: progress.source,
+            done: progress.done,
+            total: progress.total,
+            pct: importPct(progress.done, progress.total),
+          });
+        },
+        onCursor: (file, lastFingerprint, fileDone) => {
+          checkpoint = applyCursor(checkpoint, file, lastFingerprint, fileDone);
+          saveCheckpoint(this.importer.dir, checkpoint);
+        },
+        onBatch: async (lines) => {
+          for (const mem of this.ingestImportBatch(lines, surface)) {
+            mem.paused = true;
+            touched.add(mem);
+          }
+          this.importer.ledger.flush();
+          await Bun.sleep(0);
+        },
+      });
+      this.lastImport = {
+        ...result.preview,
+        lines: [],
+        newCount: 0,
+      };
+      this.importer.ledger.flush();
+      clearCheckpoint(this.importer.dir);
+      this.importProgress = null;
+      for (const mem of touched) mem.publish();
+      this.memory.publish();
+      this.emit({
+        type: "import",
+        preview: this.lastImport,
+        offers: this.importOffers,
+        messages: this.memory.log,
+      });
+      this.emitDebug();
+      return result;
+    } catch (err) {
+      saveCheckpoint(this.importer.dir, checkpoint);
+      if (err instanceof Error && err.message === "import stopped") {
+        return {
+          preview: {
+            source,
+            root: rootFor(source, this.importer.roots),
+            sessions: files.length,
+            lines: [],
+            newCount: 0,
+            seenCount: this.importer.ledger.size(),
+            skipped: 0,
+            since,
+          },
+          applied: 0,
+        };
+      }
+      const progress = this.importProgress ?? { source, done: checkpoint.done, total: checkpoint.total };
+      this.emit({
+        type: "import-progress",
+        source,
+        done: progress.done,
+        total: progress.total,
+        pct: importPct(progress.done, progress.total),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    } finally {
+      this.importing = false;
+      this.memory.paused = false;
+      for (const mem of touched) mem.paused = false;
+      this.importAbort = null;
+      this.pumpWhenIdle();
+    }
+  }
+
+  private resumeImport(): void {
+    const cp = loadCheckpoint(this.importer.dir);
+    if (!isResumeOpen(cp) || !cp) return;
+    void this.applyImport(cp.source, cp.since, { surface: cp.surface });
+  }
+
+  private ingestImportBatch(lines: ImportLine[], surface: boolean): Memory[] {
+    const groups = new Map<Memory, ImportLine[]>();
+    for (const line of lines) {
+      const mem = surface ? this.memory : this.memoryForImport(line.cwd);
+      const bucket = groups.get(mem) ?? [];
+      bucket.push(line);
+      groups.set(mem, bucket);
+    }
+    for (const [mem, bucket] of groups) {
+      mem.ingest(
+        bucket.map((line) => ({
           kind: line.kind,
           text: line.text,
           seat: line.seat,
           date: line.at,
           hops: `import:${line.source}`,
-        });
-        if (mem === this.memory) this.emit({ type: "message", session: "main", message: msg });
-        return msg;
-      },
-      (line) => alreadyInLog((surface ? this.memory : this.memoryForImport(line.cwd)).log, line),
-    );
-    this.lastImport = {
-      ...result.preview,
-      lines: [],
-      newCount: 0,
-      seenCount: result.preview.seenCount + result.applied,
-    };
-    this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
+        })),
+        { quiet: true },
+      );
+      this.importer.ledger.add(bucket.map((line) => line.fingerprint));
+    }
+    return [...groups.keys()];
+  }
+
+  retryCompact(): void {
+    this.compact = { ...this.compact, running: true, error: undefined };
+    this.emit({ type: "compact", compact: this.compact });
+    this.memory.paused = false;
+    this.pumpWhenIdle();
+  }
+
+  publishCompact(status: CompactStatus): void {
+    this.compact = status;
+    if (status.running && status.total > 0) this.compactWave = status.total;
+    this.emit({ type: "compact", compact: this.compact });
+  }
+
+  private foldCompact(ev: {
+    running: boolean;
+    nodes: number;
+    tokensToday: number;
+    budget: number;
+    model: string;
+    error?: string;
+  }): CompactStatus {
+    const pending = this.memory ? this.memory.pendingCount() : ev.nodes;
+    if (ev.error) {
+      return compactStatusOf(ev, this.compact.done, this.compactWave || this.compact.total, ev.error);
+    }
+    if (ev.running) {
+      if (!this.compactWave) this.compactWave = Math.max(pending, ev.nodes, 1);
+      const done = Math.max(0, this.compactWave - pending);
+      return compactStatusOf(ev, done, this.compactWave);
+    }
+    const total = this.compactWave || ev.nodes;
+    const still = pending > 0;
+    const done = still ? Math.max(0, total - pending) : total;
+    if (!still) this.compactWave = 0;
+    return compactStatusOf({ ...ev, running: still }, done, total);
+  }
+
+  private pumpWhenIdle(): void {
+    if (this.closed) return;
+    if (this.turning || this.importing) {
+      setTimeout(() => this.pumpWhenIdle(), 250);
+      return;
+    }
     void this.memory.pump();
-    this.emitDebug();
-    return result;
   }
 
   seedViewSeq(view: string, last: number): void {
@@ -506,7 +675,7 @@ export class Hub {
 
   private async turn(userText: string, retried = false): Promise<void> {
     if (retried || !this.live || this.live.turn.status !== "running") this.beginLive();
-    void this.memory.pump();
+    if (!this.importing) void this.memory.pump();
     const ctx = this.spaces.assemble(this.cfg.repo);
     const inj = this.mainSpawn();
     const viewSnap = ctx.view;
@@ -514,9 +683,16 @@ export class Hub {
     let talk = "";
     const tools: string[] = [];
     const inbox = this.bus.drainPrompt("main");
+    const migrating = this.importing;
+    const soFar = migrating ? importKnownLines(this.memory.log) : "";
+    const importHint = migrating && soFar
+      ? `${withImportTalkNote("O que já chegou do histórico:", this.importProgress ?? undefined)}\n${soFar}\n\n`
+      : migrating
+        ? `${importTalkNote(this.importProgress ?? undefined)}\n\n`
+        : "";
     try {
       for await (const ev of this.harness.run({
-        prompt: `${ctx.view}\n\n${inbox}${userText}`,
+        prompt: `${ctx.view}\n\n${inbox}${importHint}${userText}`,
         system: ctx.system,
         cwd: this.cfg.repo,
         session: "main",
@@ -557,7 +733,7 @@ export class Hub {
         const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
         const msg = this.memory.append({
           kind: "talk",
-          text: talk,
+          text: migrating ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
           seat,
           model: this.live.turn.model,
           recall: citations.length ? citations : undefined,
@@ -858,6 +1034,9 @@ export class Hub {
   }
 
   close(): void {
+    this.closed = true;
+    this.importAbort?.abort();
+    this.memory.paused = true;
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.usage.close();
     this.views.close();
@@ -877,7 +1056,25 @@ export class Hub {
   }
 }
 
-function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string }) => void): Compressor {
+function compactStatusOf(
+  ev: { running: boolean; nodes?: number; lastNodes?: number; tokensToday: number; budget: number; model: string },
+  done = 0,
+  total = 0,
+  error?: string,
+): CompactStatus {
+  return {
+    running: ev.running,
+    lastNodes: ev.lastNodes ?? ev.nodes ?? 0,
+    done,
+    total,
+    tokensToday: ev.tokensToday,
+    budget: ev.budget,
+    model: ev.model,
+    ...(error ? { error } : {}),
+  };
+}
+
+function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string; error?: string }) => void): Compressor {
   switch (cfg.compactBackend) {
     case "mock":
       return mockCompressor();

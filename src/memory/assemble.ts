@@ -80,7 +80,6 @@ zoom(id, 1) this turn. Without that, say it is from the summary
 (unverified).`;
 
 export function assemble(mem: Memory, extraSystem = "", skillsText = skillPrompt(), master = MASTER): AssembledContext {
-  if (mem.viewBytesUsed() > mem.viewHigh) mem.fit();
   const d = mem.debug();
   const system = [master, skillsText, VIEW_DOC, extraSystem].filter(Boolean).join("\n\n");
   return {

@@ -178,6 +178,9 @@ const state = {
   usage: { seats: [], chain: [] },
   import: null,
   importOffers: [],
+  importProgress: {},
+  jobStartedAt: {},
+  jobFade: null,
   clis: { claude: false, codex: false, cursor: false },
 };
 
@@ -774,8 +777,28 @@ function avatar(seat) {
   return `<div class="av ${klass}"><img alt="" src="${s.src}"></div>`;
 }
 
+function importChipLabel(src) {
+  const names = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
+  const p = state.importProgress && state.importProgress[src];
+  if (!p) return `trazer ${names[src] || src}`;
+  return "Lendo…";
+}
+
+function paintImportChip(btn, src) {
+  const p = state.importProgress && state.importProgress[src];
+  btn.textContent = importChipLabel(src);
+  if (p) {
+    btn.disabled = true;
+    btn.classList.add("is-importing");
+    btn.style.removeProperty("--import-pct");
+  } else {
+    btn.disabled = false;
+    btn.classList.remove("is-importing");
+    btn.style.removeProperty("--import-pct");
+  }
+}
+
 function welcomeImportActions() {
-  const label = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
   const offers = state.importOffers || [];
   const sources = offers.length
     ? offers.map((o) => o.source)
@@ -784,7 +807,11 @@ function welcomeImportActions() {
       : [];
   if (!sources.length) return "";
   return `<div class="welcome-actions">${sources
-    .map((src) => `<button type="button" class="welcome-go" data-welcome-import="${escapeHtml(src)}">trazer ${label[src] || src}</button>`)
+    .map((src) => {
+      const p = state.importProgress && state.importProgress[src];
+      const busy = p ? ` disabled class="welcome-go is-importing"` : ` class="welcome-go"`;
+      return `<button type="button"${busy} data-welcome-import="${escapeHtml(src)}">${escapeHtml(importChipLabel(src))}</button>`;
+    })
     .join("")}</div>`;
 }
 
@@ -1144,14 +1171,145 @@ function setSwitchOpen(open) {
   renderChrome();
 }
 
-function compactLabel(compact) {
-  if (!compact) return "";
-  const k = Math.round((compact.tokensToday || 0) / 100) / 10;
-  const b = Math.round((compact.budget || 0) / 1000);
-  if (!b && !k && !compact.running) return "";
-  return compact.running
-    ? `compactando ${compact.lastNodes || 0} · ${k}k/${b}k`
-    : `compact ${k}k/${b}k`;
+function jobPctOf(done, total) {
+  if (total <= 0) return done > 0 ? 100 : null;
+  return Math.min(100, Math.max(0, Math.floor((done / total) * 100)));
+}
+
+function jobEtaMsOf(job, now) {
+  if (job.phase !== "running" || job.startedAt <= 0 || job.done < 2 || job.total <= job.done) return null;
+  const elapsed = now - job.startedAt;
+  if (elapsed < 800) return null;
+  const rate = job.done / elapsed;
+  if (rate <= 0) return null;
+  return Math.round((job.total - job.done) / rate);
+}
+
+function jobEtaLabelOf(ms) {
+  if (ms === null) return "";
+  if (ms < 5000) return "~alguns segundos";
+  if (ms < 60000) return `~${Math.round(ms / 1000)}s`;
+  const min = Math.max(1, Math.round(ms / 60000));
+  return min === 1 ? "~1 min" : `~${min} min`;
+}
+
+function jobSourceName(src) {
+  return src === "codex" ? "Codex" : src === "cursor" ? "Cursor" : "Claude";
+}
+
+function jobStageOf(job) {
+  if (job.kind === "import") {
+    const name = jobSourceName(job.source);
+    if (job.phase === "done") return `Histórico do ${name} pronto`;
+    if (job.phase === "error") return `Não deu pra ler o histórico do ${name}`;
+    return `Lendo seu histórico do ${name}`;
+  }
+  if (job.phase === "done") return "Memória organizada";
+  if (job.phase === "error") return "Não deu pra organizar a memória";
+  return "Organizando a memória";
+}
+
+function jobLineOf(job) {
+  const stage = jobStageOf(job);
+  if (job.phase !== "running") return stage;
+  const bits = [stage];
+  if (job.kind === "import" && job.total > 0) {
+    bits.push(`${job.done} de ${job.total} ${job.total === 1 ? "conversa" : "conversas"}`);
+  } else {
+    const pct = jobPctOf(job.done, job.total);
+    if (pct !== null) bits.push(`${pct}%`);
+  }
+  return bits.join(" · ");
+}
+
+function jobMetaOf(job, now) {
+  if (job.phase !== "running") return "";
+  const bits = [];
+  if (job.kind === "import") {
+    const pct = jobPctOf(job.done, job.total);
+    if (pct !== null) bits.push(`${pct}%`);
+  }
+  const eta = jobEtaLabelOf(jobEtaMsOf(job, now));
+  if (eta) bits.push(eta);
+  return bits.join(" · ");
+}
+
+function markJobStart(key) {
+  if (!state.jobStartedAt[key]) state.jobStartedAt[key] = Date.now();
+  return state.jobStartedAt[key];
+}
+
+function clearJobStart(key) {
+  delete state.jobStartedAt[key];
+}
+
+function activeJob() {
+  const srcs = Object.keys(state.importProgress || {});
+  const src = srcs[0];
+  const p = src && state.importProgress[src];
+  if (p) {
+    const total = p.total || 0;
+    const done = p.done || 0;
+    const phase = p.error ? "error" : total > 0 && done >= total ? "done" : "running";
+    return {
+      kind: "import",
+      phase,
+      source: src,
+      done,
+      total,
+      startedAt: markJobStart(`import:${src}`),
+      error: p.error || "",
+    };
+  }
+  const c = state.compact;
+  if (c && (c.running || c.error || state.jobFade === "compact")) {
+    const phase = c.error ? "error" : c.running ? "running" : "done";
+    if (phase === "running") markJobStart("compact");
+    return {
+      kind: "compact",
+      phase,
+      done: c.done || 0,
+      total: c.total || 0,
+      startedAt: state.jobStartedAt.compact || Date.now(),
+      error: c.error || "",
+    };
+  }
+  return null;
+}
+
+function renderJob() {
+  const el = $("jobInd");
+  if (!el) return;
+  const job = activeJob();
+  if (!job) {
+    el.hidden = true;
+    el.innerHTML = "";
+    el.removeAttribute("data-phase");
+    el.removeAttribute("data-kind");
+    el.removeAttribute("data-unknown");
+    el.classList.remove("is-out", "is-in");
+    measureComposer();
+    return;
+  }
+  const now = Date.now();
+  const pct = jobPctOf(job.done, job.total);
+  const unknown = job.phase === "running" && pct === null;
+  const retry = job.phase === "error"
+    ? `<button type="button" class="job-retry" data-job-retry="${escapeHtml(job.kind)}" data-job-source="${escapeHtml(job.source || "")}">tentar de novo</button>`
+    : "";
+  const meta = jobMetaOf(job, now);
+  el.hidden = false;
+  el.dataset.phase = job.phase;
+  el.dataset.kind = job.kind;
+  if (unknown) el.dataset.unknown = "1";
+  else delete el.dataset.unknown;
+  el.classList.toggle("is-out", job.phase === "done");
+  el.classList.add("is-in");
+  el.style.setProperty("--job-pct", unknown ? "0.28" : String((pct ?? 0) / 100));
+  el.setAttribute("role", "status");
+  el.setAttribute("aria-live", "polite");
+  el.innerHTML = `<div class="job-track" aria-hidden="true"><div class="job-fill"></div></div><div class="job-copy"><span class="job-stage">${escapeHtml(jobLineOf(job))}</span>${meta ? `<span class="job-meta">${escapeHtml(meta)}</span>` : ""}</div>${retry}`;
+  measureComposer();
 }
 
 function agentTrio(clis, mainHarness) {
@@ -1184,7 +1342,7 @@ function sessionChrome(input) {
   const sparked = input.sparkCount > 0;
   return {
     showSwitcher: input.limited || sparked || extraSeat,
-    showCompact: input.compactRunning || input.compactTokens > 0,
+    showCompact: input.compactRunning,
     showSparks: sparked,
     showViews: sparked,
     showWelcome: input.messageCount === 0,
@@ -1193,6 +1351,7 @@ function sessionChrome(input) {
 
 function chromeNow() {
   const seats = (state.usage && state.usage.seats) || [];
+  const progress = state.importProgress || {};
   return sessionChrome({
     messageCount: state.messages.length,
     sparkCount: state.sparks.length,
@@ -1200,6 +1359,7 @@ function chromeNow() {
     compactRunning: Boolean(state.compact && state.compact.running),
     limited: seats.some((s) => s.status === "limited"),
     mainHarness: (state.main && state.main.harness) || "claude",
+    importing: Object.keys(progress).length > 0,
   });
 }
 
@@ -1227,12 +1387,7 @@ function renderChrome() {
       <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
     }
   }
-  const c = $("compactInd");
-  if (c) {
-    const text = chrome.showCompact ? compactLabel(state.compact) : "";
-    c.hidden = !text;
-    c.textContent = text;
-  }
+  renderJob();
   const views = $("viewBlock");
   if (views) views.hidden = !chrome.showViews;
   const limit = $("limitInd");
@@ -1267,20 +1422,32 @@ function renderChrome() {
 function renderImport() {
   const bar = $("ibar");
   if (!bar) return;
+  const srcs = Object.keys(state.importProgress || {});
+  const src = srcs[0];
+  const p = src && state.importProgress[src];
+  if (p) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    renderJob();
+    measureComposer();
+    return;
+  }
   const preview = state.import;
-  if (!preview || preview.newCount === 0) {
+  const canApply = Boolean(preview && preview.sessions && preview.seenCount === 0);
+  if (!preview || (!preview.newCount && !canApply)) {
     bar.hidden = true;
     bar.innerHTML = "";
     measureComposer();
     return;
   }
-  const neu = preview.newCount === 1 ? "1 nova" : `${preview.newCount} novas`;
+  const neu = preview.newCount === 1 ? "1 nova" : preview.newCount > 1 ? `${preview.newCount} novas` : `${preview.sessions} ${preview.sessions === 1 ? "sessão" : "sessões"}`;
   const seen = preview.seenCount === 1 ? "1 já vista" : `${preview.seenCount} já vistas`;
-  const action = preview.newCount
+  const detail = preview.newCount ? `${neu} · ${seen}` : neu;
+  const action = canApply || preview.newCount
     ? `<button type="button" data-import-apply="${escapeHtml(preview.source)}">aplicar</button>`
     : "";
   bar.hidden = false;
-  bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${neu} · ${seen}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
+  bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${detail}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
   measureComposer();
 }
 
@@ -1956,9 +2123,46 @@ function applyEvent(ev) {
       state.usage = ev.usage || { seats: [], chain: [] };
       renderChrome();
       break;
+    case "import-progress":
+      if (ev.source) {
+        state.importProgress = { ...(state.importProgress || {}), [ev.source]: { done: ev.done || 0, total: ev.total || 0, error: ev.error || "" } };
+        markJobStart(`import:${ev.source}`);
+        const btn = log.querySelector(`[data-welcome-import="${ev.source}"]`);
+        if (btn) paintImportChip(btn, ev.source);
+        else if (chromeNow().showWelcome) renderChat();
+        renderImport();
+        renderJob();
+      }
+      break;
     case "import":
       state.import = ev.preview || null;
       if (ev.offers) state.importOffers = ev.offers;
+      if (Array.isArray(ev.messages)) {
+        const incoming = new Map(ev.messages.map((m) => [m.i, m]));
+        const extra = state.messages.filter((m) => !incoming.has(m.i));
+        state.messages = [...ev.messages, ...extra].sort((a, b) => a.i - b.i);
+        scheduleFullPaint();
+      }
+      if (ev.preview && ev.preview.source && state.importProgress && state.importProgress[ev.preview.source]) {
+        const prev = state.importProgress[ev.preview.source];
+        const total = prev.total || 1;
+        state.importProgress[ev.preview.source] = { done: total, total };
+        const src = ev.preview.source;
+        state.jobFade = "import";
+        renderJob();
+        setTimeout(() => {
+          if (state.importProgress) delete state.importProgress[src];
+          clearJobStart(`import:${src}`);
+          if (state.jobFade === "import") state.jobFade = null;
+          renderImport();
+          renderJob();
+          if (chromeNow().showWelcome) renderChat();
+          else {
+            const btn = log.querySelector(`[data-welcome-import="${src}"]`);
+            if (btn) paintImportChip(btn, src);
+          }
+        }, 1400);
+      }
       renderImport();
       if (chromeNow().showWelcome) renderChat();
       break;
@@ -1996,6 +2200,18 @@ function applyEvent(ev) {
       break;
     case "compact":
       state.compact = ev.compact;
+      if (ev.compact && ev.compact.running) {
+        markJobStart("compact");
+        state.jobFade = null;
+      } else if (ev.compact && !ev.compact.error && (ev.compact.done > 0 || ev.compact.total > 0)) {
+        state.jobFade = "compact";
+        renderJob();
+        setTimeout(() => {
+          if (state.jobFade === "compact") state.jobFade = null;
+          clearJobStart("compact");
+          renderJob();
+        }, 1400);
+      }
       renderChrome();
       break;
     case "spark": {
@@ -2328,13 +2544,41 @@ $("queueBtn")?.addEventListener("click", () => {
 log?.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-welcome-import]");
   if (!go) return;
-  go.setAttribute("disabled", "true");
-  go.textContent = "trazendo…";
-  await fetch("/api/import", {
+  const src = go.getAttribute("data-welcome-import");
+  state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
+  markJobStart(`import:${src}`);
+  paintImportChip(go, src);
+  renderImport();
+  renderJob();
+  void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ source: go.getAttribute("data-welcome-import"), apply: true }),
   });
+});
+
+$("jobInd")?.addEventListener("click", (e) => {
+  const retry = e.target.closest("[data-job-retry]");
+  if (!retry) return;
+  const kind = retry.getAttribute("data-job-retry");
+  const src = retry.getAttribute("data-job-source");
+  if (kind === "import" && src) {
+    if (state.importProgress && state.importProgress[src]) {
+      state.importProgress[src] = { ...state.importProgress[src], error: "" };
+    }
+    renderJob();
+    void fetch("/api/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: src, apply: true }),
+    });
+    return;
+  }
+  if (kind === "compact") {
+    if (state.compact) state.compact = { ...state.compact, error: "", running: true };
+    renderJob();
+    void fetch("/api/compact", { method: "POST" });
+  }
 });
 
 $("ibar")?.addEventListener("click", async (e) => {
@@ -2345,10 +2589,15 @@ $("ibar")?.addEventListener("click", async (e) => {
   }
   const apply = e.target.closest("[data-import-apply]");
   if (!apply) return;
-  await fetch("/api/import", {
+  const src = apply.dataset.importApply;
+  state.importProgress = { ...(state.importProgress || {}), [src]: { done: 0, total: 0 } };
+  markJobStart(`import:${src}`);
+  renderImport();
+  renderJob();
+  void fetch("/api/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ source: apply.dataset.importApply, apply: true }),
+    body: JSON.stringify({ source: src, apply: true }),
   });
 });
 
