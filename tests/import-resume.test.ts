@@ -55,7 +55,7 @@ test("a killed import leaves a checkpoint and the next boot only finishes the re
   const second = await makeHub({ importClaude: root, dataDir });
   const secondCompact = watchCompact(second.hub);
   try {
-    await waitUntil(() => second.hub.memory.T >= total && !isResumeOpen(loadCheckpoint(dataDir)), 15000, "resume finished");
+    await waitUntil(() => second.hub.memory.T >= total && loadCheckpoint(dataDir) === null, 15000, "resume finished");
     expect(loadCheckpoint(dataDir)).toBeNull();
     expect(second.hub.memory.log.some((m) => m.text.includes("FACT_MEMBER"))).toBe(true);
     expect(second.hub.memory.log.some((m) => m.text.includes("ROW_7_"))).toBe(true);
