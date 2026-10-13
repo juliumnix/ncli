@@ -373,9 +373,13 @@ export class Memory {
         if (this.hasInFlight()) return this.pump();
       });
     }
-    this.pumping = this.pumpLoop().finally(() => {
-      this.pumping = null;
-    });
+    this.pumping = this.pumpLoop()
+      .catch((err) => {
+        process.stderr.write(`NCLI: compact pump: ${err instanceof Error ? err.message : String(err)}\n`);
+      })
+      .finally(() => {
+        this.pumping = null;
+      });
     return this.pumping;
   }
 
@@ -391,7 +395,9 @@ export class Memory {
           try {
             await this.build(next.l, next.i);
           } catch (err) {
-            if (!(err instanceof CompactDeferred)) throw err;
+            if (!(err instanceof CompactDeferred)) {
+              process.stderr.write(`NCLI: compact failed: ${err instanceof Error ? err.message : String(err)}\n`);
+            }
             defer = true;
           } finally {
             this.busy.delete(key);

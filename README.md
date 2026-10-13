@@ -9,10 +9,14 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 You need [Bun](https://bun.sh) 1.1+. One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
 
 ```bash
-sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1) && NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
+sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+uid=$(id -u)
+rm -rf /tmp/bunx-$uid-ncli@github@* /private/tmp/bunx-$uid-ncli@github@*
+[ -n "$TMPDIR" ] && rm -rf "${TMPDIR%/}"/bunx-$uid-ncli@github@*
+NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
 ```
 
-Bun 1.3.3 caches a bare `bunx github:juliumnix/ncli` for about a day, so that form can start an old commit such as `056d78d`. Pinning the current `main` SHA changes the cache key. `NCLI_REVISION` is what the ready banner prints when the extracted package has no `.git`. From a clone, `scripts/bunx-main.sh` does the same.
+Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `bunx github:juliumnix/ncli` hashes the version as `latest`, so that directory stays put even after `main` moves (old banner, old compact model). Pinning `#<sha>` is a different key, but only after the leftover extract is gone. The block above deletes those dirs, then pins the live `main` tip. `NCLI_REVISION` is what the ready banner prints when the extracted package has no `.git`. From a clone, `scripts/bunx-main.sh` does the same wipe and pin.
 
 The process prints `NCLI rodando em http://localhost:47231 · <sha>` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. If 47231 is taken, NCLI tries the next free port. An explicit `NCLI_PORT` that is busy prints a short message instead of a stack trace. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
 
