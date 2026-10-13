@@ -87,16 +87,6 @@ function dropStreamNode() {
   for (const n of [...log.querySelectorAll(".m.stream")]) n.remove();
 }
 
-function pinNewAnswer() {
-  if (!chat || !stick.follow) return;
-  const last = [...log.querySelectorAll(".u")].at(-1);
-  if (!last) {
-    followScroll();
-    return;
-  }
-  setChatTop(Math.max(0, last.offsetTop - 72));
-}
-
 function followScroll() {
   if (!chat || !stick.follow) return;
   if (reducedMotion()) {
@@ -146,11 +136,18 @@ function markEnter() {
   });
 }
 
+const STATE_PAGE = 80;
+const rowHtmlCache = new Map();
+
 const state = {
   messages: [],
   sparks: [],
   views: [],
   waiting: [],
+  messageCount: 0,
+  before: null,
+  hasMore: false,
+  olderLoading: false,
   debug: null,
   context: null,
   ctxPrev: [],
@@ -829,6 +826,92 @@ function welcomeImportActions() {
 }
 
 function renderChat() {
+  syncChat();
+}
+
+function messageMid(m, i) {
+  return `${m.i ?? i}:${m.kind}:${m.date || ""}`;
+}
+
+function rowSig(m) {
+  return `${m.i}|${m.kind}|${m.date || ""}|${m.text}|${m.seat || ""}|${m.model || ""}|${m.durationMs || ""}`;
+}
+
+function cachedRowHtml(m, mid) {
+  const sig = rowSig(m);
+  const hit = rowHtmlCache.get(mid);
+  if (hit && hit.sig === sig) return hit.html;
+  const html = messageRowHtml(m, mid);
+  rowHtmlCache.set(mid, { sig, html });
+  if (rowHtmlCache.size > 400) rowHtmlCache.delete(rowHtmlCache.keys().next().value);
+  return html;
+}
+
+function elFromHtml(html) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = html;
+  return wrap.firstElementChild;
+}
+
+function captureAnchor() {
+  if (!chat) return { floor: true };
+  const leftover = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (stick.follow || leftover <= STICK_SLOP) return { floor: true };
+  const box = chat.getBoundingClientRect();
+  for (const n of log.querySelectorAll(":scope > [data-mid]")) {
+    const r = n.getBoundingClientRect();
+    if (r.bottom > box.top + 8) return { floor: false, mid: n.dataset.mid, offset: r.top - box.top };
+  }
+  return { floor: false, mid: null, offset: chat.scrollTop };
+}
+
+function restoreAnchor(anchor) {
+  if (!anchor || !chat) return;
+  if (anchor.floor) {
+    snapToFloor();
+    return;
+  }
+  if (anchor.mid) {
+    const node = log.querySelector(`[data-mid="${CSS.escape(anchor.mid)}"]`);
+    if (node) {
+      const box = chat.getBoundingClientRect();
+      setChatTop(chat.scrollTop + (node.getBoundingClientRect().top - box.top) - anchor.offset);
+      return;
+    }
+  }
+}
+
+function desiredChatRows() {
+  const rows = [];
+  const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
+  const showDays = days.size > 1;
+  let lastDay = "";
+  let lastTalkAt = -1;
+  for (let i = 0; i < state.messages.length; i++) {
+    if (state.messages[i].kind === "talk") lastTalkAt = i;
+  }
+  for (let i = 0; i < state.messages.length; i++) {
+    const m = state.messages[i];
+    if (showDays) {
+      const day = dayLabel(m.date);
+      if (day !== lastDay) {
+        rows.push({ mid: `day:${day}`, sig: day, html: `<div class="day" data-mid="day:${day}">${day}</div>` });
+        lastDay = day;
+      }
+    }
+    if (m.kind === "echo") continue;
+    if (/^tools:\s/i.test(m.text)) continue;
+    const mid = messageMid(m, i);
+    rows.push({ mid, sig: rowSig(m), html: cachedRowHtml(m, mid) });
+    if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) {
+      const wid = `work:${state.lastTurn.id}`;
+      rows.push({ mid: wid, sig: `${state.lastTurn.id}|${state.lastTurn.endedAt || ""}`, html: workDisclosure(state.lastTurn) });
+    }
+  }
+  return rows;
+}
+
+function syncChat() {
   if (chromeNow().showWelcome) {
     log.classList.remove("from-welcome");
     if (!log.querySelector(".welcome")) {
@@ -843,66 +926,102 @@ function renderChat() {
     renderChrome();
     return;
   }
-  const keep = chat.scrollTop;
-  const leavingWelcome = Boolean(log.querySelector(".welcome"));
-  if (leavingWelcome) log.classList.add("from-welcome");
-  if (!appendChatIfPrefix()) {
-    const built = chatRowParts();
-    log.innerHTML = built.html;
+  const anchor = captureAnchor();
+  if (log.querySelector(".welcome")) log.replaceChildren();
+  const desired = desiredChatRows();
+  const byMid = new Map();
+  for (const n of [...log.querySelectorAll(":scope > [data-mid]")]) byMid.set(n.dataset.mid, n);
+  const next = [];
+  let created = false;
+  for (const row of desired) {
+    const cur = byMid.get(row.mid);
+    if (cur && cur.dataset.sig === row.sig) {
+      next.push(cur);
+      byMid.delete(row.mid);
+      continue;
+    }
+    const el = elFromHtml(row.html);
+    if (el) {
+      el.dataset.sig = row.sig;
+      next.push(el);
+      created = true;
+    }
+    if (cur) byMid.delete(row.mid);
+  }
+  for (const n of byMid.values()) n.remove();
+  let ptr = log.firstChild;
+  while (ptr && !ptr.hasAttribute?.("data-mid") && !ptr.classList?.contains("live") && !ptr.classList?.contains("stream")) {
+    const gone = ptr;
+    ptr = ptr.nextSibling;
+    gone.remove();
+  }
+  for (const el of next) {
+    if (ptr !== el) log.insertBefore(el, ptr);
+    ptr = el.nextSibling;
+  }
+  if (state.turn && state.turn.status === "running") paintLive();
+  else if (state.stream) {
+    const seat = state.streamSeat || "claude";
+    const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
+    const html = `<div class="m stream">${avatar(seat)}<div class="bb">
+      <div class="nm ${nm}">${escapeHtml(agentLabel(seat, state.streamModel))}<span class="tm">…</span></div>
+      <div class="md">${bodyHtml(state.stream, true)}</div>
+    </div></div>`;
+    const node = log.querySelector(":scope > .m.stream");
+    if (!node) log.insertAdjacentHTML("beforeend", html);
+    else {
+      const fresh = elFromHtml(html);
+      if (fresh) node.replaceWith(fresh);
+    }
+  } else {
+    dropStreamNode();
+  }
+  if (created) {
     reattachUi();
     bindLiveGuards(log);
     bindLiveUrlAsks(log);
     bind3dPause();
     markEnter();
   }
-  if (stick.follow) snapToFloor();
-  else setChatTop(keep);
-  if (leavingWelcome) {
-    window.setTimeout(() => log.classList.remove("from-welcome"), 400);
-  }
+  restoreAnchor(anchor);
   paintScrollHints();
   renderChrome();
 }
 
-function messageMid(m, i) {
-  return `${m.i ?? i}:${m.kind}:${m.date || ""}`;
+function applyMessagePage(page) {
+  if (Array.isArray(page.messages)) state.messages = page.messages;
+  if (page.before !== undefined) state.before = page.before;
+  if (page.hasMore != null) state.hasMore = Boolean(page.hasMore);
+  if (page.messageCount != null) state.messageCount = page.messageCount;
 }
 
-function chatRowParts(skipMids = 0) {
-  const parts = [];
-  let lastDay = "";
-  let lastTalkAt = -1;
-  let midCount = 0;
-  for (let i = 0; i < state.messages.length; i++) {
-    if (state.messages[i].kind === "talk") lastTalkAt = i;
+function trimFollowWindow() {
+  if (!stick.follow || state.messages.length <= STATE_PAGE) return;
+  const extra = state.messages.length - STATE_PAGE;
+  state.messages = state.messages.slice(extra);
+  state.hasMore = true;
+  const first = state.messages[0];
+  state.before = first && first.i >= 0 ? first.i : state.before;
+}
+
+async function loadOlder() {
+  if (!state.hasMore || state.olderLoading || state.before == null) return;
+  state.olderLoading = true;
+  const before = state.before;
+  const anchor = captureAnchor();
+  try {
+    const snap = await (await fetch(`/api/state?before=${encodeURIComponent(String(before))}&limit=${STATE_PAGE}`)).json();
+    const have = new Set(state.messages.map((m) => m.i));
+    const older = (snap.messages || []).filter((m) => !have.has(m.i));
+    if (older.length) state.messages = [...older, ...state.messages];
+    state.before = snap.before ?? null;
+    state.hasMore = Boolean(snap.hasMore);
+    if (snap.messageCount != null) state.messageCount = snap.messageCount;
+    syncChat();
+    restoreAnchor(anchor);
+  } finally {
+    state.olderLoading = false;
   }
-  for (let i = 0; i < state.messages.length; i++) {
-    const m = state.messages[i];
-    const day = dayLabel(m.date);
-    if (day !== lastDay) {
-      if (midCount >= skipMids) parts.push(`<div class="day" data-mid="day:${day}">${day}</div>`);
-      midCount++;
-      lastDay = day;
-    }
-    if (m.kind === "echo") continue;
-    if (/^tools:\s/i.test(m.text)) continue;
-    if (midCount >= skipMids) {
-      parts.push(messageRowHtml(m, messageMid(m, i)));
-      if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) parts.push(workDisclosure(state.lastTurn));
-    }
-    midCount++;
-  }
-  if (state.turn && state.turn.status === "running") {
-    parts.push(liveTurnHtml(state.turn));
-  } else if (state.stream) {
-    const seat = state.streamSeat || "claude";
-    const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
-    parts.push(`<div class="m stream">${avatar(seat)}<div class="bb">
-      <div class="nm ${nm}">${escapeHtml(agentLabel(seat, state.streamModel))}<span class="tm">…</span></div>
-      <div class="md">${bodyHtml(state.stream, true)}</div>
-    </div></div>`);
-  }
-  return { html: parts.join("") };
 }
 
 function messageRowHtml(m, mid) {
@@ -931,49 +1050,6 @@ function messageRowHtml(m, mid) {
       <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
       ${chips}
     </div></div>`;
-}
-
-function chatStableMids() {
-  const mids = [];
-  let lastDay = "";
-  for (let i = 0; i < state.messages.length; i++) {
-    const m = state.messages[i];
-    const day = dayLabel(m.date);
-    if (day !== lastDay) {
-      mids.push(`day:${day}`);
-      lastDay = day;
-    }
-    if (m.kind === "echo") continue;
-    if (/^tools:\s/i.test(m.text)) continue;
-    mids.push(messageMid(m, i));
-  }
-  return mids;
-}
-
-function appendChatIfPrefix() {
-  if (log.querySelector(".welcome")) return false;
-  const have = [...log.querySelectorAll(":scope > [data-mid]")];
-  const stable = chatStableMids();
-  if (!have.length || have.length > stable.length) return false;
-  for (let i = 0; i < have.length; i++) {
-    if (have[i].dataset.mid !== stable[i]) return false;
-  }
-  if (have.length === stable.length) {
-    if (state.turn && state.turn.status === "running") paintLive();
-    return true;
-  }
-  const wrap = document.createElement("div");
-  wrap.innerHTML = chatRowParts(have.length).html;
-  log.querySelectorAll(":scope > .live, :scope > .stream").forEach((n) => n.remove());
-  for (const node of [...wrap.querySelectorAll(":scope > [data-mid], :scope > .live, :scope > .stream")]) {
-    log.appendChild(node);
-  }
-  reattachUi();
-  bindLiveGuards(log);
-  bindLiveUrlAsks(log);
-  bind3dPause();
-  markEnter();
-  return true;
 }
 
 let liveRaf = 0;
@@ -1174,7 +1250,7 @@ function liveTurnHtml(turn) {
 function workDisclosure(turn) {
   const steps = (turn.steps || []).map((s) => stepHtml(s)).join("");
   const open = state.workOpen.has(turn.id) ? " open" : "";
-  return `<div class="work-disc${open}" data-turn="${escapeHtml(turn.id)}">
+  return `<div class="work-disc${open}" data-mid="work:${escapeHtml(turn.id)}" data-turn="${escapeHtml(turn.id)}">
     <button type="button" class="work-sum">${escapeHtml(workedOf(turn))}</button>
     <div class="work-panel"><div class="live-steps">${steps}</div></div>
   </div>`;
@@ -1465,7 +1541,7 @@ function chromeNow() {
   const seats = (state.usage && state.usage.seats) || [];
   const progress = state.importProgress || {};
   return sessionChrome({
-    messageCount: state.messages.length,
+    messageCount: state.messageCount || state.messages.length,
     sparkCount: state.sparks.length,
     compactTokens: state.compact ? state.compact.tokensToday || 0 : 0,
     compactRunning: Boolean(state.compact && state.compact.running),
@@ -2251,6 +2327,10 @@ function applyEvent(ev) {
         const pendingAt = state.messages.findIndex((m) => m.i < 0 && m.kind === "user" && m.text === ev.message.text);
         if (pendingAt >= 0) state.messages.splice(pendingAt, 1, ev.message);
         else state.messages.push(ev.message);
+        if (ev.message && ev.message.i >= 0) {
+          state.messageCount = Math.max(state.messageCount || 0, ev.message.i + 1);
+        }
+        trimFollowWindow();
         scheduleFullPaint();
       } else if (state.openSpark === ev.session && state.sparkDetail) {
         state.sparkDetail.messages = state.sparkDetail.messages || [];
@@ -2296,9 +2376,7 @@ function applyEvent(ev) {
       state.import = ev.preview || null;
       if (ev.offers) state.importOffers = ev.offers;
       if (Array.isArray(ev.messages)) {
-        const incoming = new Map(ev.messages.map((m) => [m.i, m]));
-        const extra = state.messages.filter((m) => !incoming.has(m.i));
-        state.messages = [...ev.messages, ...extra].sort((a, b) => a.i - b.i);
+        applyMessagePage(ev);
         scheduleFullPaint();
       }
       if (ev.preview && ev.preview.source && state.importProgress && state.importProgress[ev.preview.source]) {
@@ -2386,8 +2464,6 @@ function applyEvent(ev) {
       maybeNotifySpark(prev, spark);
       openPendingReview(spark);
       renderShortcuts();
-      if (state.turn && state.turn.status === "running") scheduleFullPaint();
-      else renderChat();
       if (state.openSpark === spark.id) {
         if (spark.status === "merged") {
           hideOverlay();
@@ -2669,6 +2745,7 @@ async function sendUser(text, mode) {
     }
   }
   if (!running && !slash && !pasteReview) {
+    const atFloor = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
     const pending = {
       kind: "user",
       text: t,
@@ -2676,6 +2753,7 @@ async function sendUser(text, mode) {
       i: -Date.now(),
     };
     state.messages.push(pending);
+    state.messageCount = (state.messageCount || 0) + 1;
     state.turn = {
       id: "local-" + Date.now().toString(36),
       session: "main",
@@ -2686,11 +2764,10 @@ async function sendUser(text, mode) {
       lastEventAt: pending.date,
       steps: [],
     };
-    const atFloor = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
     const keepTop = chat ? chat.scrollTop : 0;
     if (atFloor) stick.follow = true;
     else stick.follow = false;
-    renderChat();
+    syncChat();
     if (!atFloor) setChatTop(keepTop);
     paintTick();
   }
@@ -2924,6 +3001,7 @@ chat.addEventListener("scroll", () => {
     stick.follow = true;
   }
   lastScrollTop = top;
+  if (top < 120) void loadOlder();
   paintScrollHints();
 }, { passive: true });
 bindChatFloor();
@@ -2956,8 +3034,8 @@ async function boot() {
     }
   };
   const snap = await (await fetch("/api/state")).json();
-  if (!state.messages.length) state.messages = snap.messages || [];
-  if (!state.sparks.length) state.sparks = snap.sparks || snap.forks || [];
+  if (!state.messages.length) applyMessagePage(snap);
+  if (!state.sparks.length) state.sparks = snap.sparks || [];
   for (const f of state.sparks) seenPills.add(f.id);
   if (!state.views.length) state.views = snap.views || [];
   state.debug = state.debug || snap.debug;

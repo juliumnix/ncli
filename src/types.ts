@@ -211,7 +211,15 @@ export type HubEvent =
   | { type: "spark"; spark: Spark }
   | { type: "queue"; items: QueueItem[] }
   | { type: "usage"; usage: UsageSnapshot }
-  | { type: "import"; preview: ImportPreview; offers?: { source: ImportSource; sessions: number }[]; messages?: Message[] }
+  | {
+      type: "import";
+      preview: ImportPreview;
+      offers?: { source: ImportSource; sessions: number }[];
+      messages?: Message[];
+      before?: number | null;
+      hasMore?: boolean;
+      messageCount?: number;
+    }
   | { type: "import-progress"; source: ImportSource; done: number; total: number; pct: number | null; error?: string }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }

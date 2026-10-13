@@ -69,7 +69,12 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         });
       }
       if (url.pathname === "/api/state") {
-        return publicJson(hub.snapshot());
+        const beforeRaw = url.searchParams.get("before");
+        const limitRaw = url.searchParams.get("limit");
+        return publicJson(hub.snapshot({
+          before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
+          limit: limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw),
+        }));
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };

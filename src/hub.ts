@@ -66,6 +66,7 @@ import {
 } from "./import";
 import { runImportJob } from "./import/job";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
+import { pageMessages, type StatePageOpts } from "./state-page";
 
 export class Hub {
   readonly memory: Memory;
@@ -292,27 +293,10 @@ export class Hub {
     return () => this.listeners.delete(fn);
   }
 
-  snapshot(): {
-    messages: Message[];
-    sparks: Spark[];
-    forks: Spark[];
-    views: ViewInfo[];
-    debug: ReturnType<Memory["debug"]>;
-    context: ContextSnapshot;
-    waiting: Spark[];
-    main: MainAgent;
-    turn: Turn | null;
-    compact: CompactStatus;
-    turning: boolean;
-    queue: ReturnType<TurnQueue["list"]>;
-    usage: ReturnType<UsageBoard["snapshot"]>;
-    import: ImportPreview | null;
-    clis: CliPresence;
-    seats: SeatChoice[];
-    codexConfig: CodexConfigWarning[];
-  } {
+  snapshot(opts: StatePageOpts = {}) {
+    const page = pageMessages(this.memory.log, opts);
     return {
-      messages: this.memory.log,
+      ...page,
       sparks: this.sparks.list().map((s) => publicSpark(s)),
       forks: this.sparks.list().map((s) => publicSpark(s)),
       views: this.views.list(),
@@ -583,11 +567,15 @@ export class Hub {
       this.importProgress = null;
       for (const mem of touched) mem.publish();
       this.memory.publish();
+      const page = pageMessages(this.memory.log);
       this.emit({
         type: "import",
         preview: publicImportPreview(this.lastImport),
         offers: this.importOffers,
-        messages: this.memory.log,
+        messages: page.messages,
+        before: page.before,
+        hasMore: page.hasMore,
+        messageCount: page.messageCount,
       });
       this.emitDebug();
       return result;
