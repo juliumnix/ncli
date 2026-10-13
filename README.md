@@ -9,10 +9,12 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 You need [Bun](https://bun.sh) 1.1+. One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
 
 ```bash
-bunx github:juliumnix/ncli
+sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1) && NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
 ```
 
-The process prints `NCLI rodando em http://localhost:47231` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
+Bun 1.3.3 caches a bare `bunx github:juliumnix/ncli` for about a day, so that form can start an old commit such as `056d78d`. Pinning the current `main` SHA changes the cache key. `NCLI_REVISION` is what the ready banner prints when the extracted package has no `.git`. From a clone, `scripts/bunx-main.sh` does the same.
+
+The process prints `NCLI rodando em http://localhost:47231 · <sha>` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. If 47231 is taken, NCLI tries the next free port. An explicit `NCLI_PORT` that is busy prints a short message instead of a stack trace. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
 
 From a clone, `bun install` then `bun start` is the same process. `bun run ncli` stays the view scaffold.
 
@@ -38,7 +40,7 @@ Optional env:
 | `NCLI_BACKUP` | `codex` | first backup seat when a quota hits (still used if `NCLI_FALLBACK` is unset) |
 | `NCLI_FALLBACK` | `codex,claude,cursor` | ordered seat chain on quota. A limited seat shows a header chip. One timer resumes the queue at the extracted reset time |
 | `NCLI_DATA` | `./data` | log + tree + sparks |
-| `NCLI_PORT` | `47231` | HTTP port |
+| `NCLI_PORT` | `47231` | HTTP port. Unset and busy: next free port. Set and busy: a short error, no stack |
 | `NCLI_NO_OPEN` | unset | `1` skips the first-run browser open |
 | `NCLI_REPO` | cwd | repo used for `git worktree add` |
 | `NCLI_VIEW` | `2500` | cover merge-back target in bytes. The drawer ceiling is `2 × NCLI_VIEW` |
