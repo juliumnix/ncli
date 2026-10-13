@@ -411,13 +411,13 @@ export class Memory {
         for (const next of batch) this.buildLocal(next.l, next.i);
       }
     } finally {
-      this.muteChange = false;
       this.flushTree();
       this.refreshViewParts();
       this.sortRefineQ();
       this.recountWork();
       if (this.viewBytesUsed() > this.viewHigh) this.fit();
       else this.saveView();
+      this.muteChange = false;
       this.notify();
     }
   }

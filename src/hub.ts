@@ -42,6 +42,7 @@ import {
   formatApply,
   formatPreview,
   Importer,
+  IMPORT_YIELD_MS,
   importPct,
   isResumeOpen,
   listSessionFiles,
@@ -502,7 +503,7 @@ export class Hub {
             touched.add(mem);
           }
           this.importer.ledger.flush();
-          await Bun.sleep(0);
+          await Bun.sleep(IMPORT_YIELD_MS);
         },
       });
       this.lastImport = {
