@@ -81,6 +81,7 @@ export class Hub {
   model?: string;
   live: LiveTurn | null = null;
   compact: CompactStatus;
+  private compactWave = 0;
   private listeners = new Set<(ev: HubEvent) => void>;
   readonly compressor: Compressor;
   private turning = false;
@@ -99,9 +100,9 @@ export class Hub {
   ) {
     mkdirSync(cfg.dataDir, { recursive: true });
     this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
-    this.compact = compactSnapshot(cfg);
+    this.compact = compactStatusOf(compactSnapshot(cfg));
     this.compressor = pickCompressor(cfg, (ev) => {
-      this.compact = { running: ev.running, lastNodes: ev.nodes, tokensToday: ev.tokensToday, budget: ev.budget, model: ev.model };
+      this.compact = this.foldCompact(ev);
       this.emit({ type: "compact", compact: this.compact });
     });
     this.spaces = new SpaceRegistry({
@@ -529,6 +530,15 @@ export class Hub {
           applied: 0,
         };
       }
+      const progress = this.importProgress ?? { source, done: checkpoint.done, total: checkpoint.total };
+      this.emit({
+        type: "import-progress",
+        source,
+        done: progress.done,
+        total: progress.total,
+        pct: importPct(progress.done, progress.total),
+        error: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     } finally {
       this.importing = false;
@@ -567,6 +577,43 @@ export class Hub {
       this.importer.ledger.add(bucket.map((line) => line.fingerprint));
     }
     return [...groups.keys()];
+  }
+
+  retryCompact(): void {
+    this.compact = { ...this.compact, running: true, error: undefined };
+    this.emit({ type: "compact", compact: this.compact });
+    this.memory.paused = false;
+    this.pumpWhenIdle();
+  }
+
+  publishCompact(status: CompactStatus): void {
+    this.compact = status;
+    if (status.running && status.total > 0) this.compactWave = status.total;
+    this.emit({ type: "compact", compact: this.compact });
+  }
+
+  private foldCompact(ev: {
+    running: boolean;
+    nodes: number;
+    tokensToday: number;
+    budget: number;
+    model: string;
+    error?: string;
+  }): CompactStatus {
+    const pending = this.memory ? this.memory.pendingCount() : ev.nodes;
+    if (ev.error) {
+      return compactStatusOf(ev, this.compact.done, this.compactWave || this.compact.total, ev.error);
+    }
+    if (ev.running) {
+      if (!this.compactWave) this.compactWave = Math.max(pending, ev.nodes, 1);
+      const done = Math.max(0, this.compactWave - pending);
+      return compactStatusOf(ev, done, this.compactWave);
+    }
+    const total = this.compactWave || ev.nodes;
+    const still = pending > 0;
+    const done = still ? Math.max(0, total - pending) : total;
+    if (!still) this.compactWave = 0;
+    return compactStatusOf({ ...ev, running: still }, done, total);
   }
 
   private pumpWhenIdle(): void {
@@ -999,7 +1046,25 @@ export class Hub {
   }
 }
 
-function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string }) => void): Compressor {
+function compactStatusOf(
+  ev: { running: boolean; nodes?: number; lastNodes?: number; tokensToday: number; budget: number; model: string },
+  done = 0,
+  total = 0,
+  error?: string,
+): CompactStatus {
+  return {
+    running: ev.running,
+    lastNodes: ev.lastNodes ?? ev.nodes ?? 0,
+    done,
+    total,
+    tokensToday: ev.tokensToday,
+    budget: ev.budget,
+    model: ev.model,
+    ...(error ? { error } : {}),
+  };
+}
+
+function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string; error?: string }) => void): Compressor {
   switch (cfg.compactBackend) {
     case "mock":
       return mockCompressor();

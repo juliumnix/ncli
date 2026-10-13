@@ -24,6 +24,7 @@ export interface CompactProgress {
   tokensToday: number;
   budget: number;
   model: string;
+  error?: string;
 }
 
 export type CompactListener = (ev: CompactProgress) => void;
@@ -147,7 +148,7 @@ export function splitJobsByTokens<T extends { input: CompactInput }>(
   return out;
 }
 
-export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0): CompactProgress {
+export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0, error?: string): CompactProgress {
   const b = loadBudget(cfg);
   return {
     running,
@@ -155,6 +156,7 @@ export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0)
     tokensToday: b.tokens,
     budget: cfg.compactBudgetTokens,
     model: cfg.compactModel,
+    ...(error ? { error } : {}),
   };
 }
 
@@ -195,7 +197,7 @@ async function runBatch(
     });
     onProgress?.(compactSnapshot(cfg, false, jobs.length));
   } catch (err) {
-    onProgress?.(compactSnapshot(cfg, false, 0));
+    onProgress?.(compactSnapshot(cfg, false, 0, err instanceof Error ? err.message : String(err)));
     for (const j of jobs) j.reject(err);
   }
 }

@@ -92,10 +92,14 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
         }
         if (body.apply) {
-          void hub.applyImport(source, body.since, { surface: hub.memory.T === 0 });
+          void hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }).catch(() => undefined);
           return Response.json({ ok: true, started: true, via: "worker" });
         }
         return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
+      }
+      if (url.pathname === "/api/compact" && req.method === "POST") {
+        hub.retryCompact();
+        return Response.json({ ok: true, compact: hub.compact });
       }
       if (url.pathname === "/api/usage" && req.method === "POST") {
         const body = (await req.json()) as { seat?: string; policy?: "resume" | "snooze" };

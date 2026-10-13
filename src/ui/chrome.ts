@@ -61,7 +61,7 @@ export function sessionChrome(input: ChromeInput): SessionChrome {
   const sparked = input.sparkCount > 0;
   return {
     showSwitcher: input.limited || sparked || extraSeat,
-    showCompact: input.compactRunning || input.compactTokens > 0,
+    showCompact: input.compactRunning,
     showSparks: sparked,
     showViews: sparked,
     showWelcome: input.messageCount === 0,

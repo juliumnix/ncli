@@ -12,10 +12,10 @@ test("importPct is processed over total and unknown before the first count", () 
   expect(importPct(2, 0)).toBe(100);
 });
 
-test("formatImportChip names the CLI then the live percent", () => {
+test("formatImportChip stays an action label while the job rail owns percent", () => {
   expect(formatImportChip("claude")).toBe("trazer Claude");
-  expect(formatImportChip("claude", { source: "claude", done: 0, total: 0 })).toBe("trazendo…");
-  expect(formatImportChip("codex", { source: "codex", done: 21, total: 50 })).toBe("trazendo… 42%");
+  expect(formatImportChip("claude", { source: "claude", done: 0, total: 0 })).toBe("Lendo…");
+  expect(formatImportChip("codex", { source: "codex", done: 21, total: 50 })).toBe("Lendo…");
 });
 
 test("apply reports done/total on each file", async () => {
