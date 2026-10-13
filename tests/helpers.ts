@@ -30,6 +30,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
   importClaude?: string;
   importCodex?: string;
   importCursor?: string;
+  compactSkipTokens?: number;
   repo?: string;
   dataDir?: string;
   gh?: GhClient;
@@ -53,6 +54,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     importClaude: opts.importClaude ?? importEmpty,
     importCodex: opts.importCodex ?? importEmpty,
     importCursor: opts.importCursor ?? importEmpty,
+    ...(opts.compactSkipTokens !== undefined ? { compactSkipTokens: opts.compactSkipTokens } : {}),
   });
   const hub = new Hub(
     cfg,
