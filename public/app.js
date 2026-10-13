@@ -246,10 +246,15 @@ function bodyHtml(text, streaming) {
 const mdMemo = new Map();
 
 function md(text, streaming) {
-  if (!streaming && mdMemo.has(text)) return mdMemo.get(text);
+  if (!streaming && mdMemo.has(text)) {
+    const hit = mdMemo.get(text);
+    mdMemo.delete(text);
+    mdMemo.set(text, hit);
+    return hit;
+  }
   const html = typeof renderMarkdown === "function" ? renderMarkdown(text, !!streaming) : rich(text);
   if (!streaming) {
-    if (mdMemo.size > 400) mdMemo.clear();
+    if (mdMemo.size > 400) mdMemo.delete(mdMemo.keys().next().value);
     mdMemo.set(text, html);
   }
   return html;
@@ -370,6 +375,7 @@ function wrapUiSource(source) {
 }
 
 const liveFrameHome = new WeakMap();
+const composerWatch = new WeakMap();
 
 function isConfirmedUrlFrame(iframe) {
   return iframe.getAttribute("data-live-kind") === "url";
@@ -831,16 +837,37 @@ function renderChat() {
       if (actions && next) actions.outerHTML = next;
       else if (!actions && next) log.querySelector(".welcome")?.insertAdjacentHTML("beforeend", next);
     }
-    measureComposer();
     paintScrollHints();
     renderChrome();
     return;
   }
+  const keep = chat.scrollTop;
+  if (!appendChatIfPrefix()) {
+    const built = chatRowParts();
+    log.innerHTML = built.html;
+    reattachUi();
+    bindLiveGuards(log);
+    bindLiveUrlAsks(log);
+    bind3dPause();
+    markEnter();
+  }
+  if (stick.follow) snapToFloor();
+  else setChatTop(keep);
+  paintScrollHints();
+  renderChrome();
+}
+
+function messageMid(m, i) {
+  return `${m.i ?? i}:${m.kind}:${m.date || ""}`;
+}
+
+function chatRowParts(skipMids = 0) {
   const parts = [];
   const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
   const showDays = days.size > 1;
   let lastDay = "";
   let lastTalkAt = -1;
+  let midCount = 0;
   for (let i = 0; i < state.messages.length; i++) {
     if (state.messages[i].kind === "talk") lastTalkAt = i;
   }
@@ -849,48 +876,18 @@ function renderChat() {
     if (showDays) {
       const day = dayLabel(m.date);
       if (day !== lastDay) {
-        parts.push(`<div class="day">${day}</div>`);
+        if (midCount >= skipMids) parts.push(`<div class="day" data-mid="day:${day}">${day}</div>`);
+        midCount++;
         lastDay = day;
       }
     }
-    if (m.kind === "user") {
-      parts.push(`<div class="u" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${rich(m.text)}</div>`);
-      continue;
-    }
-    if (m.kind === "tool") {
-      parts.push(toolRowFromMessage(m));
-      continue;
-    }
     if (m.kind === "echo") continue;
-    if (m.kind === "think") {
-      parts.push(thinkBlock(m.seat || "claude", m.model, m.text, false, m.durationMs));
-      continue;
+    if (/^tools:\s/i.test(m.text)) continue;
+    if (midCount >= skipMids) {
+      parts.push(messageRowHtml(m, messageMid(m, i)));
+      if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) parts.push(workDisclosure(state.lastTurn));
     }
-    if (m.kind === "merge") {
-      parts.push(`<div class="ret" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
-      continue;
-    }
-    if (m.kind === "note") {
-      if (/^tools:\s/i.test(m.text)) continue;
-      const warn = /limite|quota/i.test(m.text);
-      parts.push(`<div class="note${warn ? " warn" : ""}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${md(m.text)}</div>`);
-      continue;
-    }
-    const seat = m.seat || "claude";
-    const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
-    const sm = m.kind === "seat" || m.kind === "bus" ? " sm" : "";
-    const who = m.kind === "bus"
-      ? busWho(m)
-      : agentLabel(seat, m.model);
-    const chips = m.kind === "talk" ? recallChipHtml(m.recall) : "";
-    parts.push(`<div class="m${sm}" data-mid="${escapeHtml(`${i}-${m.date || ""}`)}">${avatar(seat)}<div class="bb">
-      <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
-      <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
-      ${chips}
-    </div></div>`);
-    if (m.kind === "talk" && state.lastTurn && i === lastTalkAt) {
-      parts.push(workDisclosure(state.lastTurn));
-    }
+    midCount++;
   }
   if (state.turn && state.turn.status === "running") {
     parts.push(liveTurnHtml(state.turn));
@@ -902,18 +899,82 @@ function renderChat() {
       <div class="md">${bodyHtml(state.stream, true)}</div>
     </div></div>`);
   }
-  const keep = chat.scrollTop;
-  log.innerHTML = parts.join("");
+  return { html: parts.join("") };
+}
+
+function messageRowHtml(m, mid) {
+  const attr = `data-mid="${escapeHtml(mid)}"`;
+  if (m.kind === "user") {
+    return `<div class="u" ${attr}>${rich(m.text)}</div>`;
+  }
+  if (m.kind === "tool") return `<div class="twrap" ${attr}>${toolRowFromMessage(m)}</div>`;
+  if (m.kind === "echo") return "";
+  if (m.kind === "think") return `<div class="thwrap" ${attr}>${thinkBlock(m.seat || "claude", m.model, m.text, false, m.durationMs)}</div>`;
+  if (m.kind === "merge") {
+    return `<div class="ret" ${attr}>${md(m.text)}</div>`;
+  }
+  if (m.kind === "note") {
+    if (/^tools:\s/i.test(m.text)) return "";
+    const warn = /limite|quota/i.test(m.text);
+    return `<div class="note${warn ? " warn" : ""}" ${attr}>${md(m.text)}</div>`;
+  }
+  const seat = m.seat || "claude";
+  const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
+  const sm = m.kind === "seat" || m.kind === "bus" ? " sm" : "";
+  const who = m.kind === "bus" ? busWho(m) : agentLabel(seat, m.model);
+  const chips = m.kind === "talk" ? recallChipHtml(m.recall) : "";
+  return `<div class="m${sm}" ${attr}>${avatar(seat)}<div class="bb">
+      <div class="nm ${nm}">${escapeHtml(who)}<span class="tm">${timeOf(m.date)}</span></div>
+      <div class="md">${bodyHtml(m.kind === "bus" ? busBody(m.text) : m.text)}</div>
+      ${chips}
+    </div></div>`;
+}
+
+function chatStableMids() {
+  const mids = [];
+  const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
+  const showDays = days.size > 1;
+  let lastDay = "";
+  for (let i = 0; i < state.messages.length; i++) {
+    const m = state.messages[i];
+    if (showDays) {
+      const day = dayLabel(m.date);
+      if (day !== lastDay) {
+        mids.push(`day:${day}`);
+        lastDay = day;
+      }
+    }
+    if (m.kind === "echo") continue;
+    if (/^tools:\s/i.test(m.text)) continue;
+    mids.push(messageMid(m, i));
+  }
+  return mids;
+}
+
+function appendChatIfPrefix() {
+  if (log.querySelector(".welcome")) return false;
+  const have = [...log.querySelectorAll(":scope > [data-mid]")];
+  const stable = chatStableMids();
+  if (!have.length || have.length > stable.length) return false;
+  for (let i = 0; i < have.length; i++) {
+    if (have[i].dataset.mid !== stable[i]) return false;
+  }
+  if (have.length === stable.length) {
+    if (state.turn && state.turn.status === "running") paintLive();
+    return true;
+  }
+  const wrap = document.createElement("div");
+  wrap.innerHTML = chatRowParts(have.length).html;
+  log.querySelectorAll(":scope > .live, :scope > .stream").forEach((n) => n.remove());
+  for (const node of [...wrap.querySelectorAll(":scope > [data-mid], :scope > .live, :scope > .stream")]) {
+    log.appendChild(node);
+  }
   reattachUi();
   bindLiveGuards(log);
   bindLiveUrlAsks(log);
   bind3dPause();
   markEnter();
-  measureComposer();
-  if (stick.follow) snapToFloor();
-  else setChatTop(keep);
-  paintScrollHints();
-  renderChrome();
+  return true;
 }
 
 let liveRaf = 0;
@@ -953,7 +1014,6 @@ function paintLive() {
     const next = wrap.firstElementChild;
     if (next) node.replaceWith(next);
   }
-  measureComposer();
   if (stick.follow) followScroll();
   paintScrollHints();
 }
@@ -1005,6 +1065,15 @@ function jumpToLatest() {
 }
 
 let lastComposerSpace = -1;
+function watchComposer() {
+  const el = $("dock") || $("form");
+  if (!el || composerWatch.has(el)) return;
+  const ro = new ResizeObserver(() => measureComposer());
+  ro.observe(el);
+  composerWatch.set(el, ro);
+  measureComposer();
+}
+
 function measureComposer() {
   if (typeof window !== "undefined" && typeof window.__ncliComposerMeasures === "number") window.__ncliComposerMeasures += 1;
   const el = $("dock") || $("form");
@@ -1333,34 +1402,41 @@ function renderJob() {
   if (!el) return;
   const job = activeJob();
   if (!job) {
+    if (el.hidden && !el.innerHTML) return;
     el.hidden = true;
     el.innerHTML = "";
     el.removeAttribute("data-phase");
     el.removeAttribute("data-kind");
     el.removeAttribute("data-unknown");
     el.classList.remove("is-out", "is-in");
-    measureComposer();
     return;
   }
   const now = Date.now();
   const pct = jobPctOf(job.done, job.total);
   const unknown = job.phase === "running" && pct === null;
-  const retry = job.phase === "error"
-    ? `<button type="button" class="job-retry" data-job-retry="${escapeHtml(job.kind)}" data-job-source="${escapeHtml(job.source || "")}">tentar de novo</button>`
-    : "";
+  const line = jobLineOf(job);
   const meta = jobMetaOf(job, now);
-  el.hidden = false;
-  el.dataset.phase = job.phase;
-  el.dataset.kind = job.kind;
+  el.style.setProperty("--job-pct", unknown ? "0.28" : String((pct ?? 0) / 100));
   if (unknown) el.dataset.unknown = "1";
   else delete el.dataset.unknown;
   el.classList.toggle("is-out", job.phase === "done");
   el.classList.add("is-in");
-  el.style.setProperty("--job-pct", unknown ? "0.28" : String((pct ?? 0) / 100));
+  const stage = el.querySelector(".job-stage");
+  const metaEl = el.querySelector(".job-meta");
+  if (!el.hidden && el.dataset.kind === job.kind && el.dataset.phase === job.phase && stage) {
+    if (stage.textContent !== line) stage.textContent = line;
+    if (metaEl && metaEl.textContent !== (meta || "")) metaEl.textContent = meta || "";
+    return;
+  }
+  const retry = job.phase === "error"
+    ? `<button type="button" class="job-retry" data-job-retry="${escapeHtml(job.kind)}" data-job-source="${escapeHtml(job.source || "")}">tentar de novo</button>`
+    : "";
+  el.hidden = false;
+  el.dataset.phase = job.phase;
+  el.dataset.kind = job.kind;
   el.setAttribute("role", "status");
   el.setAttribute("aria-live", "polite");
-  el.innerHTML = `<div class="job-track" aria-hidden="true"><div class="job-fill"></div></div><div class="job-copy"><span class="job-stage">${escapeHtml(jobLineOf(job))}</span>${meta ? `<span class="job-meta">${escapeHtml(meta)}</span>` : ""}</div>${retry}`;
-  measureComposer();
+  el.innerHTML = `<div class="job-track" aria-hidden="true"><div class="job-fill"></div></div><div class="job-copy"><span class="job-stage">${escapeHtml(line)}</span>${meta ? `<span class="job-meta">${escapeHtml(meta)}</span>` : ""}</div>${retry}`;
 }
 
 function agentTrio(clis, mainHarness) {
@@ -1431,10 +1507,15 @@ function renderChrome() {
         ${avatar(id)}<span class="switch-copy"><b>${escapeHtml((SEAT[id] || SEAT.claude).name)}</b><small>${escapeHtml(shown || "")}</small></span>
       </button>`;
     }).join("");
-    sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
+    const html = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
       ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
     </button>
     <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
+    const key = `${seat}|${main.model || ""}|${state.switchOpen ? 1 : 0}|${opts}`;
+    if (sw.dataset.chrome !== key) {
+      sw.dataset.chrome = key;
+      sw.innerHTML = html;
+    }
   }
   renderJob();
   const views = $("viewBlock");
@@ -1460,9 +1541,10 @@ function renderChrome() {
   const stop = $("stopBtn");
   if (stop) stop.hidden = !(state.turn && state.turn.status === "running");
   if (input) {
-    input.placeholder = state.turn && state.turn.status === "running"
+    const ph = state.turn && state.turn.status === "running"
       ? "Entra na fila ao fim do turno…"
       : "Pergunta, URL de PR ou /help";
+    if (input.placeholder !== ph) input.placeholder = ph;
   }
 }
 
@@ -1473,18 +1555,20 @@ function renderImport() {
   const src = srcs[0];
   const p = src && state.importProgress[src];
   if (p) {
-    bar.hidden = true;
-    bar.innerHTML = "";
+    if (!bar.hidden || bar.innerHTML) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+    }
     renderJob();
-    measureComposer();
     return;
   }
   const preview = state.import;
   const canApply = Boolean(preview && preview.sessions && preview.seenCount === 0);
   if (!preview || (!preview.newCount && !canApply)) {
-    bar.hidden = true;
-    bar.innerHTML = "";
-    measureComposer();
+    if (!bar.hidden || bar.innerHTML) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+    }
     return;
   }
   const neu = preview.newCount === 1 ? "1 nova" : preview.newCount > 1 ? `${preview.newCount} novas` : `${preview.sessions} ${preview.sessions === 1 ? "sessão" : "sessões"}`;
@@ -1495,7 +1579,6 @@ function renderImport() {
     : "";
   bar.hidden = false;
   bar.innerHTML = `<div class="qitem" data-import="${escapeHtml(preview.source)}"><span>import</span><b>${escapeHtml(preview.source)} · ${detail}</b>${action}<button type="button" class="qx" data-import-dismiss="1" aria-label="fechar">×</button></div>`;
-  measureComposer();
 }
 
 function renderQueue() {
@@ -1526,10 +1609,8 @@ function renderQueue() {
     waitMotion(el).then(() => {
       el.remove();
       if (!bar.querySelector(".qitem")) bar.hidden = true;
-      measureComposer();
     });
   }
-  measureComposer();
 }
 
 function clockShort(iso) {
@@ -2186,7 +2267,6 @@ function applyEvent(ev) {
         const btn = log.querySelector(`[data-welcome-import="${ev.source}"]`);
         if (btn) paintImportChip(btn, ev.source);
         else if (chromeNow().showWelcome) renderChat();
-        renderImport();
         renderJob();
       }
       break;
@@ -2868,4 +2948,5 @@ async function boot() {
 
 renderChat();
 renderChrome();
+watchComposer();
 boot();
