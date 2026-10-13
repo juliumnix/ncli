@@ -175,6 +175,12 @@ const state = {
   compact: null,
   userName: "Você",
   queue: [],
+  editQid: "",
+  seats: [
+    { harness: "claude" },
+    { harness: "codex" },
+    { harness: "cursor" },
+  ],
   usage: { seats: [], chain: [] },
   import: null,
   importOffers: [],
@@ -1383,10 +1389,9 @@ function renderAgentTrio() {
 }
 
 function sessionChrome(input) {
-  const extraSeat = input.mainHarness !== "claude" && input.mainHarness !== "mock";
   const sparked = input.sparkCount > 0;
   return {
-    showSwitcher: input.limited || sparked || extraSeat,
+    showSwitcher: true,
     showCompact: input.compactRunning,
     showSparks: sparked,
     showViews: sparked,
@@ -1415,22 +1420,21 @@ function renderChrome() {
   if (sw) {
     const main = state.main || { harness: "claude" };
     const seat = main.harness === "mock" ? "claude" : main.harness;
-    if (!chrome.showSwitcher) {
-      state.switchOpen = false;
-      sw.innerHTML = `<div class="seat-label"><span>${escapeHtml(agentLabel(seat, main.model))}</span></div>`;
-    } else {
-      const opts = [
-        ["claude", "Claude"],
-        ["codex", "Codex"],
-        ["cursor", "Cursor"],
-      ].map(([value, label]) => (
-        `<button type="button" class="switch-opt${main.harness === value ? " on" : ""}" data-harness="${value}">${escapeHtml(label)}</button>`
-      )).join("");
-      sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
-        ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
-      </button>
-      <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
-    }
+    const seats = state.seats && state.seats.length
+      ? state.seats
+      : [{ harness: "claude" }, { harness: "codex" }, { harness: "cursor" }];
+    const opts = seats.map((row) => {
+      const id = row.harness === "codex" || row.harness === "cursor" ? row.harness : "claude";
+      const shown = displayModel(row.model);
+      const on = (main.harness === "mock" ? "claude" : main.harness) === id;
+      return `<button type="button" class="switch-opt${on ? " on" : ""}" data-harness="${id}" role="option">
+        ${avatar(id)}<span class="switch-copy"><b>${escapeHtml((SEAT[id] || SEAT.claude).name)}</b><small>${escapeHtml(shown || "")}</small></span>
+      </button>`;
+    }).join("");
+    sw.innerHTML = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
+      ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
+    </button>
+    <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
   }
   renderJob();
   const views = $("viewBlock");
@@ -1455,11 +1459,9 @@ function renderChrome() {
   }
   const stop = $("stopBtn");
   if (stop) stop.hidden = !(state.turn && state.turn.status === "running");
-  const qbtn = $("queueBtn");
-  if (qbtn) qbtn.hidden = !(state.turn && state.turn.status === "running");
   if (input) {
     input.placeholder = state.turn && state.turn.status === "running"
-      ? "Ajustar o turno… Enter entra · fila ao lado"
+      ? "Entra na fila ao fim do turno…"
       : "Pergunta, URL de PR ou /help";
   }
 }
@@ -1505,10 +1507,18 @@ function renderQueue() {
   bar.hidden = main.length === 0 && leaving.length === 0;
   bar.innerHTML = main
     .map((i) => {
-      const tag = i.mode === "steer" ? "steer" : "fila";
-      return `<div class="qitem" data-qid="${escapeHtml(i.id)}"><span>${tag}</span><b>${escapeHtml(i.text)}</b><button type="button" class="qx" data-qid="${escapeHtml(i.id)}" aria-label="tirar">×</button></div>`;
+      const editing = state.editQid === i.id;
+      const body = editing
+        ? `<input class="qedit-input" data-qedit-input="${escapeHtml(i.id)}" value="${escapeHtml(i.text)}" />`
+        : `<b>${escapeHtml(i.text)}</b>`;
+      return `<div class="qitem" data-qid="${escapeHtml(i.id)}">${body}<span class="qacts"><button type="button" class="qnow" data-qnow="${escapeHtml(i.id)}">enviar agora</button><button type="button" class="qedit" data-qedit="${escapeHtml(i.id)}">editar</button><button type="button" class="qx" data-qid="${escapeHtml(i.id)}" aria-label="tirar">×</button></span></div>`;
     })
     .join("");
+  const edit = bar.querySelector(".qedit-input");
+  if (edit) {
+    edit.focus();
+    edit.select();
+  }
   for (const el of leaving) {
     el.classList.add("out");
     bar.appendChild(el);
@@ -2242,6 +2252,11 @@ function applyEvent(ev) {
       break;
     case "main":
       state.main = ev.main;
+      if (ev.main && state.seats) {
+        state.seats = state.seats.map((s) => (
+          s.harness === ev.main.harness ? { harness: s.harness, model: ev.main.model } : s
+        ));
+      }
       renderChrome();
       break;
     case "compact":
@@ -2517,7 +2532,19 @@ async function sendUser(text, mode) {
   const slash = t === "/help" || t === "/?" || t.startsWith("/ncli");
   const pasteReview = isLonePrUrl(t);
   const body = { text: t };
-  if (running) body.mode = mode || "steer";
+  if (running) {
+    body.mode = mode || "queue";
+    if (body.mode === "queue") {
+      state.queue = [...(state.queue || []), {
+        id: "local-" + Date.now().toString(36),
+        session: "main",
+        text: t,
+        mode: "queue",
+        createdAt: new Date().toISOString(),
+      }];
+      renderQueue();
+    }
+  }
   if (!running && !slash && !pasteReview) {
     const pending = {
       kind: "user",
@@ -2577,16 +2604,6 @@ $("form").addEventListener("submit", (e) => {
 
 input?.addEventListener("input", renderPasteHint);
 input?.addEventListener("paste", () => requestAnimationFrame(renderPasteHint));
-
-$("queueBtn")?.addEventListener("click", () => {
-  const text = input.value.trim();
-  if (!text) return;
-  const hint = reviewPasteHint(text);
-  input.value = "";
-  renderPasteHint();
-  if (hint) pendingReviewOpen = hint;
-  void sendUser(text, "queue");
-});
 
 log?.addEventListener("click", async (e) => {
   const go = e.target.closest("[data-welcome-import]");
@@ -2648,13 +2665,58 @@ $("ibar")?.addEventListener("click", async (e) => {
   });
 });
 
+async function saveQueueEdit(id, text) {
+  state.editQid = "";
+  const res = await fetch(`/api/queue/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (data.queue) state.queue = data.queue;
+  renderQueue();
+}
+
 $("qbar")?.addEventListener("click", async (e) => {
-  const btn = e.target.closest("[data-qid]");
+  const now = e.target.closest("[data-qnow]");
+  if (now) {
+    const res = await fetch(`/api/queue/${encodeURIComponent(now.dataset.qnow)}/now`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (data.queue) state.queue = data.queue;
+    renderQueue();
+    return;
+  }
+  const edit = e.target.closest("[data-qedit]");
+  if (edit) {
+    state.editQid = edit.dataset.qedit;
+    renderQueue();
+    return;
+  }
+  const btn = e.target.closest(".qx[data-qid]");
   if (!btn) return;
   const res = await fetch(`/api/queue/${encodeURIComponent(btn.dataset.qid)}`, { method: "DELETE" });
   const data = await res.json().catch(() => ({}));
   if (data.queue) state.queue = data.queue;
   renderQueue();
+});
+
+$("qbar")?.addEventListener("keydown", (e) => {
+  const inp = e.target.closest("[data-qedit-input]");
+  if (!inp) return;
+  if (e.key === "Enter") {
+    e.preventDefault();
+    void saveQueueEdit(inp.dataset.qeditInput, inp.value);
+  }
+  if (e.key === "Escape") {
+    state.editQid = "";
+    renderQueue();
+  }
+});
+
+$("qbar")?.addEventListener("focusout", (e) => {
+  const inp = e.target.closest("[data-qedit-input]");
+  if (!inp || e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return;
+  void saveQueueEdit(inp.dataset.qeditInput, inp.value);
 });
 
 window.addEventListener("message", (ev) => {
@@ -2775,6 +2837,7 @@ async function boot() {
   state.context = state.context || snap.context || null;
   if (!state.ctxPrev.length) state.ctxPrev = (snap.context && snap.context.rows) || [];
   state.main = snap.main || state.main;
+  if (snap.seats) state.seats = snap.seats;
   if (!state.lastTurn) state.lastTurn = snap.turn && snap.turn.status !== "running" ? snap.turn : null;
   if (!state.turn) state.turn = snap.turn || null;
   if (!state.compact) state.compact = snap.compact || null;
