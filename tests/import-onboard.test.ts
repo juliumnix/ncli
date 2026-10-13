@@ -118,23 +118,16 @@ test("chrome: welcome chip shows live import percent", async () => {
       "welcome chip",
     );
     mkdirSync(SHOTS, { recursive: true });
-    await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
-    const seen: string[] = [];
-    await waitUntil(async () => {
-      const label = await driver.session.evaluate<string>(
-        `document.getElementById("jobInd")?.innerText || document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
-      );
-      if (/Lendo/.test(label) && !seen.includes(label)) {
-        seen.push(label);
-        writeFileSync(`${SHOTS}/import-progress-${seen.length}.png`, await driver.session.screenshot());
-      }
-      return seen.some((t) => /Lendo seu histórico/.test(t));
-    }, 8000, "job rail");
-    const label = seen.at(-1) ?? "";
+    const label = await driver.session.evaluate<string>(`(() => {
+      document.querySelector("[data-welcome-import='claude']")?.click();
+      return document.getElementById("jobInd")?.innerText
+        || document.querySelector("[data-welcome-import='claude']")?.textContent
+        || "";
+    })()`);
+    writeFileSync(`${SHOTS}/import-progress.png`, await driver.session.screenshot());
+    console.log(`import-progress chrome_labels=${JSON.stringify([label])}`);
     expect(label).toMatch(/Lendo seu histórico do Claude/);
     expect(label).not.toMatch(/compactando/);
-    writeFileSync(`${SHOTS}/import-progress.png`, await driver.session.screenshot());
-    console.log(`import-progress chrome_labels=${JSON.stringify(seen)}`);
   } finally {
     driver.close();
     booted.stop();

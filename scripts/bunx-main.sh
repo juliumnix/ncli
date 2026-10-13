@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
-sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+sha=$NCLI_REVISION
+if [ -z "$sha" ]; then
+  sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+fi
 if [ -z "$sha" ]; then
   echo "NCLI: não achei o tip do main." >&2
   exit 1
@@ -14,9 +17,18 @@ wipe() {
     rm -rf "$extract"
   done
 }
-wipe "$TMPDIR"
-wipe /tmp
-wipe /private/tmp
+if [ -n "$NCLI_BUNX_TMPDIRS" ]; then
+  old_ifs=$IFS
+  IFS=:
+  for dir in $NCLI_BUNX_TMPDIRS; do
+    wipe "$dir"
+  done
+  IFS=$old_ifs
+else
+  wipe "$TMPDIR"
+  wipe /tmp
+  wipe /private/tmp
+fi
 echo "NCLI: main $sha" >&2
 export NCLI_REVISION=$sha
 exec bunx "github:juliumnix/ncli#$sha" "$@"

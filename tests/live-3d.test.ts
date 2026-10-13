@@ -223,6 +223,11 @@ test("chrome: a 3d fence cannot load a remote script", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
+      () => driver!.session.evaluate(`Boolean(document.querySelector("iframe.live-3d"))`),
+      12000,
+      "3d iframe",
+    );
+    await waitUntil(
       () =>
         driver!.session.evaluate(`(() => {
           const desk = document.querySelector("iframe.live-3d");

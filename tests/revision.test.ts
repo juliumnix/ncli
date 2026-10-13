@@ -4,8 +4,10 @@ import { join } from "node:path";
 import {
   documentedBunx,
   documentedLaunch,
+  fetchMainTip,
   ncliSpecAt,
   parseLsRemoteMain,
+  readBootRevision,
   parseRevision,
   parseShaFromGithubSpec,
   parseShaFromPath,
@@ -71,4 +73,25 @@ test("readBunGithubCacheSha picks the newest ncli@sha cache dir", () => {
   const dir = join(home, ".bun/install/cache/github.com/juliumnix");
   mkdirSync(join(dir, `ncli@${MAIN}`), { recursive: true });
   expect(readBunGithubCacheSha(home)).toBe(MAIN);
+});
+
+test("resolveRevision takes a live main tip before falling back to unknown", () => {
+  const empty = tmpDir("rev-remote");
+  expect(resolveRevision(empty, {}, [], MAIN).sha).toBe(MAIN);
+});
+
+test("fetchMainTip parses git ls-remote stdout via the injected runner", () => {
+  const sha = fetchMainTip({
+    lsRemote: () => ({
+      exitCode: 0,
+      stdout: `${MAIN}\trefs/heads/main\n`,
+    }),
+  });
+  expect(sha).toBe(MAIN);
+  expect(fetchMainTip({ lsRemote: () => ({ exitCode: 1, stdout: "" }) })).toBeUndefined();
+});
+
+test("readBootRevision keeps a set NCLI_REVISION without fetching", () => {
+  const empty = tmpDir("rev-pin");
+  expect(readBootRevision(empty, { NCLI_REVISION: MAIN }).sha).toBe(MAIN);
 });

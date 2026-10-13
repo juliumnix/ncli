@@ -35,6 +35,7 @@ export function resolveRevision(
   root: string,
   env: Record<string, string | undefined> = process.env,
   extra: string[] = [],
+  remoteSha?: string,
 ): NcliRevision {
   const fromEnv = parseRevision(env.NCLI_REVISION);
   if (fromEnv) return fromEnv;
@@ -53,7 +54,40 @@ export function resolveRevision(
   if (fromBlobs) return fromBlobs;
   const fromCache = parseRevision(readBunGithubCacheSha());
   if (fromCache) return fromCache;
+  const fromRemote = parseRevision(remoteSha);
+  if (fromRemote) return fromRemote;
   return { sha: "unknown", short: "unknown" };
+}
+
+export type LsRemoteResult = { exitCode: number; stdout: string };
+
+export function fetchMainTip(opts: { lsRemote?: () => LsRemoteResult } = {}): string | undefined {
+  const run = opts.lsRemote ?? defaultLsRemote;
+  const proc = run();
+  if (proc.exitCode !== 0) return undefined;
+  try {
+    return parseLsRemoteMain(proc.stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+export function readBootRevision(
+  root: string,
+  env: Record<string, string | undefined> = process.env,
+  extra: string[] = [],
+): NcliRevision {
+  const first = resolveRevision(root, env, extra);
+  if (first.sha !== "unknown") return first;
+  return resolveRevision(root, env, extra, fetchMainTip());
+}
+
+function defaultLsRemote(): LsRemoteResult {
+  const proc = Bun.spawnSync(
+    ["git", "ls-remote", "https://github.com/juliumnix/ncli.git", "refs/heads/main"],
+    { stdout: "pipe", stderr: "pipe", timeout: 8_000 },
+  );
+  return { exitCode: proc.exitCode ?? 1, stdout: proc.stdout.toString() };
 }
 
 export const NCLI_GITHUB = "github:juliumnix/ncli";

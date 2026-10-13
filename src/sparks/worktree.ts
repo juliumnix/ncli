@@ -12,12 +12,28 @@ export interface GitRunner {
   (args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number }>;
 }
 
-export async function realGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number }> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+export async function realGit(
+  args: string[],
+  cwd: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", env });
   const stdout = await new Response(proc.stdout).text();
   const stderr = await new Response(proc.stderr).text();
   const code = await proc.exited;
   return { stdout, stderr, code };
+}
+
+function tempGitEnv(): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "ncli",
+    GIT_AUTHOR_EMAIL: "ncli@local",
+    GIT_COMMITTER_NAME: "ncli",
+    GIT_COMMITTER_EMAIL: "ncli@local",
+  };
 }
 
 export interface WorktreePolicy {
@@ -160,12 +176,15 @@ export function applyInclude(repo: string, dest: string, includeFile: string): v
 export async function initTempRepo(prefix = "ncli-repo"): Promise<string> {
   const dir = join(tmpdir(), `${prefix}-${crypto.randomUUID()}`);
   mkdirSync(dir, { recursive: true });
-  const git = realGit;
-  await git(["init"], dir);
-  await git(["config", "user.email", "ncli@local"], dir);
-  await git(["config", "user.name", "ncli"], dir);
+  const env = tempGitEnv();
+  const git = (args: string[]) => realGit(args, dir, env);
+  await git(["init"]);
+  await git(["config", "user.email", "ncli@local"]);
+  await git(["config", "user.name", "ncli"]);
+  await git(["config", "commit.gpgsign", "false"]);
+  await git(["config", "core.fsmonitor", "false"]);
   await Bun.write(join(dir, "README.md"), "# ncli test repo\n");
-  await git(["add", "."], dir);
-  await git(["commit", "-m", "init"], dir);
+  await git(["add", "."]);
+  await git(["commit", "-m", "init"]);
   return dir;
 }

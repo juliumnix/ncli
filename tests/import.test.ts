@@ -222,7 +222,7 @@ test("cursor default projects root ignores jsonl outside agent-transcripts", () 
 });
 
 test("/help posts the command list and does not start a turn", async () => {
-  const { hub } = await makeHub();
+  const { hub } = await makeHub({ viewsDir: tmpDir("help-views") });
   try {
     await hub.send("/help");
     await hub.send("/?");

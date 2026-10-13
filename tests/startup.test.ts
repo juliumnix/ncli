@@ -76,6 +76,9 @@ test("boot banner is URL, CLIs and version; compact and cli-config stay in verbo
   expect(formatBoot({ ...report, revision: "" })).toBe(
     "NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok",
   );
+  expect(formatBoot({ ...report, revision: "unknown" })).toBe(
+    "NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok",
+  );
 });
 
 test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap", () => {

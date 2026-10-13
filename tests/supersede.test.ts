@@ -88,7 +88,7 @@ test("a chain of replacements names the direct successor", () => {
 });
 
 test("supersede MCP writes a note and zoom follows it after reload", async () => {
-  const { hub, dataDir } = await makeHub();
+  const { hub, dataDir } = await makeHub({ viewsDir: tmpDir("super-views") });
   try {
     const old = hub.memory.append({ kind: "user", text: "ship Friday" });
     const neu = hub.memory.append({ kind: "user", text: "ship Monday" });
@@ -126,7 +126,7 @@ test("supersede MCP writes a note and zoom follows it after reload", async () =>
 });
 
 test("supersede rejects new<=old and cycles", async () => {
-  const { hub } = await makeHub();
+  const { hub } = await makeHub({ viewsDir: tmpDir("super-cycle-views") });
   try {
     const a = hub.memory.append({ kind: "user", text: "rate is 10" });
     const b = hub.memory.append({ kind: "user", text: "rate is 12" });
@@ -155,7 +155,7 @@ test("supersede rejects new<=old and cycles", async () => {
 
 test("supersede refuses a space argument with a clear error", async () => {
   const other = tmpDir("super-other");
-  const { hub } = await makeHub();
+  const { hub } = await makeHub({ viewsDir: tmpDir("super-space-views") });
   try {
     hub.memory.append({ kind: "user", text: "CURRENT_OLD" });
     hub.memory.append({ kind: "user", text: "CURRENT_NEW" });

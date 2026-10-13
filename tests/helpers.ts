@@ -44,6 +44,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     repo,
     ncliRoot: join(import.meta.dir, ".."),
     harness: "mock",
+    compactBackend: "mock",
     demo: opts.demo ?? false,
     ghMode: "mock",
     viewBytes: opts.viewBytes ?? 800,

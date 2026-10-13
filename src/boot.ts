@@ -12,7 +12,7 @@ import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
 import { announceReady, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
 import { busyPortMessage, isAddrInUse, nextPorts, portPinned } from "./listen-port";
-import { resolveRevision } from "./revision";
+import { readBootRevision, type NcliRevision } from "./revision";
 export { detectClis };
 
 export interface BootReport {
@@ -49,7 +49,7 @@ export function bootVerbose(env: NodeJS.ProcessEnv = process.env, argv: string[]
 
 export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): string {
   const url = r.uiUrl.replace("127.0.0.1", "localhost");
-  const rev = r.revision ? ` · ${r.revision}` : "";
+  const rev = r.revision && r.revision !== "unknown" ? ` · ${r.revision}` : "";
   const short = [`NCLI rodando em ${url}${rev}`, formatClis(r.clis)].join("\n");
   if (!opts.verbose) return short;
   return [
@@ -63,6 +63,12 @@ export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): str
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function requireBootRevision(root: string): NcliRevision {
+  const revision = readBootRevision(root, process.env, [import.meta.path, process.argv[1] ?? ""]);
+  if (revision.sha === "unknown") throw new Error("ncli: não achei o sha do main");
+  return revision;
 }
 
 export async function bootNcli(opts: {
@@ -99,7 +105,7 @@ export async function bootNcli(opts: {
   hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const clis = detectClis(cfg);
-  const revision = resolveRevision(root, process.env, [import.meta.path, process.argv[1] ?? ""]);
+  const revision = requireBootRevision(root);
   announceReady({
     url: readyUrl(server.port),
     clis,
