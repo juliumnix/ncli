@@ -68,13 +68,41 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           },
         });
       }
+      if (url.pathname === "/api/messages/search" && req.method === "GET") {
+        const q = url.searchParams.get("q") ?? "";
+        const limit = Number(url.searchParams.get("limit") ?? 20);
+        return Response.json({ hits: await hub.searchMessages(q, limit) });
+      }
+      if (url.pathname === "/api/messages/meta") {
+        return Response.json(hub.messageMeta());
+      }
+      if (url.pathname === "/api/messages") {
+        const before = url.searchParams.get("before");
+        const after = url.searchParams.get("after");
+        const around = url.searchParams.get("around");
+        const limit = url.searchParams.get("limit");
+        return publicJson(await hub.messagesPage({)
+          before: before == null || before === "" ? undefined : Number(before),
+          after: after == null || after === "" ? undefined : Number(after),
+          around: around == null || around === "" ? undefined : Number(around),
+          limit: limit == null || limit === "" ? undefined : Number(limit),
+        }));
+      }
       if (url.pathname === "/api/state") {
         const beforeRaw = url.searchParams.get("before");
         const limitRaw = url.searchParams.get("limit");
-        return publicJson(hub.snapshot({
+        const snap = hub.snapshot({
           before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
           limit: limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw),
-        }));
+        });
+        if ((hub.memory.logIndex.count || 0) > snap.messages.length) {
+          const page = await hub.messagesPage({
+            before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
+            limit: limitRaw == null || limitRaw === "" ? 80 : Number(limitRaw),
+          });
+          return publicJson({ ...snap, ...page });
+        }
+        return publicJson(snap);
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };

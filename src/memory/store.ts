@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
+import { LogIndex } from "./log-index";
 import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
 import { factsOf, supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
@@ -65,6 +66,7 @@ export class Memory {
   readonly deferBackoffMs: number;
   readonly compressTimeoutMs: number;
   readonly log: Message[] = [];
+  readonly logIndex: LogIndex;
   readonly nodes = new Map<string, TreeNode>();
   compactWork: CompactWork = { done: 0, total: 0, paused: null };
   view: ViewPart[] = [];
@@ -93,6 +95,7 @@ export class Memory {
     this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
     this.compressTimeoutMs = opts.compressTimeoutMs ?? 30_000;
     mkdirSync(this.dir, { recursive: true });
+    this.logIndex = new LogIndex(this.dir);
     this.load();
   }
 
@@ -147,7 +150,15 @@ export class Memory {
     const out: Message[] = [];
     try {
       for (const partial of partials) out.push(this.writeLine(partial, false));
-      persistLines(join(this.dir, "log.jsonl"), out);
+      let offset = this.logIndex.size;
+      const raw = out.map((msg) => `${JSON.stringify(msg)}\n`).join("");
+      persistRaw(join(this.dir, "log.jsonl"), raw);
+      for (const msg of out) {
+        const n = Buffer.byteLength(`${JSON.stringify(msg)}\n`);
+        this.logIndex.push(offset, msg.date, n);
+        offset += n;
+      }
+      this.logIndex.persist();
       if (!opts.quiet) {
         if (this.viewBytesUsed() > this.viewHigh) this.fit();
         else this.saveView();
@@ -190,7 +201,13 @@ export class Memory {
       recall: partial.recall,
     };
     this.log.push(msg);
-    if (persist) persistLine(join(this.dir, "log.jsonl"), msg);
+    if (persist) {
+      const raw = `${JSON.stringify(msg)}\n`;
+      const start = this.logIndex.size;
+      persistRaw(join(this.dir, "log.jsonl"), raw);
+      this.logIndex.push(start, msg.date, Buffer.byteLength(raw));
+      if (this.log.length % 64 === 0) this.logIndex.persist();
+    }
     this.view.push(this.partFromLevel(0, msg.i));
     this.enqueue(0, msg.i);
     return msg;
@@ -788,14 +805,22 @@ export class Memory {
     const logPath = join(this.dir, "log.jsonl");
     const treePath = join(this.dir, "tree.jsonl");
     if (existsSync(logPath)) {
-      for (const line of readFileSync(logPath, "utf8").split("\n")) {
-        if (!line.trim()) continue;
-        try {
-          this.log.push(JSON.parse(line) as Message);
-        } catch {
-          continue;
+      this.logIndex.reset();
+      const buf = readFileSync(logPath);
+      let start = 0;
+      for (let i = 0; i < buf.length; i++) {
+        if (buf[i] !== 10) continue;
+        if (i > start) {
+          try {
+            const msg = JSON.parse(buf.toString("utf8", start, i)) as Message;
+            this.log.push(msg);
+            this.logIndex.push(start, msg.date, i - start + 1);
+          } catch {
+          }
         }
+        start = i + 1;
       }
+      this.logIndex.persist();
     }
     if (existsSync(treePath)) {
       for (const line of readFileSync(treePath, "utf8").split("\n")) {
@@ -904,6 +929,11 @@ function parseSavedView(raw: string): SavedPart[] | null {
 
 function isPair(item: unknown): item is [number, number] {
   return Array.isArray(item) && item.length >= 2 && typeof item[0] === "number" && typeof item[1] === "number";
+}
+
+function persistRaw(path: string, raw: string): void {
+  if (!raw) return;
+  appendFileSync(path, raw);
 }
 
 function persistLine(path: string, obj: unknown): void {

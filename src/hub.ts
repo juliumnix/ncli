@@ -67,6 +67,7 @@ import {
 import { runImportJob } from "./import/job";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
 import { pageMessages, type StatePageOpts } from "./state-page";
+import type { SliceOpts } from "./memory/log-index";
 
 export class Hub {
   readonly memory: Memory;
@@ -291,6 +292,21 @@ export class Hub {
   subscribe(fn: (ev: HubEvent) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  messagesPage(opts: SliceOpts = {}) {
+    return this.memory.logIndex.page(opts);
+  }
+
+  searchMessages(q: string, limit = 20) {
+    return this.memory.logIndex.search(q, limit);
+  }
+
+  messageMeta() {
+    return {
+      messageCount: this.memory.logIndex.count || this.memory.log.length,
+      ticks: this.memory.logIndex.ticks(),
+    };
   }
 
   snapshot(opts: StatePageOpts = {}) {
@@ -1111,6 +1127,7 @@ export class Hub {
     this.closed = true;
     this.importAbort?.abort();
     this.memory.paused = true;
+    this.memory.logIndex.persist();
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.harness.close?.();
     this.usage.close();

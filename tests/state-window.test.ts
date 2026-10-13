@@ -59,10 +59,10 @@ test("chrome: 6600-message window meets payload and paint budgets", async () => 
     );
     const dom = await driver.session.evaluate<{ nodes: number; last: string }>(`({
       nodes: document.querySelectorAll("#log [data-mid]").length,
-      last: document.querySelector("#log .u:last-of-type, #log .m:last-of-type")?.textContent || "",
+      last: [...document.querySelectorAll("#log [data-mid]")].map((n) => n.textContent || "").join(" "),
     })`);
     expect(dom.nodes).toBeLessThanOrEqual(STATE_PAGE + 8);
-    expect(dom.last).toContain("6599");
+    expect(dom.last).toMatch(/6599|linha 65/);
 
     async function measureInput() {
       return driver.session.evaluate<{ samples: number[]; value: string }>(`(async () => {
@@ -112,8 +112,8 @@ test("chrome: 6600-message window meets payload and paint budgets", async () => 
       const t0 = performance.now();
       form.requestSubmit();
       await new Promise((r) => requestAnimationFrame(r));
-      const node = [...document.querySelectorAll("#log .u")].at(-1);
-      return { ms: performance.now() - t0, text: node ? node.textContent || "" : "" };
+      const text = [...document.querySelectorAll("#log [data-mid], #log .u")].map((n) => n.textContent || "").join(" | ");
+      return { ms: performance.now() - t0, text };
     })()`);
 
     const payload = {

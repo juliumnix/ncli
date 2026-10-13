@@ -137,7 +137,28 @@ function markEnter() {
 }
 
 const STATE_PAGE = 80;
+const MSG_PAGE = 100;
+const EST_H = 72;
+const OVERSCAN = 720;
+const VBLOCK = 256;
 const rowHtmlCache = new Map();
+const idleMd = new Set();
+
+const virt = {
+  count: 0,
+  byId: new Map(),
+  heights: new Map(),
+  block: [],
+  dirty: [],
+  start: 0,
+  end: 0,
+  abort: null,
+  fetchGen: 0,
+  lastTop: 0,
+  lastT: 0,
+};
+
+let heightRo = null;
 
 const state = {
   messages: [],
@@ -837,14 +858,50 @@ function rowSig(m) {
   return `${m.i}|${m.kind}|${m.date || ""}|${m.text}|${m.seat || ""}|${m.model || ""}|${m.durationMs || ""}`;
 }
 
-function cachedRowHtml(m, mid) {
-  const sig = rowSig(m);
-  const hit = rowHtmlCache.get(mid);
-  if (hit && hit.sig === sig) return hit.html;
-  const html = messageRowHtml(m, mid);
-  rowHtmlCache.set(mid, { sig, html });
-  if (rowHtmlCache.size > 400) rowHtmlCache.delete(rowHtmlCache.keys().next().value);
+function cachedRowHtml(m, mid, light) {
+  const sig = rowSig(m) + (light ? "|l" : "");
+  const hit = rowHtmlCache.get(mid + sig);
+  if (hit) {
+    rowHtmlCache.delete(mid + sig);
+    rowHtmlCache.set(mid + sig, hit);
+    return hit;
+  }
+  const html = light && isHeavyMd(m.text) ? lightRowHtml(m, mid) : messageRowHtml(m, mid);
+  rowHtmlCache.set(mid + sig, html);
+  if (rowHtmlCache.size > 240) rowHtmlCache.delete(rowHtmlCache.keys().next().value);
+  if (light && isHeavyMd(m.text)) scheduleIdleMd(m, mid);
   return html;
+}
+
+function isHeavyMd(text) {
+  return Boolean(text && (text.length > 360 || text.includes("```")));
+}
+
+function lightRowHtml(m, mid) {
+  const attr = `data-mid="${escapeHtml(mid)}"`;
+  if (m.kind === "user") return `<div class="u virt-item" ${attr}>${escapeHtml(m.text)}</div>`;
+  return `<div class="m virt-item" ${attr}><div class="bb"><div class="md">${escapeHtml((m.text || "").slice(0, 280))}</div></div></div>`;
+}
+
+function scheduleIdleMd(m, mid) {
+  if (idleMd.has(mid)) return;
+  idleMd.add(mid);
+  const run = () => {
+    idleMd.delete(mid);
+    const html = messageRowHtml(m, mid);
+    rowHtmlCache.set(mid + rowSig(m), html);
+    const node = log.querySelector(`[data-mid="${CSS.escape(mid)}"]`);
+    if (!node) return;
+    const next = elFromHtml(html);
+    if (next) {
+      next.dataset.i = String(m.i);
+      next.classList.add("virt-item");
+      node.replaceWith(next);
+      watchHeight(next);
+    }
+  };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 800 });
+  else setTimeout(run, 0);
 }
 
 function elFromHtml(html) {
@@ -879,6 +936,112 @@ function restoreAnchor(anchor) {
       return;
     }
   }
+}
+
+function heightOf(i) {
+  return virt.heights.get(i) || EST_H;
+}
+
+function markBlock(i) {
+  virt.dirty[Math.floor(i / VBLOCK)] = true;
+}
+
+function blockH(b) {
+  if (!virt.dirty[b] && virt.block[b] != null) return virt.block[b];
+  const from = b * VBLOCK;
+  const to = Math.min(virt.count, from + VBLOCK);
+  let s = 0;
+  for (let i = from; i < to; i++) s += heightOf(i);
+  virt.block[b] = s;
+  virt.dirty[b] = false;
+  return s;
+}
+
+function offsetOf(i) {
+  const n = Math.max(0, Math.min(i, virt.count));
+  const b = Math.floor(n / VBLOCK);
+  let y = 0;
+  for (let k = 0; k < b; k++) y += blockH(k);
+  for (let k = b * VBLOCK; k < n; k++) y += heightOf(k);
+  return y;
+}
+
+function indexAt(y) {
+  if (y <= 0) return 0;
+  let acc = 0;
+  const blocks = Math.max(1, Math.ceil(virt.count / VBLOCK));
+  for (let b = 0; b < blocks; b++) {
+    const h = blockH(b);
+    if (acc + h > y) {
+      const from = b * VBLOCK;
+      const to = Math.min(virt.count, from + VBLOCK);
+      for (let i = from; i < to; i++) {
+        acc += heightOf(i);
+        if (acc > y) return i;
+      }
+    }
+    acc += h;
+  }
+  return Math.max(0, virt.count - 1);
+}
+
+function totalH() {
+  return offsetOf(virt.count);
+}
+
+function rememberMsg(m) {
+  if (!m || m.i == null || m.i < 0) return;
+  virt.byId.set(m.i, m);
+}
+
+function seedVirt(messages, count) {
+  for (const m of messages || []) rememberMsg(m);
+  if (count != null) virt.count = Math.max(virt.count, count);
+  const maxI = messages && messages.length ? Math.max(...messages.map((m) => m.i).filter((i) => i >= 0)) : -1;
+  if (maxI >= 0) virt.count = Math.max(virt.count, maxI + 1);
+}
+
+function watchHeight(el) {
+  if (!heightRo) {
+    heightRo = new ResizeObserver((entries) => {
+      for (const en of entries) {
+        const node = en.target;
+        const i = Number(node.dataset.i);
+        if (!Number.isFinite(i)) continue;
+        const h = en.contentRect.height + 14;
+        const old = heightOf(i);
+        if (Math.abs(h - old) < 0.8) continue;
+        const box = chat.getBoundingClientRect();
+        const above = node.getBoundingClientRect().bottom < box.top + 4;
+        virt.heights.set(i, h);
+        markBlock(i);
+        if (above && !stick.follow) setChatTop(chat.scrollTop + (h - old));
+      }
+    });
+  }
+  heightRo.observe(el);
+}
+
+function virtRange() {
+  const top = chat ? chat.scrollTop : 0;
+  const view = chat ? chat.clientHeight : 800;
+  const start = indexAt(Math.max(0, top - OVERSCAN));
+  const end = Math.min(virt.count, indexAt(top + view + OVERSCAN) + 1);
+  return { start, end: Math.max(start + 1, end) };
+}
+
+function ensureSpacers() {
+  if (!log.querySelector("#virtTop")) {
+    const top = document.createElement("div");
+    top.id = "virtTop";
+    top.className = "virt-space";
+    const bot = document.createElement("div");
+    bot.id = "virtBot";
+    bot.className = "virt-space";
+    log.prepend(top);
+    log.append(bot);
+  }
+  return { top: $("virtTop"), bot: $("virtBot") };
 }
 
 function desiredChatRows() {
@@ -926,39 +1089,9 @@ function syncChat() {
     renderChrome();
     return;
   }
-  const anchor = captureAnchor();
   if (log.querySelector(".welcome")) log.replaceChildren();
-  const desired = desiredChatRows();
-  const byMid = new Map();
-  for (const n of [...log.querySelectorAll(":scope > [data-mid]")]) byMid.set(n.dataset.mid, n);
-  const next = [];
-  let created = false;
-  for (const row of desired) {
-    const cur = byMid.get(row.mid);
-    if (cur && cur.dataset.sig === row.sig) {
-      next.push(cur);
-      byMid.delete(row.mid);
-      continue;
-    }
-    const el = elFromHtml(row.html);
-    if (el) {
-      el.dataset.sig = row.sig;
-      next.push(el);
-      created = true;
-    }
-    if (cur) byMid.delete(row.mid);
-  }
-  for (const n of byMid.values()) n.remove();
-  let ptr = log.firstChild;
-  while (ptr && !ptr.hasAttribute?.("data-mid") && !ptr.classList?.contains("live") && !ptr.classList?.contains("stream")) {
-    const gone = ptr;
-    ptr = ptr.nextSibling;
-    gone.remove();
-  }
-  for (const el of next) {
-    if (ptr !== el) log.insertBefore(el, ptr);
-    ptr = el.nextSibling;
-  }
+  seedVirt(state.messages, state.messageCount);
+  paintVirt();
   if (state.turn && state.turn.status === "running") paintLive();
   else if (state.stream) {
     const seat = state.streamSeat || "claude";
@@ -976,22 +1109,158 @@ function syncChat() {
   } else {
     dropStreamNode();
   }
-  if (created) {
-    reattachUi();
-    bindLiveGuards(log);
-    bindLiveUrlAsks(log);
-    bind3dPause();
-    markEnter();
-  }
-  restoreAnchor(anchor);
+  paintHist();
   paintScrollHints();
   renderChrome();
 }
 
+function paintVirt() {
+  if (!log || !virt.count) {
+    if (state.messages.length) {
+      const desired = desiredChatRows();
+      const have = [...log.querySelectorAll(":scope > [data-mid]")];
+      if (!have.length) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = desired.map((r) => r.html).join("");
+        log.append(...wrap.children);
+      }
+    }
+    return;
+  }
+  const { start, end } = virtRange();
+  virt.start = start;
+  virt.end = end;
+  const spaces = ensureSpacers();
+  const keep = new Set();
+  const byI = new Map();
+  for (const n of [...log.querySelectorAll(":scope > [data-mid]")]) {
+    const i = Number(n.dataset.i);
+    if (Number.isFinite(i)) byI.set(i, n);
+  }
+  const gap = document.createElement("div");
+  for (let i = start; i < end; i++) {
+    const m = virt.byId.get(i);
+    if (!m) continue;
+    keep.add(i);
+    let node = byI.get(i);
+    const mid = messageMid(m, i);
+    if (!node) {
+      node = elFromHtml(cachedRowHtml(m, mid, true));
+      if (!node) continue;
+      node.dataset.i = String(i);
+      node.classList.add("virt-item");
+    }
+    gap.appendChild(node);
+    watchHeight(node);
+  }
+  for (const [i, n] of byI) {
+    if (!keep.has(i)) {
+      if (heightRo) heightRo.unobserve(n);
+      n.remove();
+    }
+  }
+  const live = log.querySelector(":scope > .live, :scope > .stream");
+  const bot = spaces.bot;
+  while (gap.firstChild) log.insertBefore(gap.firstChild, bot || live);
+  spaces.top.style.height = `${offsetOf(start)}px`;
+  spaces.bot.style.height = `${Math.max(0, totalH() - offsetOf(end))}px`;
+  void prefetchVirt(start, end);
+}
+
+async function prefetchVirt(start, end) {
+  const missing = [];
+  for (let i = start; i < end; i++) if (!virt.byId.has(i)) missing.push(i);
+  const nearTop = start < 24;
+  if (!missing.length && !nearTop) return;
+  const now = performance.now();
+  const vel = chat ? Math.abs(chat.scrollTop - virt.lastTop) / Math.max(1, now - virt.lastT) : 0;
+  virt.lastTop = chat ? chat.scrollTop : 0;
+  virt.lastT = now;
+  if (vel > 4 && virt.abort) {
+    virt.abort.abort();
+    virt.abort = null;
+    return;
+  }
+  const from = missing.length ? missing[0] : Math.max(0, start - MSG_PAGE);
+  if (virt.prefetching) return;
+  virt.prefetching = true;
+  const ac = new AbortController();
+  virt.abort = ac;
+  const gen = ++virt.fetchGen;
+  try {
+    const url = missing.length
+      ? `/api/messages?after=${from}&limit=${MSG_PAGE}`
+      : `/api/messages?before=${start}&limit=${MSG_PAGE}`;
+    const page = await (await fetch(url, { signal: ac.signal })).json();
+    if (gen !== virt.fetchGen) return;
+    seedVirt(page.messages, page.messageCount);
+    state.hasMore = Boolean(page.hasMoreBefore);
+    state.before = page.before;
+    paintVirt();
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+  } finally {
+    if (gen === virt.fetchGen) virt.prefetching = false;
+  }
+}
+
+async function jumpVirt(i) {
+  const target = Math.max(0, Math.min(virt.count - 1, i));
+  const page = await (await fetch(`/api/messages?around=${target}&limit=${MSG_PAGE}`)).json();
+  seedVirt(page.messages, page.messageCount);
+  stick.follow = target >= virt.count - 8;
+  paintVirt();
+  setChatTop(offsetOf(target));
+  paintVirt();
+}
+
+async function jumpStart() {
+  await jumpVirt(0);
+}
+
+async function jumpDate(day) {
+  const meta = await (await fetch("/api/messages/meta")).json();
+  const ticks = meta.ticks || [];
+  let i = 0;
+  for (const t of ticks) {
+    if (t.day >= day) {
+      i = t.i;
+      break;
+    }
+  }
+  await jumpVirt(i);
+}
+
+async function searchHist(q) {
+  const data = await (await fetch(`/api/messages/search?q=${encodeURIComponent(q)}`)).json();
+  const hit = (data.hits || [])[0];
+  if (!hit) return;
+  await jumpVirt(hit.i);
+}
+
+function paintHist() {
+  const rail = $("hist");
+  if (!rail) return;
+  const show = virt.count > STATE_PAGE;
+  rail.hidden = !show;
+  if (!show) return;
+  const thumb = $("histThumb");
+  const track = $("histTrack");
+  if (!thumb || !track || !chat) return;
+  const max = Math.max(1, totalH() - chat.clientHeight);
+  const t = Math.min(1, Math.max(0, chat.scrollTop / max));
+  const room = Math.max(0, track.clientHeight - 18);
+  thumb.style.top = `${t * room}px`;
+}
+
 function applyMessagePage(page) {
-  if (Array.isArray(page.messages)) state.messages = page.messages;
+  if (Array.isArray(page.messages)) {
+    state.messages = page.messages;
+    seedVirt(page.messages, page.messageCount);
+  }
   if (page.before !== undefined) state.before = page.before;
   if (page.hasMore != null) state.hasMore = Boolean(page.hasMore);
+  if (page.hasMoreBefore != null) state.hasMore = Boolean(page.hasMoreBefore);
   if (page.messageCount != null) state.messageCount = page.messageCount;
 }
 
@@ -1005,27 +1274,23 @@ function trimFollowWindow() {
 }
 
 async function loadOlder() {
+  if (virt.count) {
+    void prefetchVirt(virt.start, virt.end);
+    return;
+  }
   if (!state.hasMore || state.olderLoading || state.before == null) return;
   state.olderLoading = true;
-  const before = state.before;
-  const anchor = captureAnchor();
   try {
-    const snap = await (await fetch(`/api/state?before=${encodeURIComponent(String(before))}&limit=${STATE_PAGE}`)).json();
-    const have = new Set(state.messages.map((m) => m.i));
-    const older = (snap.messages || []).filter((m) => !have.has(m.i));
-    if (older.length) state.messages = [...older, ...state.messages];
-    state.before = snap.before ?? null;
-    state.hasMore = Boolean(snap.hasMore);
-    if (snap.messageCount != null) state.messageCount = snap.messageCount;
+    const snap = await (await fetch(`/api/messages?before=${encodeURIComponent(String(state.before))}&limit=${MSG_PAGE}`)).json();
+    applyMessagePage(snap);
     syncChat();
-    restoreAnchor(anchor);
   } finally {
     state.olderLoading = false;
   }
 }
 
 function messageRowHtml(m, mid) {
-  const attr = `data-mid="${escapeHtml(mid)}"`;
+  const attr = `data-mid="${escapeHtml(mid)}" data-i="${escapeHtml(String(m.i ?? ""))}"`;
   if (m.kind === "user") {
     return `<div class="u" ${attr}>${rich(m.text)}</div>`;
   }
@@ -1135,7 +1400,9 @@ function paintScrollHints() {
 function jumpToLatest() {
   userUp = false;
   stick.follow = true;
-  followScroll();
+  if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
+  else followScroll();
+  paintVirt();
   paintScrollHints();
 }
 
@@ -2324,11 +2591,20 @@ function applyEvent(ev) {
     case "message":
       if (ev.session === "main") {
         state.stream = "";
-        const pendingAt = state.messages.findIndex((m) => m.i < 0 && m.kind === "user" && m.text === ev.message.text);
+        let pendingAt = -1;
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+          const m = state.messages[i];
+          if (m.kind === "user" && m.text === ev.message.text) {
+            pendingAt = i;
+            break;
+          }
+        }
         if (pendingAt >= 0) state.messages.splice(pendingAt, 1, ev.message);
         else state.messages.push(ev.message);
+        rememberMsg(ev.message);
         if (ev.message && ev.message.i >= 0) {
           state.messageCount = Math.max(state.messageCount || 0, ev.message.i + 1);
+          virt.count = Math.max(virt.count, ev.message.i + 1);
         }
         trimFollowWindow();
         scheduleFullPaint();
@@ -2750,10 +3026,12 @@ async function sendUser(text, mode) {
       kind: "user",
       text: t,
       date: new Date().toISOString(),
-      i: -Date.now(),
+      i: Math.max(state.messageCount || 0, virt.count),
     };
     state.messages.push(pending);
-    state.messageCount = (state.messageCount || 0) + 1;
+    rememberMsg(pending);
+    state.messageCount = pending.i + 1;
+    virt.count = Math.max(virt.count, pending.i + 1);
     state.turn = {
       id: "local-" + Date.now().toString(36),
       session: "main",
@@ -3001,12 +3279,32 @@ chat.addEventListener("scroll", () => {
     stick.follow = true;
   }
   lastScrollTop = top;
-  if (top < 120) void loadOlder();
+  if (virt.count) {
+    paintVirt();
+    paintHist();
+  } else if (top < 120) void loadOlder();
   paintScrollHints();
 }, { passive: true });
 bindChatFloor();
 bindComposerModality();
 $("jumpLatest")?.addEventListener("click", jumpToLatest);
+$("histStart")?.addEventListener("click", () => void jumpStart());
+$("histGo")?.addEventListener("click", () => {
+  const v = $("histDate")?.value;
+  if (v) void jumpDate(v);
+});
+$("histSearch")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = $("histQ")?.value?.trim();
+  if (q) void searchHist(q);
+});
+$("histTrack")?.addEventListener("click", (e) => {
+  const track = $("histTrack");
+  if (!track || !virt.count) return;
+  const r = track.getBoundingClientRect();
+  const t = (e.clientY - r.top) / Math.max(1, r.height);
+  void jumpVirt(Math.floor(t * virt.count));
+});
 
 function bindComposerModality() {
   const form = $("form");
@@ -3035,6 +3333,14 @@ async function boot() {
   };
   const snap = await (await fetch("/api/state")).json();
   if (!state.messages.length) applyMessagePage(snap);
+  try {
+    const meta = await (await fetch("/api/messages/meta")).json();
+    if (meta.messageCount) {
+      state.messageCount = meta.messageCount;
+      virt.count = Math.max(virt.count, meta.messageCount);
+    }
+  } catch {
+  }
   if (!state.sparks.length) state.sparks = snap.sparks || [];
   for (const f of state.sparks) seenPills.add(f.id);
   if (!state.views.length) state.views = snap.views || [];
@@ -3057,9 +3363,12 @@ async function boot() {
   renderShortcuts();
   renderContext();
   if (stick.follow) {
-    snapToFloor();
+    if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
+    else snapToFloor();
     requestAnimationFrame(() => {
-      if (stick.follow) snapToFloor();
+      if (!stick.follow) return;
+      if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
+      else snapToFloor();
     });
   }
   const q = new URLSearchParams(location.search);

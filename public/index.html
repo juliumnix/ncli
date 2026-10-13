@@ -47,6 +47,17 @@
   </aside>
   <div class="scrim" id="scrim" hidden></div>
 
+  <aside class="hist" id="hist" hidden>
+    <button type="button" id="histStart">início</button>
+    <input type="date" id="histDate" />
+    <button type="button" id="histGo">ir</button>
+    <form id="histSearch">
+      <input id="histQ" type="search" placeholder="buscar no histórico" />
+    </form>
+    <div class="hist-track" id="histTrack" title="histórico">
+      <div class="hist-thumb" id="histThumb"></div>
+    </div>
+  </aside>
   <main class="scroller" id="chat">
     <div class="log" id="log"></div>
   </main>
