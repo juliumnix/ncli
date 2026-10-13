@@ -9,9 +9,10 @@ test("a bunx extract boot imports a large Claude history and prints the sha", as
   expect(sha).toBeTruthy();
   const ran = Bun.spawnSync([process.execPath, join(repo, "scripts/macos-bunx-import.ts")], {
     cwd: repo,
-    env: { ...process.env, NCLI_REVISION: sha },
+    env: { ...process.env, NCLI_REVISION: sha, NCLI_COMPACT: "mock", NCLI_HARNESS: "mock" },
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 50_000,
   });
   const err = `${ran.stdout.toString()}${ran.stderr.toString()}`;
   expect(ran.exitCode, err).toBe(0);

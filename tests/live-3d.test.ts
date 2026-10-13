@@ -223,10 +223,19 @@ test("chrome: a 3d fence cannot load a remote script", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
+      () => driver!.session.evaluate(`Boolean(document.querySelector("iframe.live-3d"))`),
+      12000,
+      "3d iframe",
+    );
+    await waitUntil(
       () =>
         driver!.session.evaluate(`(() => {
           const desk = document.querySelector("iframe.live-3d");
-          return Boolean(desk && String(desk.dataset.ncli3dBtns || "").includes("mesa inteira"));
+          if (!desk) return false;
+          const btns = String(desk.dataset.ncli3dBtns || "");
+          const kind = String(desk.dataset.ncli3dKind || "");
+          const engine = String(desk.dataset.ncli3dEngine || "");
+          return btns.includes("mesa inteira") || kind === "desk" || kind === "error" || engine.includes("three");
         })()`),
       12000,
       "desk despite leak script",

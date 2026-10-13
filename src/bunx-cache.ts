@@ -80,6 +80,15 @@ export function bunxExtractRoot(path: string, uid: number): string | undefined {
   return parts.slice(0, parts.indexOf(name) + 1).join("/");
 }
 
+export function bunxNeedsRemoteTip(
+  runningPath: string,
+  env: Record<string, string | undefined>,
+  uid: number,
+): boolean {
+  if (!bunxExtractRoot(runningPath, uid)) return false;
+  return !parseRevision(env.NCLI_REVISION);
+}
+
 export type BunxRefreshPlan =
   | { kind: "boot" }
   | { kind: "reexec"; argv: string[]; env: { NCLI_REVISION: string }; removed: string[] };

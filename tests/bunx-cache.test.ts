@@ -71,22 +71,29 @@ test("scripts/bunx-main.sh wipes ncli github extracts then pins the live sha", (
   expect(sh).toContain("wipe \"$TMPDIR\"");
   expect(sh).toContain("wipe /tmp");
   expect(sh).toContain("wipe /private/tmp");
+  expect(sh).toContain("sha=$NCLI_REVISION");
+  expect(sh).toContain("NCLI_BUNX_TMPDIRS");
   expect(sh).toContain('bunx "github:juliumnix/ncli#$sha"');
+});
+
+test("index.ts skips ls-remote when the extract is already pinned", () => {
+  const src = readFileSync(join(import.meta.dir, "../src/index.ts"), "utf8");
+  expect(src).toContain("bunxNeedsRemoteTip");
+  expect(src).not.toContain("bunxExtractRoot(runningPath, uid) ? fetchMainTip()");
 });
 
 test("bunx-main.sh deletes a planted stale extract then execs the pinned spec", () => {
   const tmp = tmpDir("bunx-sh");
   const uid = process.getuid();
+  const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const stale = plantStale(tmp, "oldcache", uid);
   const other = join(tmp, `bunx-${uid}-prettier@latest`);
   mkdirSync(other, { recursive: true });
   writeFileSync(join(other, "keep"), "1");
+  const outside = plantStale(join(tmp, "outside"), "globalcache", uid);
   const bin = join(tmp, "bin");
   mkdirSync(bin);
-  writeFileSync(
-    join(bin, "git"),
-    "#!/bin/sh\nprintf '%s\\t%s\\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n",
-  );
+  writeFileSync(join(bin, "git"), "#!/bin/sh\nsleep 30\nexit 1\n");
   writeFileSync(
     join(bin, "bunx"),
     "#!/bin/sh\necho BUNX \"$@\"\necho NCLI_REVISION=$NCLI_REVISION\n",
@@ -97,15 +104,23 @@ test("bunx-main.sh deletes a planted stale extract then execs the pinned spec", 
     expect(proc.exitCode).toBe(0);
   }
   const ran = Bun.spawnSync(["sh", join(import.meta.dir, "../scripts/bunx-main.sh")], {
-    env: { PATH: `${bin}:/usr/bin:/bin`, TMPDIR: tmp, HOME: tmp },
+    env: {
+      PATH: `${bin}:/usr/bin:/bin`,
+      TMPDIR: tmp,
+      HOME: tmp,
+      NCLI_REVISION: sha,
+      NCLI_BUNX_TMPDIRS: tmp,
+    },
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 5_000,
   });
-  expect(ran.exitCode).toBe(0);
+  expect(ran.exitCode, `${ran.stdout}\n${ran.stderr}`).toBe(0);
   expect(existsSync(stale)).toBe(false);
   expect(existsSync(join(stale, "STALE"))).toBe(false);
   expect(existsSync(other)).toBe(true);
-  expect(ran.stdout.toString()).toContain("BUNX github:juliumnix/ncli#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  expect(ran.stdout.toString()).toContain("NCLI_REVISION=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  expect(ran.stderr.toString()).toContain("NCLI: main aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  expect(existsSync(outside)).toBe(true);
+  expect(ran.stdout.toString()).toContain(`BUNX github:juliumnix/ncli#${sha}`);
+  expect(ran.stdout.toString()).toContain(`NCLI_REVISION=${sha}`);
+  expect(ran.stderr.toString()).toContain(`NCLI: main ${sha}`);
 });

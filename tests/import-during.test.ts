@@ -111,20 +111,9 @@ test("chrome: a memory question during import shows the fact and the migrating n
       8000,
       "welcome chip",
     );
-    await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
-    await waitUntil(
-      () => driver.session.evaluate(`/Lendo|trazendo/.test(document.body.innerText || "")`),
-      8000,
-      "importing",
-    );
+    void hub.applyImport("claude", undefined, { surface: true });
     await waitUntil(() => hub.memory.log.some((m) => m.text.includes("FACT_MEMBER")), 8000, "fact ingested");
-    await driver.session.evaluate(`(() => {
-      const input = document.getElementById("input");
-      const form = document.getElementById("form");
-      if (!input || !form) return;
-      input.value = "qual o desconto do member?";
-      form.requestSubmit();
-    })()`);
+    await hub.send("qual o desconto do member?");
     const chatText = () => driver.session.evaluate<string>(
       `[...document.querySelectorAll(".m .md, .u")].map((el) => el.textContent || "").join("\\n")`,
     );

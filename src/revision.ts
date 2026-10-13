@@ -85,7 +85,7 @@ export function readBootRevision(
 function defaultLsRemote(): LsRemoteResult {
   const proc = Bun.spawnSync(
     ["git", "ls-remote", "https://github.com/juliumnix/ncli.git", "refs/heads/main"],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", timeout: 8_000 },
   );
   return { exitCode: proc.exitCode ?? 1, stdout: proc.stdout.toString() };
 }

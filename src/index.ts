@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { bootNcli, bootVerbose, formatBoot } from "./boot";
 import { flushText } from "./boot-ready";
-import { bunxExtractRoot, planBunxRefresh } from "./bunx-cache";
+import { bunxNeedsRemoteTip, planBunxRefresh } from "./bunx-cache";
 import { fetchMainTip } from "./revision";
 import { loadNcliSecrets } from "./secrets";
 
@@ -12,7 +12,7 @@ const refresh = planBunxRefresh({
   runningPath,
   env: process.env,
   uid,
-  remoteSha: bunxExtractRoot(runningPath, uid) ? fetchMainTip() : undefined,
+  remoteSha: bunxNeedsRemoteTip(runningPath, process.env, uid) ? fetchMainTip() : undefined,
 });
 if (refresh.kind === "reexec") {
   const child = Bun.spawn(refresh.argv, {

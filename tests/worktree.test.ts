@@ -10,6 +10,15 @@ import {
   realGit,
 } from "../src/sparks/worktree";
 
+test("initTempRepo does not inherit host commit signing", async () => {
+  const repo = await initTempRepo("wt-nosign");
+  const sign = await realGit(["config", "--local", "--get", "commit.gpgsign"], repo);
+  expect(sign.stdout.trim()).toBe("false");
+  const log = await realGit(["log", "-1", "--format=%s"], repo);
+  expect(log.code).toBe(0);
+  expect(log.stdout.trim()).toBe("init");
+});
+
 test("addWorktree is detached by default and copies include files", async () => {
   const repo = await initTempRepo("wt-add");
   await Bun.write(join(repo, ".env.local"), "SECRET=1\n");

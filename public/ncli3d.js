@@ -320,15 +320,17 @@ function boot() {
   const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
   const el = document.createElement("script");
   el.src = url;
-  el.onload = () => {
+  let started = false;
+  const go = () => {
+    if (started) return;
+    started = true;
     URL.revokeObjectURL(url);
     if (!document.querySelector("canvas")) desk();
   };
-  el.onerror = () => {
-    URL.revokeObjectURL(url);
-    desk();
-  };
+  el.onload = go;
+  el.onerror = go;
   document.head.appendChild(el);
+  setTimeout(go, 400);
 }
 
 boot();

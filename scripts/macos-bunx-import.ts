@@ -66,6 +66,7 @@ async function main(): Promise<void> {
   const env = {
     ...process.env,
     NCLI_HARNESS: "mock",
+    NCLI_COMPACT: "mock",
     NCLI_GH: "mock",
     NCLI_NO_OPEN: "1",
     NCLI_REVISION: sha,

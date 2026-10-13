@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { bunxExtractRoot, clearNcliBunxExtracts, ncliExtractName, planBunxRefresh } from "../src/bunx-cache";
+import {
+  bunxExtractRoot,
+  bunxNeedsRemoteTip,
+  clearNcliBunxExtracts,
+  ncliExtractName,
+  planBunxRefresh,
+} from "../src/bunx-cache";
 import { ncliSpecAt } from "../src/revision";
 import { tmpDir } from "./helpers";
 
@@ -42,6 +48,15 @@ test("a bunx extract without NCLI_REVISION re-execs the pinned spec even if .ncl
     env: { NCLI_REVISION: LIVE },
     removed: [],
   });
+});
+
+test("a pinned extract does not need git ls-remote", () => {
+  const tmp = tmpDir("bunx-pin-net");
+  const extract = plantExtract(tmp);
+  const path = join(extract, "src/index.ts");
+  expect(bunxNeedsRemoteTip(path, { NCLI_REVISION: LIVE }, UID)).toBe(false);
+  expect(bunxNeedsRemoteTip(path, {}, UID)).toBe(true);
+  expect(bunxNeedsRemoteTip(join(tmp, "src/index.ts"), {}, UID)).toBe(false);
 });
 
 test("when NCLI_REVISION is set, boot in place even if live main moved", () => {

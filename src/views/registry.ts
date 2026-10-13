@@ -65,9 +65,9 @@ export class ViewRegistry {
       const top = name.split(/[\\/]/)[0] ?? name;
       const full = join(this.dir, top);
       if (existsSync(full) && statSync(full).isDirectory()) {
-        await this.loadPack(full);
+        await this.loadPack(full, true);
       } else if (name.endsWith(".ts") || name.endsWith(".js")) {
-        await this.loadFile(join(this.dir, name.includes("/") ? top : name));
+        await this.loadFile(join(this.dir, name.includes("/") ? top : name), true);
       }
       this.onChange(this.list());
     });
@@ -77,7 +77,7 @@ export class ViewRegistry {
     this.watcher?.close();
   }
 
-  async loadFile(full: string): Promise<ViewPlugin | null> {
+  async loadFile(full: string, bust = false): Promise<ViewPlugin | null> {
     if (!existsSync(full) || (existsSync(full) && statSync(full).isDirectory())) {
       const id = basename(full).replace(/\.(ts|js)$/, "");
       this.plugins.delete(id);
@@ -85,7 +85,7 @@ export class ViewRegistry {
       this.packs.delete(id);
       return null;
     }
-    const plugin = await importPlugin(full);
+    const plugin = await importPlugin(full, bust);
     if (!plugin) return null;
     this.plugins.set(plugin.id, plugin);
     this.files.set(plugin.id, basename(full));
@@ -93,11 +93,11 @@ export class ViewRegistry {
     return plugin;
   }
 
-  async loadPack(dir: string): Promise<ViewPlugin | null> {
+  async loadPack(dir: string, bust = false): Promise<ViewPlugin | null> {
     const viewFile = existsSync(join(dir, "view.ts")) ? join(dir, "view.ts") : join(dir, "view.js");
     if (!existsSync(join(dir, "manifest.json")) || !existsSync(viewFile)) return null;
     const manifest = loadManifest(dir);
-    const plugin = await importPlugin(viewFile);
+    const plugin = await importPlugin(viewFile, bust);
     if (!plugin) return null;
     if (plugin.id !== manifest.name) {
       throw new Error(`view id ${plugin.id} ≠ manifest.name ${manifest.name}`);
@@ -109,8 +109,8 @@ export class ViewRegistry {
   }
 }
 
-async function importPlugin(full: string): Promise<ViewPlugin | null> {
-  const href = `${pathToFileURL(full).href}?t=${Date.now()}`;
+async function importPlugin(full: string, bust = false): Promise<ViewPlugin | null> {
+  const href = bust ? `${pathToFileURL(full).href}?t=${Date.now()}` : pathToFileURL(full).href;
   const mod = (await import(href)) as { default?: ViewPlugin } & Partial<ViewPlugin>;
   const plugin: ViewPlugin | undefined = mod.default ?? (mod.id && mod.createSpark ? (mod as ViewPlugin) : undefined);
   if (!plugin?.id || !plugin.createSpark) return null;
