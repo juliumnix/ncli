@@ -76,12 +76,6 @@ test("boot banner is URL, CLIs and version; compact and cli-config stay in verbo
   );
 });
 
-test("bootVerbose is NCLI_VERBOSE or --verbose", () => {
-  expect(bootVerbose({}, [])).toBe(false);
-  expect(bootVerbose({ NCLI_VERBOSE: "1" }, [])).toBe(true);
-  expect(bootVerbose({}, ["bun", "src/index.ts", "--verbose"])).toBe(true);
-});
-
 test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap", () => {
   const cfg = loadConfig({ dataDir: tmpDir("cfg") });
   expect(cfg.compactModel).toBe("composer-2.5");
@@ -90,6 +84,12 @@ test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap",
   expect(cfg.compactTimeoutMs).toBe(30_000);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
+});
+
+test("bootVerbose is NCLI_VERBOSE or --verbose", () => {
+  expect(bootVerbose({}, [])).toBe(false);
+  expect(bootVerbose({ NCLI_VERBOSE: "1" }, [])).toBe(true);
+  expect(bootVerbose({}, ["bun", "src/index.ts", "--verbose"])).toBe(true);
 });
 
 test("parseCompactModel defaults to Composer 2.5 and keeps an env-style override", () => {
