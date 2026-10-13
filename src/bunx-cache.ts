@@ -80,13 +80,9 @@ export function bunxExtractRoot(path: string, uid: number): string | undefined {
   return parts.slice(0, parts.indexOf(name) + 1).join("/");
 }
 
-export function bunxNeedsRemoteTip(
-  runningPath: string,
-  env: Record<string, string | undefined>,
-  uid: number,
-): boolean {
-  if (!bunxExtractRoot(runningPath, uid)) return false;
-  return !parseRevision(env.NCLI_REVISION);
+function sameSha(a: string, b: string): boolean {
+  const n = Math.min(a.length, b.length);
+  return n >= 7 && a.slice(0, n).toLowerCase() === b.slice(0, n).toLowerCase();
 }
 
 export type BunxRefreshPlan =
@@ -102,9 +98,10 @@ export function planBunxRefresh(opts: {
 }): BunxRefreshPlan {
   const extract = bunxExtractRoot(opts.runningPath, opts.uid);
   if (!extract) return { kind: "boot" };
-  if (parseRevision(opts.env.NCLI_REVISION)) return { kind: "boot" };
   const remote = parseRevision(opts.remoteSha);
   if (!remote) return { kind: "boot" };
+  const pinned = parseRevision(opts.env.NCLI_REVISION);
+  if (pinned && sameSha(pinned.sha, remote.sha)) return { kind: "boot" };
   const tmpDirs = opts.tmpDirs ?? bunxTmpCandidates(opts.env);
   const removed = clearNcliBunxExtracts(tmpDirs, opts.uid, extract);
   return { kind: "reexec", ...documentedLaunch(remote.sha), removed };

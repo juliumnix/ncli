@@ -73,6 +73,9 @@ test("scripts/bunx-main.sh wipes ncli github extracts then pins the live sha", (
   expect(sh).toContain("wipe /private/tmp");
   expect(sh).toContain("sha=$NCLI_REVISION");
   expect(sh).toContain("NCLI_BUNX_TMPDIRS");
+  expect(sh).toContain("api.github.com/repos/juliumnix/ncli/commits/main");
+  expect(sh).toContain("application/vnd.github.sha");
+  expect(sh).not.toContain("git ls-remote");
   expect(sh).toContain('bunx "github:juliumnix/ncli#$sha"');
 });
 
@@ -88,12 +91,13 @@ test("bunx-main.sh deletes a planted stale extract then execs the pinned spec", 
   const bin = join(tmp, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "git"), "#!/bin/sh\nsleep 30\nexit 1\n");
+  writeFileSync(join(bin, "curl"), "#!/bin/sh\nsleep 30\nexit 1\n");
   writeFileSync(
     join(bin, "bunx"),
     "#!/bin/sh\necho BUNX \"$@\"\necho NCLI_REVISION=$NCLI_REVISION\n",
   );
   writeFileSync(join(bin, "id"), "#!/bin/sh\necho " + String(uid) + "\n");
-  for (const name of ["git", "bunx", "id"]) {
+  for (const name of ["git", "curl", "bunx", "id"]) {
     const proc = Bun.spawnSync(["chmod", "+x", join(bin, name)]);
     expect(proc.exitCode).toBe(0);
   }
@@ -117,4 +121,39 @@ test("bunx-main.sh deletes a planted stale extract then execs the pinned spec", 
   expect(ran.stdout.toString()).toContain(`BUNX github:juliumnix/ncli#${sha}`);
   expect(ran.stdout.toString()).toContain(`NCLI_REVISION=${sha}`);
   expect(ran.stderr.toString()).toContain(`NCLI: main ${sha}`);
+});
+
+test("bunx-main.sh pins the sha from a fake GitHub curl, not git", () => {
+  const tmp = tmpDir("bunx-sh-curl");
+  const uid = process.getuid();
+  const sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const stale = plantStale(tmp, "oldcache", uid);
+  const bin = join(tmp, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), "#!/bin/sh\nsleep 30\nexit 1\n");
+  writeFileSync(join(bin, "curl"), `#!/bin/sh\necho ${sha}\n`);
+  writeFileSync(
+    join(bin, "bunx"),
+    "#!/bin/sh\necho BUNX \"$@\"\necho NCLI_REVISION=$NCLI_REVISION\n",
+  );
+  writeFileSync(join(bin, "id"), "#!/bin/sh\necho " + String(uid) + "\n");
+  for (const name of ["git", "curl", "bunx", "id"]) {
+    const proc = Bun.spawnSync(["chmod", "+x", join(bin, name)]);
+    expect(proc.exitCode).toBe(0);
+  }
+  const ran = Bun.spawnSync(["sh", join(import.meta.dir, "../scripts/bunx-main.sh")], {
+    env: {
+      PATH: `${bin}:/usr/bin:/bin`,
+      TMPDIR: tmp,
+      HOME: tmp,
+      NCLI_BUNX_TMPDIRS: tmp,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 5_000,
+  });
+  expect(ran.exitCode, `${ran.stdout}\n${ran.stderr}`).toBe(0);
+  expect(existsSync(stale)).toBe(false);
+  expect(ran.stdout.toString()).toContain(`BUNX github:juliumnix/ncli#${sha}`);
+  expect(ran.stdout.toString()).toContain(`NCLI_REVISION=${sha}`);
 });

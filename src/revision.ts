@@ -35,7 +35,6 @@ export function resolveRevision(
   root: string,
   env: Record<string, string | undefined> = process.env,
   extra: string[] = [],
-  remoteSha?: string,
 ): NcliRevision {
   const fromEnv = parseRevision(env.NCLI_REVISION);
   if (fromEnv) return fromEnv;
@@ -54,19 +53,29 @@ export function resolveRevision(
   if (fromBlobs) return fromBlobs;
   const fromCache = parseRevision(readBunGithubCacheSha());
   if (fromCache) return fromCache;
-  const fromRemote = parseRevision(remoteSha);
-  if (fromRemote) return fromRemote;
   return { sha: "unknown", short: "unknown" };
 }
 
-export type LsRemoteResult = { exitCode: number; stdout: string };
+export const NCLI_GITHUB_TIP = "https://api.github.com/repos/juliumnix/ncli/commits/main";
 
-export function fetchMainTip(opts: { lsRemote?: () => LsRemoteResult } = {}): string | undefined {
-  const run = opts.lsRemote ?? defaultLsRemote;
-  const proc = run();
-  if (proc.exitCode !== 0) return undefined;
+export function parseGithubCommitSha(raw: string | undefined): string | undefined {
+  const text = (raw ?? "").trim();
+  if (!text) return undefined;
+  if (!text.startsWith("{")) return parseRevision(text)?.sha;
   try {
-    return parseLsRemoteMain(proc.stdout);
+    const json: unknown = JSON.parse(text);
+    if (!json || typeof json !== "object") return undefined;
+    const sha = (json as { sha?: unknown }).sha;
+    return typeof sha === "string" ? parseRevision(sha)?.sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function fetchMainTip(opts: { get?: () => Promise<string | undefined> } = {}): Promise<string | undefined> {
+  try {
+    const raw = opts.get ? await opts.get() : await defaultGithubTip();
+    return parseGithubCommitSha(raw);
   } catch {
     return undefined;
   }
@@ -77,17 +86,19 @@ export function readBootRevision(
   env: Record<string, string | undefined> = process.env,
   extra: string[] = [],
 ): NcliRevision {
-  const first = resolveRevision(root, env, extra);
-  if (first.sha !== "unknown") return first;
-  return resolveRevision(root, env, extra, fetchMainTip());
+  return resolveRevision(root, env, extra);
 }
 
-function defaultLsRemote(): LsRemoteResult {
-  const proc = Bun.spawnSync(
-    ["git", "ls-remote", "https://github.com/juliumnix/ncli.git", "refs/heads/main"],
-    { stdout: "pipe", stderr: "pipe", timeout: 8_000 },
-  );
-  return { exitCode: proc.exitCode ?? 1, stdout: proc.stdout.toString() };
+async function defaultGithubTip(): Promise<string | undefined> {
+  const res = await fetch(NCLI_GITHUB_TIP, {
+    headers: {
+      Accept: "application/vnd.github.sha",
+      "User-Agent": "ncli",
+    },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) return undefined;
+  return await res.text();
 }
 
 export const NCLI_GITHUB = "github:juliumnix/ncli";
@@ -96,15 +107,6 @@ export function ncliSpecAt(sha: string): string {
   const id = sha.trim();
   if (!SHA.test(id)) throw new Error("need a commit sha from main");
   return `${NCLI_GITHUB}#${id}`;
-}
-
-export function parseLsRemoteMain(text: string): string {
-  const lines = text.split("\n");
-  const main = lines.find((row) => /\srefs\/heads\/main\s*$/.test(row));
-  const head = lines.find((row) => /\sHEAD\s*$/.test(row));
-  const sha = (main ?? head)?.split(/\s+/)[0] ?? "";
-  if (!SHA.test(sha)) throw new Error("git ls-remote did not return the main tip");
-  return sha;
 }
 
 export function parseShaFromPath(path: string): string | undefined {

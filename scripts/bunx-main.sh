@@ -2,7 +2,7 @@
 set -e
 sha=$NCLI_REVISION
 if [ -z "$sha" ]; then
-  sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+  sha=$(curl -fsSL -H "Accept: application/vnd.github.sha" -H "User-Agent: ncli" https://api.github.com/repos/juliumnix/ncli/commits/main)
 fi
 if [ -z "$sha" ]; then
   echo "NCLI: não achei o tip do main." >&2

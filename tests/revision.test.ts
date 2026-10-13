@@ -6,7 +6,7 @@ import {
   documentedLaunch,
   fetchMainTip,
   ncliSpecAt,
-  parseLsRemoteMain,
+  parseGithubCommitSha,
   readBootRevision,
   parseRevision,
   parseShaFromGithubSpec,
@@ -31,15 +31,17 @@ test("ncliSpecAt pins github:juliumnix/ncli to a main SHA", () => {
   expect(() => ncliSpecAt("main")).toThrow(/commit sha/);
 });
 
-test("parseLsRemoteMain reads the main tip", () => {
-  const text = [
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	HEAD",
-    `${MAIN}	refs/heads/main`,
-    "cccccccccccccccccccccccccccccccccccccccc	refs/heads/old",
-  ].join("\n");
-  expect(parseLsRemoteMain(text)).toBe(MAIN);
-  expect(shortSha(parseLsRemoteMain(text))).toBe("b5f42a6");
+test("parseGithubCommitSha reads a raw sha or a commits JSON body", () => {
+  expect(parseGithubCommitSha(`${MAIN}\n`)).toBe(MAIN);
+  expect(parseGithubCommitSha(JSON.stringify({ sha: MAIN, commit: { message: "x" } }))).toBe(MAIN);
+  expect(parseGithubCommitSha("$Format:%H$")).toBeUndefined();
+  expect(parseGithubCommitSha("{")).toBeUndefined();
+  expect(shortSha(MAIN)).toBe("b5f42a6");
   expect(parseShaFromPath(`/home/u/.bun/install/cache/github.com/juliumnix/ncli@${MAIN}/src`)).toBe(MAIN);
+});
+
+test("an export-subst placeholder is not a revision", () => {
+  expect(parseRevision("$Format:%H$")).toBeUndefined();
 });
 
 test("resolveRevision prefers env, then git, then the revision file", async () => {
@@ -75,20 +77,11 @@ test("readBunGithubCacheSha picks the newest ncli@sha cache dir", () => {
   expect(readBunGithubCacheSha(home)).toBe(MAIN);
 });
 
-test("resolveRevision takes a live main tip before falling back to unknown", () => {
-  const empty = tmpDir("rev-remote");
-  expect(resolveRevision(empty, {}, [], MAIN).sha).toBe(MAIN);
-});
-
-test("fetchMainTip parses git ls-remote stdout via the injected runner", () => {
-  const sha = fetchMainTip({
-    lsRemote: () => ({
-      exitCode: 0,
-      stdout: `${MAIN}\trefs/heads/main\n`,
-    }),
-  });
-  expect(sha).toBe(MAIN);
-  expect(fetchMainTip({ lsRemote: () => ({ exitCode: 1, stdout: "" }) })).toBeUndefined();
+test("fetchMainTip reads the injected GitHub body and never needs git", async () => {
+  expect(await fetchMainTip({ get: async () => `${MAIN}\n` })).toBe(MAIN);
+  expect(await fetchMainTip({ get: async () => JSON.stringify({ sha: MAIN }) })).toBe(MAIN);
+  expect(await fetchMainTip({ get: async () => undefined })).toBeUndefined();
+  expect(await fetchMainTip({ get: async () => { throw new Error("offline"); } })).toBeUndefined();
 });
 
 test("readBootRevision keeps a set NCLI_REVISION without fetching", () => {

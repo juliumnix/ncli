@@ -12,7 +12,7 @@ You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official
 bunx github:juliumnix/ncli
 ```
 
-Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `github:juliumnix/ncli` hashes as `latest`, so an extract from before the fd-guard fix keeps crashing (`zsh: killed`) and prints no sha. After this build, the bin itself pins the live tip. If a leftover extract is still the old bin, wipe once:
+Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `github:juliumnix/ncli` hashes as `latest`. After this build, boot asks GitHub for the live `main` sha over HTTPS and re-execs `bunx github:juliumnix/ncli#<sha>` when that sha differs from the running extract. The extract has no `.git`. The local sha comes from `NCLI_REVISION` or from `.ncli-revision`, which GitHub fills with `$Format:%H$` when it packs the tarball. The ready banner prints that short sha. An extract from before this boot still has the old bin, so wipe it once:
 
 ```bash
 uid=$(id -u)
