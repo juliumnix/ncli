@@ -1,10 +1,31 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import { persistSeatModel, readSeatModel } from "./session";
+
+export const DEFAULT_CLAUDE_SESSION_CAP = 256 * 1024;
+
+export interface ClaudeSessionPlan {
+  id: string;
+  resume: boolean;
+  rotated: boolean;
+}
+
+export interface ClaudeTurnTrace {
+  spawnAt: number;
+  turnAt: number;
+  initAt?: number;
+  firstTokenAt?: number;
+  resultAt?: number;
+  sessionId: string;
+  rotated: boolean;
+  hot: boolean;
+}
 
 interface StreamLine {
   type?: string;
@@ -30,77 +51,302 @@ interface StreamLine {
   result?: string;
 }
 
-export class ClaudeCliAdapter implements AcpAdapter {
-  readonly id = "claude";
-  constructor(private readonly cfg: NcliConfig) {}
+class LinePump {
+  private q: string[] = [];
+  private wait: ((v: string | null) => void) | null = null;
+  closed = false;
+  private buf = "";
+  private readonly decoder = new TextDecoder();
 
-  async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
-    const args = buildClaudeArgs(this.cfg, opts);
-    const proc = Bun.spawn(args, {
-      cwd: opts.cwd ?? this.cfg.repo,
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-      env: childEnv(process.env, { allowAnthropicKey: this.cfg.claudeApiKey }),
-    });
-    const reader = proc.stdout.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    const fold = newClaudeFold();
+  constructor(stream: ReadableStream<Uint8Array>) {
+    void this.loop(stream);
+  }
+
+  private async loop(stream: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = stream.getReader();
     try {
       while (true) {
-        if (opts.signal?.aborted) {
-          proc.kill();
-          break;
-        }
         const { value, done } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
+        this.buf += this.decoder.decode(value, { stream: true });
+        const lines = this.buf.split("\n");
+        this.buf = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.trim()) continue;
-          yield* foldClaudeLine(fold, line);
+          if (line.trim()) this.push(line);
         }
       }
     } finally {
       reader.releaseLock();
+      this.close();
     }
-    const code = await proc.exited;
-    if (code !== 0) {
-      const err = await new Response(proc.stderr).text();
-      throw new Error(err.trim() || `claude exited ${code}`);
+  }
+
+  private push(line: string): void {
+    if (this.wait) {
+      const w = this.wait;
+      this.wait = null;
+      w(line);
+      return;
     }
+    this.q.push(line);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.wait) {
+      this.wait(null);
+      this.wait = null;
+    }
+  }
+
+  next(): Promise<string | null> {
+    if (this.q.length) return Promise.resolve(this.q.shift()!);
+    if (this.closed) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      this.wait = resolve;
+    });
   }
 }
 
-export function buildClaudeArgs(cfg: NcliConfig, opts: RunOpts): string[] {
-  const args = [cfg.claudeBin, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+interface HotProc {
+  proc: ReturnType<typeof Bun.spawn>;
+  fingerprint: string;
+  sessionId: string;
+  rotated: boolean;
+  spawnAt: number;
+  pump: LinePump;
+  stderr: string;
+}
+
+export class ClaudeCliAdapter implements AcpAdapter {
+  readonly id = "claude";
+  lastTrace: ClaudeTurnTrace | null = null;
+  private hot: HotProc | null = null;
+  private opening: Promise<HotProc> | null = null;
+
+  constructor(private readonly cfg: NcliConfig) {}
+
+  async warm(opts: RunOpts): Promise<void> {
+    await this.ensureHot(opts);
+  }
+
+  close(): void {
+    this.killHot();
+  }
+
+  async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
+    const { hot, reused } = await this.ensureHot(opts);
+    const trace: ClaudeTurnTrace = {
+      spawnAt: hot.spawnAt,
+      turnAt: performance.now(),
+      sessionId: hot.sessionId,
+      rotated: reused ? false : hot.rotated,
+      hot: reused,
+    };
+    writeClaudeUser(hot.proc, opts.prompt);
+    const fold = newClaudeFold();
+    try {
+      while (true) {
+        if (opts.signal?.aborted) {
+          this.killHot();
+          break;
+        }
+        const line = await hot.pump.next();
+        if (line == null) {
+          const code = await hot.proc.exited;
+          this.hot = null;
+          throw new Error(hot.stderr.trim() || `claude exited ${code}`);
+        }
+        const kind = lineKind(line);
+        if (kind === "system" && !trace.initAt) {
+          trace.initAt = performance.now();
+          for (const update of parseClaudeLine(line)) {
+            if (update.sessionUpdate === "model") persistClaudeModel(this.cfg.dataDir, opts.session ?? "main", update.model);
+          }
+        }
+        if (!trace.firstTokenAt && isTokenLine(line)) trace.firstTokenAt = performance.now();
+        yield* foldClaudeLine(fold, line);
+        if (kind === "result") {
+          trace.resultAt = performance.now();
+          break;
+        }
+      }
+    } finally {
+      this.lastTrace = trace;
+      logClaudeTrace(trace);
+    }
+  }
+
+  private async ensureHot(opts: RunOpts): Promise<{ hot: HotProc; reused: boolean }> {
+    const { args, plan } = claudeSpawn(this.cfg, opts);
+    const sessionId = plan?.id ?? sessionIdOf(args);
+    const fp = liveFingerprint(this.cfg, opts, sessionId);
+    if (this.hot && this.hot.fingerprint === fp && this.hot.proc.exitCode === null) {
+      return { hot: this.hot, reused: true };
+    }
+    if (this.opening) {
+      const hot = await this.opening;
+      return { hot, reused: this.hot === hot && hot.fingerprint === fp };
+    }
+    this.opening = this.spawnHot(args, fp, sessionId, plan?.rotated ?? false, opts);
+    try {
+      this.hot = await this.opening;
+      return { hot: this.hot, reused: false };
+    } finally {
+      this.opening = null;
+    }
+  }
+
+  private async spawnHot(
+    args: string[],
+    fingerprint: string,
+    sessionId: string,
+    rotated: boolean,
+    opts: RunOpts,
+  ): Promise<HotProc> {
+    this.killHot();
+    const spawnAt = performance.now();
+    const proc = Bun.spawn(args, {
+      cwd: opts.cwd ?? this.cfg.repo,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+      env: childEnv(process.env, { allowAnthropicKey: this.cfg.claudeApiKey }),
+    });
+    const hot: HotProc = {
+      proc,
+      fingerprint,
+      sessionId,
+      rotated,
+      spawnAt,
+      pump: new LinePump(proc.stdout),
+      stderr: "",
+    };
+    void drainStderr(proc.stderr, hot);
+    this.hot = hot;
+    debugClaude(`claude spawn session=${sessionId}${rotated ? " rotated" : ""} args=${args.length}`);
+    return hot;
+  }
+
+  private killHot(): void {
+    const hot = this.hot;
+    this.hot = null;
+    if (!hot) return;
+    try {
+      const stdin = hot.proc.stdin;
+      if (stdin && typeof stdin !== "number") stdin.end();
+    } catch {}
+    try {
+      hot.proc.kill();
+    } catch {}
+    hot.pump.close();
+  }
+}
+
+export function claudeUserLine(text: string): string {
+  return `${JSON.stringify({
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text }] },
+  })}\n`;
+}
+
+export function claudeSpawn(cfg: NcliConfig, opts: RunOpts): { args: string[]; plan?: ClaudeSessionPlan } {
+  const args = [
+    cfg.claudeBin,
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--input-format",
+    "stream-json",
+  ];
   if (opts.model ?? cfg.claudeModel) args.push("--model", opts.model ?? cfg.claudeModel);
   if (opts.mcpConfigPath) args.push("--mcp-config", opts.mcpConfigPath, "--strict-mcp-config");
   for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+  let plan: ClaudeSessionPlan | undefined;
   if (opts.session) {
-    const sess = resolveClaudeSession(cfg.dataDir, opts.session, opts.resume);
-    if (sess.resume) args.push("--resume", sess.id);
-    else args.push("--session-id", sess.id);
+    plan = planClaudeSession({
+      dataDir: cfg.dataDir,
+      name: opts.session,
+      cwd: opts.cwd ?? cfg.repo,
+      resume: opts.resume,
+    });
+    if (plan.resume) args.push("--resume", plan.id);
+    else args.push("--session-id", plan.id);
   }
   if (opts.system) args.push("--system-prompt-file", writeSystemPrompt(cfg.dataDir, opts.session ?? "main", opts.system));
-  args.push(opts.prompt);
-  return args;
+  return { args, plan };
+}
+
+export function buildClaudeArgs(cfg: NcliConfig, opts: RunOpts): string[] {
+  return claudeSpawn(cfg, opts).args;
+}
+
+export function planClaudeSession(opts: {
+  dataDir: string;
+  name: string;
+  cwd?: string;
+  resume?: boolean;
+  capBytes?: number;
+  projectsDir?: string;
+}): ClaudeSessionPlan {
+  const dir = join(opts.dataDir, "sessions");
+  mkdirSync(dir, { recursive: true });
+  const path = sessionIdPath(opts.dataDir, opts.name);
+  const cap = opts.capBytes ?? claudeSessionCap();
+  const existing = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+  if (existing && opts.resume !== false) {
+    const bytes = claudeSessionBytes(existing, opts.cwd, opts.projectsDir);
+    if (bytes <= cap) return { id: existing, resume: true, rotated: false };
+    const id = randomUUID();
+    writeFileSync(path, id, "utf8");
+    return { id, resume: false, rotated: true };
+  }
+  const id = existing && opts.resume === false ? existing : randomUUID();
+  writeFileSync(path, id, "utf8");
+  return { id, resume: false, rotated: false };
 }
 
 export function resolveClaudeSession(dataDir: string, name: string, resume?: boolean): { id: string; resume: boolean } {
-  const dir = join(dataDir, "sessions");
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${name.replace(/[^a-zA-Z0-9._-]/g, "_")}.id`);
-  if (existsSync(path)) {
-    const id = readFileSync(path, "utf8").trim();
-    if (id) return { id, resume: resume !== false };
+  const plan = planClaudeSession({ dataDir, name, resume });
+  return { id: plan.id, resume: plan.resume };
+}
+
+export function claudeProjectSlug(cwd: string): string {
+  return cwd.replaceAll("/", "-");
+}
+
+export function claudeSessionJsonl(id: string, cwd?: string, projectsDir?: string): string {
+  const root = projectsDir ?? process.env.NCLI_CLAUDE_PROJECTS ?? join(homedir(), ".claude", "projects", claudeProjectSlug(cwd ?? process.cwd()));
+  return join(root, `${id}.jsonl`);
+}
+
+export function claudeSessionBytes(id: string, cwd?: string, projectsDir?: string): number {
+  const path = claudeSessionJsonl(id, cwd, projectsDir);
+  if (!existsSync(path)) return 0;
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
   }
-  const id = randomUUID();
-  writeFileSync(path, id, "utf8");
-  return { id, resume: false };
+}
+
+export function persistClaudeModel(dataDir: string, name: string, model: string): void {
+  persistSeatModel(dataDir, name, "claude", model);
+}
+
+export function readClaudeModel(dataDir: string, name: string): string | undefined {
+  return readSeatModel(dataDir, name, "claude");
+}
+
+export function formatClaudeTrace(trace: ClaudeTurnTrace): string {
+  const origin = trace.hot ? trace.turnAt : trace.spawnAt;
+  const init = trace.initAt != null ? `${Math.round(trace.initAt - origin)}ms` : "-";
+  const token = trace.firstTokenAt != null ? `${Math.round(trace.firstTokenAt - origin)}ms` : "-";
+  return `claude ${trace.hot ? "hot" : "cold"} session=${trace.sessionId}${trace.rotated ? " rotated" : ""} ${trace.hot ? "turn" : "spawn"}→init=${init} ${trace.hot ? "turn" : "spawn"}→token=${token}`;
 }
 
 export interface ClaudeFold {
@@ -249,6 +495,13 @@ function lineKind(line: string): string {
   }
 }
 
+function isTokenLine(line: string): boolean {
+  for (const update of parseClaudeLine(line)) {
+    if (update.sessionUpdate === "agent_message_chunk" || update.sessionUpdate === "agent_thought_chunk") return true;
+  }
+  return false;
+}
+
 function writeSystemPrompt(dataDir: string, session: string, system: string): string {
   const dir = join(dataDir, "prompts");
   mkdirSync(dir, { recursive: true });
@@ -265,4 +518,67 @@ function stringifyResult(content: unknown): string {
       .join("\n");
   }
   return JSON.stringify(content ?? "");
+}
+
+function sessionIdPath(dataDir: string, name: string): string {
+  return join(dataDir, "sessions", `${safeSession(name)}.id`);
+}
+
+function safeSession(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function claudeSessionCap(): number {
+  const n = Number(process.env.NCLI_CLAUDE_SESSION_CAP ?? "");
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_CLAUDE_SESSION_CAP;
+}
+
+function liveFingerprint(cfg: NcliConfig, opts: RunOpts, sessionId: string): string {
+  return [
+    cfg.claudeBin,
+    opts.model ?? cfg.claudeModel,
+    opts.mcpConfigPath ?? "",
+    ...(opts.addDir ?? []),
+    sessionId,
+    opts.system ?? "",
+    opts.cwd ?? cfg.repo,
+  ].join("\0");
+}
+
+function sessionIdOf(args: string[]): string {
+  const resume = args.indexOf("--resume");
+  if (resume >= 0) return args[resume + 1] ?? "";
+  const sid = args.indexOf("--session-id");
+  return sid >= 0 ? args[sid + 1] ?? "" : "";
+}
+
+function writeClaudeUser(proc: ReturnType<typeof Bun.spawn>, text: string): void {
+  const stdin = proc.stdin;
+  if (!stdin || typeof stdin === "number") throw new Error("claude stdin is closed");
+  stdin.write(claudeUserLine(text));
+}
+
+async function drainStderr(stream: ReadableStream<Uint8Array>, hot: HotProc): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      hot.stderr += decoder.decode(value, { stream: true });
+    }
+  } catch {
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function debugClaude(msg: string): void {
+  if (process.env.NCLI_DEBUG === "1" || process.env.NCLI_CLAUDE_DEBUG === "1") {
+    console.error(msg);
+  }
+}
+
+function logClaudeTrace(trace: ClaudeTurnTrace): void {
+  debugClaude(formatClaudeTrace(trace));
 }

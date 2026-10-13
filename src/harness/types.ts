@@ -36,4 +36,6 @@ export interface Harness {
   id: string;
   run(opts: RunOpts): AsyncIterable<HarnessEvent>;
   steer?(text: string): boolean;
+  warm?(opts: RunOpts): Promise<void>;
+  close?(): void;
 }

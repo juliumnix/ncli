@@ -1,33 +1,72 @@
-import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import {
+  debugSeat,
+  DEFAULT_SESSION_CAP,
+  fileBytes,
+  formatSeatTrace,
+  persistSeatId,
+  persistSeatModel,
+  readSeatId,
+  resumeOrRotate,
+  sessionCap,
+  type SeatSessionPlan,
+  type SeatTurnTrace,
+  walkFiles,
+} from "./session";
+
+interface HotWaiter {
+  proc: ReturnType<typeof Bun.spawn>;
+  fingerprint: string;
+  threadId: string;
+  rotated: boolean;
+  spawnAt: number;
+  stderr: string;
+}
 
 export class CodexExecAdapter implements AcpAdapter {
   readonly id = "codex";
+  lastTrace: SeatTurnTrace | null = null;
+  private waiter: HotWaiter | null = null;
+  private opening: Promise<HotWaiter> | null = null;
+
   constructor(private readonly cfg: NcliConfig) {}
+
+  async warm(opts: RunOpts): Promise<void> {
+    await this.ensureWaiter(opts);
+  }
+
+  close(): void {
+    this.killWaiter();
+  }
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
     const shown = this.cfg.codexModel || readCodexConfigModel();
     if (shown) yield { sessionUpdate: "model", model: shown };
-    const args = buildCodexArgs(this.cfg, opts);
-    const proc = Bun.spawn(args, {
-      cwd: opts.cwd ?? this.cfg.repo,
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-      env: childEnv(process.env, { allowAnthropicKey: false }),
-    });
-    const reader = proc.stdout.getReader();
+    const { waiter, reused } = await this.ensureWaiter(opts);
+    const trace: SeatTurnTrace = {
+      seat: "codex",
+      spawnAt: waiter.spawnAt,
+      turnAt: performance.now(),
+      sessionId: waiter.threadId,
+      rotated: reused ? false : waiter.rotated,
+      hot: reused,
+    };
+    writeCodexPrompt(waiter.proc, codexStdinPrompt(opts));
+    const reader = waiter.proc.stdout.getReader();
     const decoder = new TextDecoder();
     let buf = "";
     try {
       while (true) {
         if (opts.signal?.aborted) {
-          proc.kill();
+          try {
+            waiter.proc.kill();
+          } catch {}
           break;
         }
         const { value, done } = await reader.read();
@@ -37,27 +76,166 @@ export class CodexExecAdapter implements AcpAdapter {
         buf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          yield* parseCodexLine(line);
+          const ev = parseCodexEvent(line);
+          if (ev.threadId) {
+            trace.sessionId = ev.threadId;
+            persistSeatId(this.cfg.dataDir, opts.session ?? "main", "codex", ev.threadId);
+          }
+          if (ev.init && !trace.initAt) trace.initAt = performance.now();
+          if (ev.token && !trace.firstTokenAt) trace.firstTokenAt = performance.now();
+          for (const update of ev.updates) {
+            if (update.sessionUpdate === "model") {
+              persistSeatModel(this.cfg.dataDir, opts.session ?? "main", "codex", update.model);
+            }
+            yield update;
+          }
         }
       }
     } finally {
       reader.releaseLock();
     }
-    const code = await proc.exited;
-    if (code !== 0) {
-      const err = await new Response(proc.stderr).text();
-      throw new Error(err.trim() || `codex exited ${code}`);
+    const code = await waiter.proc.exited;
+    if (this.waiter === waiter) this.waiter = null;
+    trace.resultAt = performance.now();
+    this.lastTrace = trace;
+    logCodexTrace(trace);
+    if (!opts.signal?.aborted && code !== 0) {
+      throw new Error(waiter.stderr.trim() || `codex exited ${code}`);
     }
+    if (!opts.signal?.aborted && code === 0) void this.ensureWaiter(opts);
+  }
+
+  private async ensureWaiter(opts: RunOpts): Promise<{ waiter: HotWaiter; reused: boolean }> {
+    const plan = planCodexSession({
+      dataDir: this.cfg.dataDir,
+      name: opts.session ?? "main",
+      resume: opts.resume,
+    });
+    const args = buildCodexArgs(this.cfg, opts, plan);
+    const fp = liveFingerprint(this.cfg, opts, plan);
+    if (this.waiter && this.waiter.fingerprint === fp && this.waiter.proc.exitCode === null) {
+      return { waiter: this.waiter, reused: true };
+    }
+    if (this.opening) {
+      const waiter = await this.opening;
+      return { waiter, reused: this.waiter === waiter && waiter.fingerprint === fp };
+    }
+    this.opening = this.spawnWaiter(args, fp, plan, opts);
+    try {
+      this.waiter = await this.opening;
+      return { waiter: this.waiter, reused: false };
+    } finally {
+      this.opening = null;
+    }
+  }
+
+  private async spawnWaiter(
+    args: string[],
+    fingerprint: string,
+    plan: SeatSessionPlan,
+    opts: RunOpts,
+  ): Promise<HotWaiter> {
+    this.killWaiter();
+    const spawnAt = performance.now();
+    const proc = Bun.spawn(args, {
+      cwd: opts.cwd ?? this.cfg.repo,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+      env: childEnv(process.env, { allowAnthropicKey: false }),
+    });
+    const waiter: HotWaiter = {
+      proc,
+      fingerprint,
+      threadId: plan.id,
+      rotated: plan.rotated,
+      spawnAt,
+      stderr: "",
+    };
+    void drainStderr(proc.stderr, waiter);
+    this.waiter = waiter;
+    debugSeat(`codex spawn session=${plan.id || "new"}${plan.rotated ? " rotated" : ""} resume=${plan.resume}`);
+    return waiter;
+  }
+
+  private killWaiter(): void {
+    const waiter = this.waiter;
+    this.waiter = null;
+    if (!waiter) return;
+    try {
+      waiter.proc.kill();
+    } catch {}
   }
 }
 
-export function buildCodexArgs(cfg: NcliConfig, opts: RunOpts): string[] {
-  const prompt = opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
+export function codexStdinPrompt(opts: RunOpts): string {
+  return opts.system ? `${opts.system}\n\n${opts.prompt}` : opts.prompt;
+}
+
+export function buildCodexArgs(cfg: NcliConfig, opts: RunOpts, plan?: SeatSessionPlan): string[] {
   const args = [cfg.codexBin, "exec", "--json"];
   if (cfg.codexModel) args.push("--model", cfg.codexModel);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
-  args.push(prompt);
+  if (plan?.resume && plan.id) args.push("resume", plan.id);
+  args.push("-");
   return args;
+}
+
+export function planCodexSession(opts: {
+  dataDir: string;
+  name: string;
+  resume?: boolean;
+  capBytes?: number;
+  sessionsDir?: string;
+}): SeatSessionPlan {
+  const existing = readSeatId(opts.dataDir, opts.name, "codex");
+  const cap = opts.capBytes ?? sessionCap("NCLI_CODEX_SESSION_CAP", DEFAULT_SESSION_CAP);
+  return resumeOrRotate({
+    existing,
+    resume: opts.resume,
+    capBytes: cap,
+    bytes: existing ? codexSessionBytes(existing, opts.sessionsDir) : 0,
+  });
+}
+
+export function defaultCodexSessionsDir(): string {
+  return process.env.NCLI_CODEX_SESSIONS?.trim() || join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
+}
+
+export function codexSessionBytes(threadId: string, sessionsDir?: string): number {
+  if (!threadId) return 0;
+  const root = sessionsDir ?? defaultCodexSessionsDir();
+  let found = 0;
+  walkFiles(root, (abs) => {
+    if (!abs.endsWith(".jsonl")) return;
+    if (!abs.includes(threadId)) return;
+    found = Math.max(found, fileBytes(abs));
+  });
+  return found;
+}
+
+export interface CodexEvent {
+  updates: AcpUpdate[];
+  threadId?: string;
+  init: boolean;
+  token: boolean;
+}
+
+export function parseCodexEvent(line: string): CodexEvent {
+  let ev: Record<string, unknown>;
+  try {
+    ev = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return { updates: [], init: false, token: false };
+  }
+  const type = String(ev.type ?? ev.event ?? "");
+  const threadId = pickThreadId(ev);
+  const init = Boolean(threadId) || /session|thread\.started|turn\.started|model/i.test(type);
+  const updates = parseCodexLine(line);
+  const token = updates.some(
+    (u) => u.sessionUpdate === "agent_message_chunk" || u.sessionUpdate === "agent_thought_chunk",
+  );
+  return { updates, threadId, init, token };
 }
 
 export function parseCodexLine(line: string): AcpUpdate[] {
@@ -92,6 +270,19 @@ export function parseCodexLine(line: string): AcpUpdate[] {
   }
   if (text) return [{ sessionUpdate: "agent_message_chunk", text }];
   return [];
+}
+
+function pickThreadId(ev: Record<string, unknown>): string | undefined {
+  if (typeof ev.thread_id === "string" && ev.thread_id.trim()) return ev.thread_id.trim();
+  for (const obj of [ev.thread, ev.session, ev.item, ev.data]) {
+    if (!obj || typeof obj !== "object") continue;
+    const rec = obj as { id?: unknown; thread_id?: unknown };
+    if (typeof rec.thread_id === "string" && rec.thread_id.trim()) return rec.thread_id.trim();
+    if (typeof rec.id === "string" && rec.id.trim() && /thread|session/i.test(String(ev.type ?? ""))) {
+      return rec.id.trim();
+    }
+  }
+  return undefined;
 }
 
 function pickText(obj: Record<string, unknown>): string {
@@ -132,4 +323,40 @@ export function readCodexConfigModel(path = defaultCodexConfigPath()): string | 
   } catch {
     return undefined;
   }
+}
+
+function liveFingerprint(cfg: NcliConfig, opts: RunOpts, plan: SeatSessionPlan): string {
+  return [
+    cfg.codexBin,
+    cfg.codexModel,
+    ...(opts.extraArgs ?? []),
+    opts.cwd ?? cfg.repo,
+    plan.resume ? plan.id : "",
+  ].join("\0");
+}
+
+function writeCodexPrompt(proc: ReturnType<typeof Bun.spawn>, text: string): void {
+  const stdin = proc.stdin;
+  if (!stdin || typeof stdin === "number") throw new Error("codex stdin is closed");
+  stdin.write(text);
+  stdin.end();
+}
+
+async function drainStderr(stream: ReadableStream<Uint8Array>, waiter: HotWaiter): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      waiter.stderr += decoder.decode(value, { stream: true });
+    }
+  } catch {
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function logCodexTrace(trace: SeatTurnTrace): void {
+  debugSeat(formatSeatTrace(trace));
 }

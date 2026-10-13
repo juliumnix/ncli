@@ -955,10 +955,15 @@ function paintLive() {
 function paintTick() {
   if (!state.turn || state.turn.status !== "running") return;
   const q = quietOf(state.turn);
-  const el = log.querySelector(".live.quiet .tdur");
-  const phrase = log.querySelector(".live.quiet .shimmer-text");
+  const live = log.querySelector(".live.quiet");
+  const el = live && live.querySelector(".tdur");
+  const phrase = live && live.querySelector(".shimmer-text");
   if (el) el.textContent = q.elapsed;
   if (phrase) phrase.textContent = q.phrase;
+  if (live) {
+    if (q.stuck) live.setAttribute("data-stuck", "1");
+    else live.removeAttribute("data-stuck");
+  }
 }
 
 function paintScrollHints() {
@@ -993,12 +998,16 @@ function jumpToLatest() {
   paintScrollHints();
 }
 
+let lastComposerSpace = -1;
 function measureComposer() {
+  if (typeof window !== "undefined" && typeof window.__ncliComposerMeasures === "number") window.__ncliComposerMeasures += 1;
   const el = $("dock") || $("form");
   if (!el) return;
   const box = el.getBoundingClientRect();
   const bottom = Number.parseFloat(getComputedStyle(el).bottom) || 28;
   const space = Math.max(box.height + bottom + 16, 96);
+  if (space === lastComposerSpace) return;
+  lastComposerSpace = space;
   document.documentElement.style.setProperty("--composer-space", `${space}px`);
 }
 
@@ -1026,11 +1035,22 @@ function sameReviewParams(a, b) {
 function renderPasteHint() {
   const bar = $("phint");
   if (!bar) return;
-  const hint = reviewPasteHint(input && input.value);
+  const value = input && input.value;
+  if (!value || !/github\.com\//i.test(value)) {
+    if (!bar.hidden) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      measureComposer();
+    }
+    return;
+  }
+  const hint = reviewPasteHint(value);
   if (!hint) {
-    bar.hidden = true;
-    bar.innerHTML = "";
-    measureComposer();
+    if (!bar.hidden) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      measureComposer();
+    }
     return;
   }
   bar.hidden = false;
@@ -1070,7 +1090,7 @@ function liveTurnHtml(turn) {
   const answer = q.answer
     ? `<div class="live-answer"><div class="md chunk">${bodyHtml(q.answer, true)}</div></div>`
     : "";
-  return `<div class="live quiet" data-turn="${escapeHtml(turn.id)}">
+  return `<div class="live quiet" data-turn="${escapeHtml(turn.id)}"${q.stuck ? " data-stuck=\"1\"" : ""}>
     <div class="live-status"><span class="shimmer-text">${escapeHtml(q.phrase)}</span><span class="tdur">${escapeHtml(q.elapsed)}</span></div>
     ${chips ? `<div class="consult-chips">${chips}</div>` : ""}
     ${answer}
@@ -1098,16 +1118,25 @@ function quietOf(turn) {
     seen.add(other);
     chips.push({ seat: other, label: `consultou ${SEAT[other]?.name || other}` });
   }
+  const silent = Math.max(0, Date.now() - Date.parse(turn.lastEventAt || turn.startedAt));
+  const stuck = turn.status === "running" && silent >= 5000;
   return {
-    phrase: quietPhrase(running),
+    phrase: stuck ? stuckPhrase(turn.seat) : quietPhrase(running),
     elapsed: elapsedLabel(turn.startedAt),
     chips,
     answer,
+    stuck,
   };
 }
 
+function stuckPhrase(seat) {
+  if (seat === "codex") return "Sem resposta do Codex. O processo ainda não enviou tokens.";
+  if (seat === "cursor") return "Sem resposta do Cursor. O processo ainda não enviou tokens.";
+  return "Sem resposta do Claude. O processo ainda não enviou tokens.";
+}
+
 function quietPhrase(step) {
-  if (!step) return "Trabalhando…";
+  if (!step) return "Pensando…";
   if (step.kind === "thinking") return "Pensando…";
   if (step.kind === "text") return "Escrevendo a resposta…";
   if (step.kind === "ask") {
@@ -1154,6 +1183,7 @@ function stepHtml(s) {
 
 function elapsedLabel(iso) {
   const ms = Math.max(0, Date.now() - Date.parse(iso || Date.now()));
+  if (ms < 10000) return `${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -2319,7 +2349,7 @@ document.addEventListener("keydown", (e) => {
 
 setInterval(() => {
   if (state.turn && state.turn.status === "running") paintTick();
-}, 1000);
+}, 100);
 
 document.addEventListener("click", (e) => {
   const sum = e.target.closest(".work-sum");
@@ -2508,6 +2538,7 @@ async function sendUser(text, mode) {
     };
     renderChat();
     pinNewAnswer();
+    paintTick();
   }
   const res = await fetch("/api/message", {
     method: "POST",
