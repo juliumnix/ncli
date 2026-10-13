@@ -511,7 +511,12 @@ export class Hub {
       this.importProgress = null;
       for (const mem of touched) mem.publish();
       this.memory.publish();
-      this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
+      this.emit({
+        type: "import",
+        preview: this.lastImport,
+        offers: this.importOffers,
+        messages: this.memory.log,
+      });
       this.emitDebug();
       return result;
     } catch (err) {
@@ -678,10 +683,11 @@ export class Hub {
     let talk = "";
     const tools: string[] = [];
     const inbox = this.bus.drainPrompt("main");
-    const soFar = this.importing ? importKnownLines(this.memory.log) : "";
-    const importHint = this.importing && soFar
+    const migrating = this.importing;
+    const soFar = migrating ? importKnownLines(this.memory.log) : "";
+    const importHint = migrating && soFar
       ? `${withImportTalkNote("O que já chegou do histórico:", this.importProgress ?? undefined)}\n${soFar}\n\n`
-      : this.importing
+      : migrating
         ? `${importTalkNote(this.importProgress ?? undefined)}\n\n`
         : "";
     try {
@@ -727,7 +733,7 @@ export class Hub {
         const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
         const msg = this.memory.append({
           kind: "talk",
-          text: this.importing ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
+          text: migrating ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
           seat,
           model: this.live.turn.model,
           recall: citations.length ? citations : undefined,

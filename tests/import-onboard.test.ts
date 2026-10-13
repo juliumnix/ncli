@@ -25,11 +25,18 @@ test("empty hub offers the richest CLI history and welcome has one-click import"
 
 test("empty-session apply surfaces Claude history in this chat when cwd is another repo", async () => {
   const { hub } = await makeHub({ importClaude: CLAUDE });
+  const imports: Array<{ messages?: { text: string }[] }> = [];
+  hub.subscribe((ev) => {
+    if (ev.type === "import") imports.push(ev);
+  });
   try {
     const result = await hub.applyImport("claude", undefined, { surface: true });
     expect(result.applied).toBeGreaterThan(0);
     expect(hub.memory.log.some((m) => m.text.includes("FACT_MEMBER_DISCOUNT_BEFORE_TAX"))).toBe(true);
     expect(hub.lastImport?.newCount).toBe(0);
+    const last = imports.at(-1);
+    expect(last?.messages?.length).toBeGreaterThan(0);
+    expect(last?.messages?.some((m) => m.text.includes("FACT_MEMBER_DISCOUNT_BEFORE_TAX"))).toBe(true);
   } finally {
     hub.close();
   }
