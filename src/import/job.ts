@@ -60,15 +60,20 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
   };
   return new Promise<ImportApply>((resolve, reject) => {
     let settled = false;
+    const waitGone = async () => {
+      try {
+        send({ type: "stop" });
+      } catch {}
+      try {
+        child.stdin.end();
+      } catch {}
+      await child.exited;
+    };
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
       opts.signal?.removeEventListener("abort", onAbort);
-      try {
-        child.stdin.end();
-      } catch {}
-      void child.exited;
-      fn();
+      void waitGone().then(fn, fn);
     };
     const onAbort = () => {
       send({ type: "stop" });

@@ -19,6 +19,18 @@ function writeTinyClaude(root: string, files = 2, lines = 8): void {
   }
 }
 
+async function scanProcPids(): Promise<string[]> {
+  const proc = Bun.spawn(["ps", "-eo", "pid=,args="], { stdout: "pipe", stderr: "pipe" });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.includes("scan-proc"))
+    .map((line) => line.split(/\s+/)[0] ?? "")
+    .filter(Boolean);
+}
+
 test("import scan child and jsonl append can loop without throwing", async () => {
   const root = tmpDir("fd-scan");
   writeTinyClaude(root);
@@ -31,6 +43,7 @@ test("import scan child and jsonl append can loop without throwing", async () =>
     });
     expect(result.applied).toBeGreaterThan(0);
   }
+  expect(await scanProcPids()).toEqual([]);
   const mem = new Memory({
     dir: tmpDir("fd-mem"),
     nodeBytes: 80,
