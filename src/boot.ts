@@ -11,7 +11,7 @@ import { compactSdkStatus } from "./memory/sdk-compact";
 import { compactSdkKey, loadNcliSecrets } from "./secrets";
 import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
-import { announceReady, openReadyBrowser, readyUrl } from "./boot-ready";
+import { announceReady, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
 export { detectClis };
 
 export interface BootReport {
@@ -24,6 +24,7 @@ export interface BootReport {
   bus: string;
   views: string[];
   liveOrigin: string;
+  revision?: string;
 }
 
 export interface Booted {
@@ -39,19 +40,23 @@ export function shouldValidateCompactModel(cfg: NcliConfig): boolean {
   return true;
 }
 
-export function formatBoot(r: BootReport): string {
-  const cli = [
-    `claude ${r.clis.claude ? r.main.harness === "claude" ? "ok (main)" : "ok" : "missing"}`,
-    `codex ${r.clis.codex ? r.main.harness === "codex" ? "ok (main)" : "ok" : "missing"}`,
-    `cursor ${r.clis.cursor ? r.main.harness === "cursor" ? "ok (main)" : "ok" : "missing"}`,
-  ].join(", ");
+export function bootVerbose(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): boolean {
+  const v = (env.NCLI_VERBOSE ?? "").trim();
+  if (v === "1" || v.toLowerCase() === "true") return true;
+  return argv.includes("--verbose");
+}
+
+export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): string {
+  const url = r.uiUrl.replace("127.0.0.1", "localhost");
+  const rev = r.revision ? ` · ${r.revision}` : "";
+  const short = [`NCLI rodando em ${url}${rev}`, formatClis(r.clis)].join("\n");
+  if (!opts.verbose) return short;
   return [
-    `NCLI  ${r.uiUrl}`,
+    short,
     `agent ${r.main.harness}${r.main.model ? ` · ${r.main.model}` : ""}`,
     `mcp   ${r.mcpUrl}  (listening)`,
     `bus   ${r.bus}`,
     `compact: cursor-sdk ${r.compact.sdk} · ${r.compact.model} · budget ${r.compact.budget}`,
-    `clis  ${cli}`,
     `views ${r.views.join(", ") || "(none)"}`,
     r.warning,
   ]
