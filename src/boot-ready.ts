@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { CliPresence } from "./ui/chrome";
 
@@ -18,16 +18,20 @@ export function formatClis(clis: CliPresence): string {
 }
 
 export function formatReady(notice: ReadyNotice): string {
-  const rev = notice.revision ? ` · ${notice.revision}` : "";
+  const rev = notice.revision && notice.revision !== "unknown" ? ` · ${notice.revision}` : "";
   return `NCLI rodando em ${notice.url}${rev}\n${formatClis(notice.clis)}`;
 }
 
-export function flushText(text: string, fd = 1): void {
-  writeSync(fd, text.endsWith("\n") ? text : `${text}\n`);
+export function flushText(text: string, write: (chunk: string) => void = writeStdout): void {
+  write(text.endsWith("\n") ? text : `${text}\n`);
 }
 
-export function announceReady(notice: ReadyNotice, fd = 1): void {
-  flushText(formatReady(notice), fd);
+export function announceReady(notice: ReadyNotice, write?: (chunk: string) => void): void {
+  flushText(formatReady(notice), write);
+}
+
+function writeStdout(chunk: string): void {
+  process.stdout.write(chunk);
 }
 
 export function noOpen(env: Record<string, string | undefined> = process.env): boolean {

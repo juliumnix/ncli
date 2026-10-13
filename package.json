@@ -24,6 +24,9 @@
     "onboard:perf": "bun run scripts/onboard-perf.ts",
     "memory:eval": "bun run scripts/memory-eval.ts"
   },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
   "type": "module",
   "dependencies": {
     "@cursor/sdk": "^1.0.37"

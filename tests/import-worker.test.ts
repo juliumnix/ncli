@@ -52,7 +52,7 @@ test("a fat import keeps the main event loop under 40ms and names the worker", a
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ source: "claude", apply: true }),
     });
-    expect(await apply.json()).toMatchObject({ ok: true, started: true, via: "worker" });
+    expect(await apply.json()).toMatchObject({ ok: true, started: true, via: "job" });
     const send = fetch(`${url}/api/message`, {
       method: "POST",
       headers: { "content-type": "application/json" },

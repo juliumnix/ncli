@@ -99,8 +99,12 @@ export async function bootNcli(opts: {
   hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const clis = detectClis(cfg);
-  const revision = resolveRevision(root);
-  announceReady({ url: readyUrl(server.port), clis, revision: revision.short });
+  const revision = resolveRevision(root, process.env, [import.meta.path, process.argv[1] ?? ""]);
+  announceReady({
+    url: readyUrl(server.port),
+    clis,
+    revision: revision.short === "unknown" ? undefined : revision.short,
+  });
   if (opts.openBrowser) {
     openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
   }

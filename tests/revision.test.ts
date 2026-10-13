@@ -7,7 +7,9 @@ import {
   ncliSpecAt,
   parseLsRemoteMain,
   parseRevision,
+  parseShaFromGithubSpec,
   parseShaFromPath,
+  readBunGithubCacheSha,
   readGitHead,
   resolveRevision,
   shortSha,
@@ -56,4 +58,17 @@ test("resolveRevision reads a bunx cache path when git is missing", () => {
   const root = join(tmpDir("rev-path"), MAIN);
   mkdirSync(root, { recursive: true });
   expect(resolveRevision(root, {}).sha).toBe(MAIN);
+});
+
+test("resolveRevision reads a github spec when bunx has no .git", () => {
+  const empty = tmpDir("rev-spec");
+  expect(parseShaFromGithubSpec(`github:juliumnix/ncli#${MAIN}`)).toBe(MAIN);
+  expect(resolveRevision(empty, { npm_package_resolved: `github:juliumnix/ncli#${MAIN}` }).sha).toBe(MAIN);
+});
+
+test("readBunGithubCacheSha picks the newest ncli@sha cache dir", () => {
+  const home = tmpDir("bun-cache");
+  const dir = join(home, ".bun/install/cache/github.com/juliumnix");
+  mkdirSync(join(dir, `ncli@${MAIN}`), { recursive: true });
+  expect(readBunGithubCacheSha(home)).toBe(MAIN);
 });

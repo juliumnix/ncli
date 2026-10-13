@@ -1,12 +1,13 @@
+import { fileURLToPath } from "node:url";
+import { childEnv } from "../harness/child-env";
 import { rootFor } from "./roots";
 import type { ImportApply, ImportLine, ImportRoots, ImportSource } from "./types";
 import type { FileCursor } from "./checkpoint";
 import {
   IMPORT_BATCH_BYTES,
   IMPORT_BATCH_LINES,
-  importWorkerUrl,
-  type ImportWorkerIn,
-  type ImportWorkerOut,
+  type ImportScanIn,
+  type ImportScanOut,
 } from "./protocol";
 import type { ImportProgress } from "./progress";
 
@@ -29,11 +30,14 @@ export type ImportJobOpts = {
   signal?: AbortSignal;
 };
 
+export function importScanProc(): string {
+  return fileURLToPath(new URL("./scan-proc.ts", import.meta.url));
+}
+
 export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
-  const worker = new Worker(importWorkerUrl());
   const source = opts.source;
   const root = rootFor(source, opts.roots);
-  const start: Extract<ImportWorkerIn, { type: "run" }> = {
+  const start: Extract<ImportScanIn, { type: "run" }> = {
     type: "run",
     source,
     root,
@@ -43,17 +47,31 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
     batch: opts.batch ?? IMPORT_BATCH_LINES,
     memCap: opts.memCap ?? IMPORT_BATCH_BYTES,
   };
+  const child = Bun.spawn({
+    cmd: [process.execPath, importScanProc()],
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "ignore",
+    env: childEnv(process.env),
+  });
+  const send = (msg: ImportScanIn) => {
+    child.stdin.write(`${JSON.stringify(msg)}\n`);
+    child.stdin.flush();
+  };
   return new Promise<ImportApply>((resolve, reject) => {
     let settled = false;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
       opts.signal?.removeEventListener("abort", onAbort);
-      worker.terminate();
+      try {
+        child.stdin.end();
+      } catch {}
+      void child.exited;
       fn();
     };
     const onAbort = () => {
-      worker.postMessage({ type: "stop" } satisfies ImportWorkerIn);
+      send({ type: "stop" });
       finish(() => reject(new Error("import stopped")));
     };
     if (opts.signal?.aborted) {
@@ -61,8 +79,8 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
       return;
     }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    worker.onmessage = (ev: MessageEvent<ImportWorkerOut>) => {
-      const msg = ev.data;
+    void readJsonl(child.stdout, async (msg: ImportScanOut) => {
+      if (settled) return;
       switch (msg.type) {
         case "progress":
           opts.onProgress?.({ source: msg.source, done: msg.done, total: msg.total });
@@ -71,11 +89,12 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
           opts.onCursor?.(msg.file, msg.lastFingerprint, msg.fileDone);
           return;
         case "batch":
-          void Promise.resolve(opts.onBatch(msg.lines, { file: msg.file, fileDone: msg.fileDone }))
-            .then(() => {
-              if (!settled) worker.postMessage({ type: "pull" } satisfies ImportWorkerIn);
-            })
-            .catch((err) => finish(() => reject(err)));
+          try {
+            await opts.onBatch(msg.lines, { file: msg.file, fileDone: msg.fileDone });
+            if (!settled) send({ type: "pull" });
+          } catch (err) {
+            finish(() => reject(err));
+          }
           return;
         case "done":
           finish(() =>
@@ -101,13 +120,28 @@ export async function runImportJob(opts: ImportJobOpts): Promise<ImportApply> {
           return;
         default: {
           const _n: never = msg;
-          finish(() => reject(new Error(`unknown worker out: ${JSON.stringify(_n)}`)));
+          finish(() => reject(new Error(`unknown scan out: ${JSON.stringify(_n)}`)));
         }
       }
-    };
-    worker.onerror = (err) => {
-      finish(() => reject(err instanceof Error ? err : new Error(String(err))));
-    };
-    worker.postMessage(start);
+    }).then(
+      () => finish(() => reject(new Error("import scan exited"))),
+      (err) => finish(() => reject(err)),
+    );
+    send(start);
   });
+}
+
+async function readJsonl(stream: ReadableStream<Uint8Array>, onMsg: (msg: ImportScanOut) => void | Promise<void>): Promise<void> {
+  const decoder = new TextDecoder();
+  let buf = "";
+  for await (const chunk of stream) {
+    buf += decoder.decode(chunk, { stream: true });
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      const raw = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (raw) await onMsg(JSON.parse(raw) as ImportScanOut);
+      nl = buf.indexOf("\n");
+    }
+  }
 }

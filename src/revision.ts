@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type NcliRevision = {
@@ -33,6 +34,7 @@ export function readRevisionFile(root: string): string | undefined {
 export function resolveRevision(
   root: string,
   env: Record<string, string | undefined> = process.env,
+  extra: string[] = [],
 ): NcliRevision {
   const fromEnv = parseRevision(env.NCLI_REVISION);
   if (fromEnv) return fromEnv;
@@ -40,8 +42,17 @@ export function resolveRevision(
   if (fromGit) return fromGit;
   const fromFile = parseRevision(readRevisionFile(root));
   if (fromFile) return fromFile;
-  const fromPath = parseRevision(parseShaFromPath(root));
-  if (fromPath) return fromPath;
+  const fromBlobs = shaFromBlobs([
+    root,
+    process.cwd(),
+    process.argv.join(" "),
+    env.npm_package_resolved,
+    env.npm_lifecycle_script,
+    ...extra,
+  ]);
+  if (fromBlobs) return fromBlobs;
+  const fromCache = parseRevision(readBunGithubCacheSha());
+  if (fromCache) return fromCache;
   return { sha: "unknown", short: "unknown" };
 }
 
@@ -65,6 +76,53 @@ export function parseLsRemoteMain(text: string): string {
 export function parseShaFromPath(path: string): string | undefined {
   const m = path.match(/[0-9a-f]{40}/i);
   return m ? m[0].toLowerCase() : undefined;
+}
+
+export function parseShaFromGithubSpec(raw: string): string | undefined {
+  const m = raw.match(/juliumnix\/ncli#([0-9a-f]{7,40})\b/i);
+  return m ? m[1].toLowerCase() : undefined;
+}
+
+export function readBunGithubCacheSha(home = homedir()): string | undefined {
+  const roots = [
+    join(home, ".bun/install/cache/github.com/juliumnix"),
+    join(home, ".bun/install/cache/github.com"),
+  ];
+  let best: { sha: string; mtime: number } | undefined;
+  for (const dir of roots) {
+    if (!existsSync(dir)) continue;
+    let names: string[] = [];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const sha = name.match(/^ncli@([0-9a-f]{40})$/i)?.[1]
+        ?? name.match(/ncli@([0-9a-f]{40})/i)?.[1]
+        ?? parseShaFromPath(name);
+      if (!sha || sha.length !== 40) continue;
+      let mtime = 0;
+      try {
+        mtime = statSync(join(dir, name)).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (!best || mtime > best.mtime) best = { sha: sha.toLowerCase(), mtime };
+    }
+  }
+  return best?.sha;
+}
+
+function shaFromBlobs(blobs: Array<string | undefined>): NcliRevision | undefined {
+  for (const blob of blobs) {
+    if (!blob) continue;
+    const fromSpec = parseRevision(parseShaFromGithubSpec(blob));
+    if (fromSpec) return fromSpec;
+    const fromPath = parseRevision(parseShaFromPath(blob));
+    if (fromPath) return fromPath;
+  }
+  return undefined;
 }
 
 export function documentedLaunch(sha: string): { env: { NCLI_REVISION: string }; argv: string[] } {

@@ -2,19 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { listSessionFiles, parseSessionStream } from "./parse";
 import type { FileCursor } from "./checkpoint";
 import type { ImportLine } from "./types";
-import { IMPORT_YIELD_MS, type ImportWorkerIn, type ImportWorkerOut } from "./protocol";
+import { IMPORT_YIELD_MS, type ImportScanIn, type ImportScanOut } from "./protocol";
 
-let waiting: (() => void) | undefined;
-
-function send(msg: ImportWorkerOut): void {
-  postMessage(msg);
-}
-
-function waitPull(): Promise<void> {
-  return new Promise((resolve) => {
-    waiting = resolve;
-  });
-}
+export type ScanSend = (msg: ImportScanOut) => void;
+export type ScanWait = () => Promise<void>;
 
 function loadSeen(path: string): Set<string> {
   const seen = new Set<string>();
@@ -34,7 +25,12 @@ function cursorOf(cursors: FileCursor[], path: string): FileCursor | undefined {
   return cursors.find((c) => c.path === path);
 }
 
-async function run(job: Extract<ImportWorkerIn, { type: "run" }>): Promise<void> {
+export async function runImportScan(
+  job: Extract<ImportScanIn, { type: "run" }>,
+  send: ScanSend,
+  waitPull: ScanWait,
+  signal?: AbortSignal,
+): Promise<void> {
   const seen = loadSeen(job.seenFile);
   const files = listSessionFiles(job.root, job.source);
   const sinceMs = job.since ? Date.parse(job.since) : undefined;
@@ -60,9 +56,11 @@ async function run(job: Extract<ImportWorkerIn, { type: "run" }>): Promise<void>
     batch = [];
     batchBytes = 0;
     await waitPull();
+    if (signal?.aborted) return;
     await Bun.sleep(0);
   };
   for (let i = 0; i < files.length; i++) {
+    if (signal?.aborted) return;
     const file = files[i]!;
     const cur = cursorOf(job.cursors, file);
     if (cur?.status === "done") {
@@ -104,26 +102,3 @@ async function run(job: Extract<ImportWorkerIn, { type: "run" }>): Promise<void>
   }
   send({ type: "done", applied, seenCount, skipped, sessions: files.length, filesSkipped, filesScanned });
 }
-
-onmessage = (ev: MessageEvent<ImportWorkerIn>) => {
-  const msg = ev.data;
-  switch (msg.type) {
-    case "pull":
-      waiting?.();
-      waiting = undefined;
-      return;
-    case "stop":
-      waiting?.();
-      waiting = undefined;
-      return;
-    case "run":
-      void run(msg).catch((err) => {
-        send({ type: "error", message: err instanceof Error ? err.message : String(err) });
-      });
-      return;
-    default: {
-      const _n: never = msg;
-      send({ type: "error", message: `unknown worker in: ${JSON.stringify(_n)}` });
-    }
-  }
-};

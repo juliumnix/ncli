@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
@@ -147,7 +147,7 @@ export class Memory {
     const out: Message[] = [];
     try {
       for (const partial of partials) out.push(this.writeLine(partial, false));
-      persistLines(join(this.dir, "log.jsonl"), out, !opts.quiet);
+      persistLines(join(this.dir, "log.jsonl"), out);
       if (!opts.quiet) {
         if (this.viewBytesUsed() > this.viewHigh) this.fit();
         else this.saveView();
@@ -161,7 +161,6 @@ export class Memory {
 
   publish(): void {
     this.saveView();
-    syncFile(join(this.dir, "log.jsonl"));
     this.notify();
   }
 
@@ -429,7 +428,7 @@ export class Memory {
 
   private flushTree(): void {
     if (!this.treeBuf.length) return;
-    persistLines(join(this.dir, "tree.jsonl"), this.treeBuf, true);
+    persistLines(join(this.dir, "tree.jsonl"), this.treeBuf);
     this.treeBuf = [];
   }
 
@@ -869,25 +868,9 @@ function persistLine(path: string, obj: unknown): void {
   persistLines(path, [obj]);
 }
 
-function persistLines(path: string, objs: unknown[], sync = true): void {
+function persistLines(path: string, objs: unknown[]): void {
   if (!objs.length) return;
-  const fd = openSync(path, "a");
-  try {
-    for (const obj of objs) writeSync(fd, `${JSON.stringify(obj)}\n`, null, "utf8");
-    if (sync) fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function syncFile(path: string): void {
-  if (!existsSync(path)) return;
-  const fd = openSync(path, "r+");
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
+  appendFileSync(path, objs.map((obj) => `${JSON.stringify(obj)}\n`).join(""));
 }
 
 export function mockCompressor(): Compressor {
