@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   announceReady,
@@ -73,11 +73,19 @@ test("openReadyBrowser stays closed when NCLI_NO_OPEN is set", () => {
 });
 
 test("announceReady writes the ready line with a sync flush", () => {
-  const path = join(tmpDir("flush"), "out.txt");
-  const handle = openSync(path, "w");
-  announceReady({ url: "http://localhost:9", clis: { claude: false, codex: false, cursor: false } }, handle);
-  closeSync(handle);
-  expect(readFileSync(path, "utf8")).toBe(
+  let out = "";
+  announceReady({ url: "http://localhost:9", clis: { claude: false, codex: false, cursor: false } }, (chunk) => {
+    out += chunk;
+  });
+  expect(out).toBe(
     "NCLI rodando em http://localhost:9\nclis  claude missing, codex missing, cursor missing\n",
   );
+});
+
+test("formatReady omits an unknown revision", () => {
+  expect(formatReady({
+    url: "http://localhost:47231",
+    clis: { claude: true, codex: false, cursor: true },
+    revision: "unknown",
+  })).toBe("NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok");
 });

@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { NcliConfig } from "./config";
-import { loadConfig } from "./config";
+import { hasCompactDailyBudget, loadConfig, type NcliConfig } from "./config";
 import { Hub } from "./hub";
 import { serve } from "./server";
 import { MCP_PROTOCOL_DEFAULT } from "./mcp/handle";
@@ -58,7 +57,7 @@ export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): str
     `agent ${r.main.harness}${r.main.model ? ` · ${r.main.model}` : ""}`,
     `mcp   ${r.mcpUrl}  (listening)`,
     `bus   ${r.bus}`,
-    `compact: cursor-sdk ${r.compact.sdk} · ${r.compact.model} · budget ${r.compact.budget}`,
+    `compact: cursor-sdk ${r.compact.sdk} · ${r.compact.model}${hasCompactDailyBudget(r.compact.budget) ? ` · budget ${r.compact.budget}` : ""}`,
     `views ${r.views.join(", ") || "(none)"}`,
     r.warning,
   ]
@@ -100,8 +99,12 @@ export async function bootNcli(opts: {
   hub.offerFirstImport();
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const clis = detectClis(cfg);
-  const revision = resolveRevision(root);
-  announceReady({ url: readyUrl(server.port), clis, revision: revision.short });
+  const revision = resolveRevision(root, process.env, [import.meta.path, process.argv[1] ?? ""]);
+  announceReady({
+    url: readyUrl(server.port),
+    clis,
+    revision: revision.short === "unknown" ? undefined : revision.short,
+  });
   if (opts.openBrowser) {
     openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
   }

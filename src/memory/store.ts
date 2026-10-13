@@ -1,8 +1,8 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
-import { CompactDeferred } from "./compact-deferred";
+import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
 import { factsOf, supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
 
@@ -12,10 +12,17 @@ export interface MemoryOptions {
   viewBytes: number;
   compressor: Compressor;
   pumpBatch?: number;
+  compactJobs?: number;
   deferCutAfter?: number;
   deferBackoffMs?: number;
   compressTimeoutMs?: number;
 }
+
+export type CompactWork = {
+  done: number;
+  total: number;
+  paused: "budget" | null;
+};
 
 export type Compressor = (input: CompactInput) => Promise<string>;
 
@@ -53,20 +60,25 @@ export class Memory {
   readonly viewBytes: number;
   readonly compressor: Compressor;
   readonly pumpBatch: number;
+  readonly compactJobs: number;
   readonly deferCutAfter: number;
   readonly deferBackoffMs: number;
   readonly compressTimeoutMs: number;
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
+  compactWork: CompactWork = { done: 0, total: 0, paused: null };
   view: ViewPart[] = [];
   onChange: (() => void) | null = null;
   private busy = new Set<string>();
   private readyQ: Slot[] = [];
   private queued = new Set<string>();
+  private refineQ: Slot[] = [];
+  private refined = new Set<string>();
   private deferred = new Map<string, DeferRec>();
   private waiters = new Set<() => void>();
   private pumping: Promise<void> | null = null;
   private muteChange = false;
+  private treeBuf: TreeNode[] = [];
   paused = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -76,6 +88,7 @@ export class Memory {
     this.viewBytes = opts.viewBytes;
     this.compressor = opts.compressor;
     this.pumpBatch = opts.pumpBatch ?? 6;
+    this.compactJobs = Math.max(1, opts.compactJobs ?? 6);
     this.deferCutAfter = opts.deferCutAfter ?? 3;
     this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
     this.compressTimeoutMs = opts.compressTimeoutMs ?? 30_000;
@@ -134,7 +147,7 @@ export class Memory {
     const out: Message[] = [];
     try {
       for (const partial of partials) out.push(this.writeLine(partial, false));
-      persistLines(join(this.dir, "log.jsonl"), out, !opts.quiet);
+      persistLines(join(this.dir, "log.jsonl"), out);
       if (!opts.quiet) {
         if (this.viewBytesUsed() > this.viewHigh) this.fit();
         else this.saveView();
@@ -148,7 +161,6 @@ export class Memory {
 
   publish(): void {
     this.saveView();
-    syncFile(join(this.dir, "log.jsonl"));
     this.notify();
   }
 
@@ -373,36 +385,98 @@ export class Memory {
         if (this.hasInFlight()) return this.pump();
       });
     }
-    this.pumping = this.pumpLoop().finally(() => {
-      this.pumping = null;
-    });
+    this.pumping = this.pumpLoop()
+      .catch((err) => {
+        process.stderr.write(`NCLI: compact pump: ${err instanceof Error ? err.message : String(err)}\n`);
+      })
+      .finally(() => {
+        this.pumping = null;
+      });
     return this.pumping;
   }
 
   private async pumpLoop(): Promise<void> {
-    for (;;) {
-      const batch = this.nextBuildableBatch(this.pumpBatch);
-      if (!batch.length) break;
-      await Promise.all(
-        batch.map(async (next) => {
-          const key = Memory.key(next.l, next.i);
-          this.busy.add(key);
-          let defer = false;
-          try {
-            await this.build(next.l, next.i);
-          } catch (err) {
-            if (!(err instanceof CompactDeferred)) throw err;
-            defer = true;
-          } finally {
-            this.busy.delete(key);
-          }
-          if (defer) this.onDeferred(next.l, next.i);
-        }),
-      );
+    this.seedLocalTree();
+    this.notifyWaiters();
+    await this.refineLoop();
+    this.scheduleRetry();
+  }
+
+  private seedLocalTree(): void {
+    this.muteChange = true;
+    try {
+      for (;;) {
+        const batch = this.nextBuildableBatch(4096);
+        if (!batch.length) break;
+        for (const next of batch) this.buildLocal(next.l, next.i);
+      }
+    } finally {
+      this.flushTree();
+      this.refreshViewParts();
+      this.sortRefineQ();
+      this.recountWork();
+      if (this.viewBytesUsed() > this.viewHigh) this.fit();
+      else this.saveView();
+      this.muteChange = false;
+      this.notify();
+    }
+  }
+
+  seed(opts: { coverOnly?: boolean } = {}): void {
+    this.seedLocalTree();
+    if (opts.coverOnly) this.dropOffCover();
+  }
+
+  private dropOffCover(): void {
+    const keep = new Set<string>();
+    for (const p of this.view) keep.add(Memory.key(p.l, p.i));
+    for (const key of this.nodes.keys()) {
+      if (!keep.has(key)) this.nodes.delete(key);
+    }
+    this.readyQ = this.readyQ.filter((slot) => {
+      const key = Memory.key(slot.l, slot.i);
+      if (keep.has(key)) return true;
+      this.queued.delete(key);
+      return false;
+    });
+    this.refineQ = this.refineQ.filter((slot) => keep.has(Memory.key(slot.l, slot.i)));
+    this.recountWork();
+  }
+
+  private flushTree(): void {
+    if (!this.treeBuf.length) return;
+    persistLines(join(this.dir, "tree.jsonl"), this.treeBuf);
+    this.treeBuf = [];
+  }
+
+  private async refineLoop(): Promise<void> {
+    if (this.compactWork.paused === "budget") return;
+    this.sortRefineQ();
+    this.recountWork();
+    const waveN = Math.max(1, this.pumpBatch) * this.compactJobs;
+    while (this.refineQ.length && !this.paused && this.compactWork.paused !== "budget") {
+      const wave: Slot[] = [];
+      const hold: Slot[] = [];
+      while (wave.length < waveN && this.refineQ.length) {
+        const slot = this.refineQ.shift();
+        if (!slot) break;
+        if (this.heldOff(Memory.key(slot.l, slot.i))) hold.push(slot);
+        else wave.push(slot);
+      }
+      this.refineQ.push(...hold);
+      if (!wave.length) break;
+      this.muteChange = true;
+      try {
+        await Promise.all(wave.map((slot) => this.refineOne(slot)));
+      } finally {
+        this.muteChange = false;
+        this.flushTree();
+        this.recountWork();
+        this.saveView();
+        this.notify();
+      }
       if (this.viewBytesUsed() > this.viewHigh) this.fit();
     }
-    this.notifyWaiters();
-    this.scheduleRetry();
   }
 
   private onDeferred(l: number, i: number): void {
@@ -411,12 +485,13 @@ export class Memory {
     const fails = (prev?.fails ?? 0) + 1;
     if (fails >= this.deferCutAfter) {
       this.deferred.delete(key);
-      this.putNode(l, i, this.cutSource(l, i));
+      this.refined.add(key);
+      this.compactWork.done += 1;
       return;
     }
     const wait = Math.min(30_000, this.deferBackoffMs * 2 ** (fails - 1));
     this.deferred.set(key, { fails, until: Date.now() + wait });
-    this.enqueue(l, i);
+    this.refineQ.push({ l, i });
   }
 
   private cutSource(l: number, i: number): string {
@@ -481,36 +556,78 @@ export class Memory {
     return Boolean(this.nodeOf(l - 1, 2 * i) && this.nodeOf(l - 1, 2 * i + 1));
   }
 
-  private async build(l: number, i: number): Promise<void> {
+  private recountWork(): void {
+    this.compactWork.total = this.compactWork.done + this.refineQ.length + this.busy.size;
+  }
+
+  private spanLast(l: number, i: number): number {
+    return (i + 1) * 2 ** l - 1;
+  }
+
+  private sortRefineQ(): void {
+    this.refineQ.sort((a, b) => {
+      const recency = this.spanLast(b.l, b.i) - this.spanLast(a.l, a.i);
+      if (recency !== 0) return recency;
+      return a.l - b.l;
+    });
+  }
+
+  private compactInput(l: number, i: number): CompactInput | undefined {
     const nodeBytes = this.nodeBytes;
     if (l === 0) {
       const m = this.log[i];
+      if (!m) return undefined;
       const source = `${m.kind}: ${m.text}`;
-      const text = utf8Bytes(source) <= nodeBytes
-        ? source
-        : await this.runCompressor({
-            kind: "leaf",
-            contextLines: this.contextBefore(i),
-            source,
-            nodeBytes,
-          });
-      this.putNode(l, i, text);
-      return;
+      return { kind: "leaf", contextLines: this.contextBefore(i), source, nodeBytes };
     }
-    const left = this.nodeOf(l - 1, 2 * i)!;
-    const right = this.nodeOf(l - 1, 2 * i + 1)!;
-    const joined = `${left.text}\n${right.text}`;
-    const text = utf8Bytes(joined) <= nodeBytes
-      ? flattenLine(joined)
-      : await this.runCompressor({
-          kind: "merge",
-          contextLines: this.contextBefore((i + 1) * 2 ** l),
-          source: joined,
-          left: left.text,
-          right: right.text,
-          nodeBytes,
-        });
+    const left = this.nodeOf(l - 1, 2 * i);
+    const right = this.nodeOf(l - 1, 2 * i + 1);
+    if (!left || !right) return undefined;
+    return {
+      kind: "merge",
+      contextLines: this.contextBefore((i + 1) * 2 ** l),
+      source: `${left.text}\n${right.text}`,
+      left: left.text,
+      right: right.text,
+      nodeBytes,
+    };
+  }
+
+  private buildLocal(l: number, i: number): void {
+    const input = this.compactInput(l, i);
+    if (!input) return;
+    const raw = input.kind === "leaf" ? input.source : `${input.left ?? ""}\n${input.right ?? ""}`;
+    const fits = utf8Bytes(raw) <= this.nodeBytes;
+    const text = fits ? flattenLine(raw) : this.cutSource(l, i);
     this.putNode(l, i, text);
+    const key = Memory.key(l, i);
+    if (!fits && !this.refined.has(key)) this.refineQ.push({ l, i });
+  }
+
+  private async refineOne(slot: Slot): Promise<void> {
+    const key = Memory.key(slot.l, slot.i);
+    if (this.refined.has(key) || this.compactWork.paused === "budget") return;
+    const input = this.compactInput(slot.l, slot.i);
+    if (!input) return;
+    this.busy.add(key);
+    try {
+      const text = await this.runCompressor(input);
+      this.putNode(slot.l, slot.i, text);
+      this.refined.add(key);
+      this.compactWork.done += 1;
+    } catch (err) {
+      if (err instanceof CompactBudgetPause) {
+        this.compactWork.paused = "budget";
+        this.refineQ.push(slot);
+        return;
+      }
+      if (!(err instanceof CompactDeferred)) {
+        process.stderr.write(`NCLI: compact failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+      this.onDeferred(slot.l, slot.i);
+    } finally {
+      this.busy.delete(key);
+    }
   }
 
   private async runCompressor(input: CompactInput): Promise<string> {
@@ -536,12 +653,15 @@ export class Memory {
     const flat = flattenLine(text);
     const node: TreeNode = { l, i, text: flat, size: utf8Bytes(flat) };
     this.nodes.set(Memory.key(l, i), node);
-    persistLine(join(this.dir, "tree.jsonl"), node);
+    if (this.muteChange) this.treeBuf.push(node);
+    else persistLine(join(this.dir, "tree.jsonl"), node);
     this.deferred.delete(Memory.key(l, i));
-    this.refreshViewParts();
+    if (!this.muteChange) this.refreshViewParts();
     this.enqueue(l + 1, Math.floor(i / 2));
-    this.saveView();
-    this.notify();
+    if (!this.muteChange) {
+      this.saveView();
+      this.notify();
+    }
   }
 
   private contextBefore(end: number): string[] {
@@ -765,25 +885,9 @@ function persistLine(path: string, obj: unknown): void {
   persistLines(path, [obj]);
 }
 
-function persistLines(path: string, objs: unknown[], sync = true): void {
+function persistLines(path: string, objs: unknown[]): void {
   if (!objs.length) return;
-  const fd = openSync(path, "a");
-  try {
-    for (const obj of objs) writeSync(fd, `${JSON.stringify(obj)}\n`, null, "utf8");
-    if (sync) fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function syncFile(path: string): void {
-  if (!existsSync(path)) return;
-  const fd = openSync(path, "r+");
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
+  appendFileSync(path, objs.map((obj) => `${JSON.stringify(obj)}\n`).join(""));
 }
 
 export function mockCompressor(): Compressor {

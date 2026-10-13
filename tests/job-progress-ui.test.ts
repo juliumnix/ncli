@@ -162,3 +162,60 @@ test("chrome: job rail names the import stage and advances the bar", async () =>
     booted.stop();
   }
 }, 70000);
+
+test("chrome: compact percent moves each batch and budget pause is labeled", async () => {
+  if (!chromePath()) throw new Error("chrome not found");
+  const { hub } = await makeHub();
+  hub.cfg.port = 19300 + Math.floor(Math.random() * 400);
+  const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
+  const driver = await launchChrome(12400 + Math.floor(Math.random() * 400));
+  const shots = shotsDir();
+  mkdirSync(shots, { recursive: true });
+  const steps = [
+    { done: 40, total: 500, running: true as const },
+    { done: 120, total: 500, running: true as const },
+    { done: 240, total: 500, running: true as const },
+    { done: 360, total: 500, running: true as const },
+    { done: 360, total: 500, running: false as const, paused: "budget" as const },
+  ];
+  const want = ["8%", "24%", "48%", "72%", "Pausado"];
+  try {
+    await driver.session.attachPage("about:blank");
+    await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
+    await waitUntil(
+      () => driver.session.evaluate(`Boolean(document.getElementById("jobInd"))`),
+      8000,
+      "job rail",
+    );
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      hub.publishCompact({
+        running: step.running,
+        lastNodes: 80,
+        done: step.done,
+        total: step.total,
+        tokensToday: 120000,
+        budget: 250000,
+        model: "composer-2.5",
+        ...(step.paused ? { paused: step.paused } : {}),
+      });
+      await waitUntil(
+        () => driver.session.evaluate(`(() => {
+          const el = document.getElementById("jobInd");
+          return Boolean(el && !el.hidden && ${JSON.stringify(want[i])}.split(" ").every((p) => (el.innerText || "").includes(p)));
+        })()`),
+        4000,
+        `compact step ${want[i]}`,
+      );
+      writeFileSync(join(shots, `job-bar-${String(i + 1).padStart(2, "0")}.png`), await driver.session.screenshot());
+    }
+    const text = await driver.session.evaluate<string>(`document.getElementById("jobInd")?.innerText || ""`);
+    expect(text).toContain("Pausado: limite diário");
+    expect(text).toContain("72%");
+    expect(text).toContain("continua amanhã");
+    expect(text).not.toMatch(/4373/);
+  } finally {
+    driver.close();
+    booted.stop();
+  }
+}, 70000);

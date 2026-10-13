@@ -6,13 +6,17 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+. One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts.
+You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning is a child `bun` process with piped stdio, not a thread `Worker`, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
 
 ```bash
-sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1) && NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
+sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+uid=$(id -u)
+rm -rf /tmp/bunx-$uid-ncli@github@* /private/tmp/bunx-$uid-ncli@github@*
+[ -n "$TMPDIR" ] && rm -rf "${TMPDIR%/}"/bunx-$uid-ncli@github@*
+NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
 ```
 
-Bun 1.3.3 caches a bare `bunx github:juliumnix/ncli` for about a day, so that form can start an old commit such as `056d78d`. Pinning the current `main` SHA changes the cache key. `NCLI_REVISION` is what the ready banner prints when the extracted package has no `.git`. From a clone, `scripts/bunx-main.sh` does the same.
+Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `bunx github:juliumnix/ncli` hashes the version as `latest`, so that directory stays put even after `main` moves (old banner, old compact model). Pinning `#<sha>` is a different key, but only after the leftover extract is gone. The block above deletes those dirs, then pins the live `main` tip. The ready banner prints a short sha from `NCLI_REVISION`, git HEAD, `.ncli-revision`, a github spec in the path or env, or the newest bun install cache dir. It omits the sha when none of those resolve. From a clone, `scripts/bunx-main.sh` does the same wipe and pin.
 
 The process prints `NCLI rodando em http://localhost:47231 · <sha>` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. If 47231 is taken, NCLI tries the next free port. An explicit `NCLI_PORT` that is busy prints a short message instead of a stack trace. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
 
@@ -62,11 +66,12 @@ Optional env:
 | `NCLI_USER_NAME` | `Você` | display name for user rows in the memory drawer. Initial is the first letter |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `composer-2.5` | catalog id for `@cursor/sdk` compaction. No effort suffix and no Max mode. Low effort / no thinking / Max off come from `model.params` after `Cursor.models.list()` |
-| `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
+| `NCLI_COMPACT_BATCH` | `200` | summaries per SDK call, still split under `NCLI_COMPACT_MAX_INPUT` |
+| `NCLI_JOBS` | `6` | parallel SDK compact calls |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
-| `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
+| `NCLI_COMPACT_DAILY_BUDGET` | unset | optional daily token cap for compaction. Unset means no cap. Banner and drawer hide spend unless this is set |
 | `NCLI_COMPACT_SETTLE` | `0` | unused on the turn path. The turn never waits for compaction. The view enriches later |
-| `NCLI_COMPACT_TIMEOUT` | `30000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
+| `NCLI_COMPACT_TIMEOUT` | `120000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the 100k 5x surcharge band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
@@ -119,7 +124,7 @@ chmod 600 ~/.config/ncli/secrets.env
 
 Mint the key at [https://cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents). NCLI loads that file at startup. A process-env `NCLI_CURSOR_API_KEY` overrides the file. NCLI never reads `CURSOR_API_KEY` or `~/.cursor` for this. The key is passed only as `apiKey` to `Agent.prompt`. CLI children get a scrubbed env. Startup prints `compact: cursor-sdk ok` when the key is present. The key is never logged.
 
-Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, and split a batch before a call would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). The header shows running state and today's tokens versus `NCLI_COMPACT_BUDGET`. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
+Import writes the log and seeds the tree with local cuts, so recall and the cover work before any SDK call. SDK refine is recent-first, up to `NCLI_COMPACT_BATCH` nodes per call (default 200), `NCLI_JOBS` calls in parallel (default 6), split before a prompt would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). Tiny nodes skip the SDK. Identical nodes hit a content-hash cache. There is no daily token cap unless `NCLI_COMPACT_DAILY_BUDGET` is set; then refine pauses at that number and the job rail says so. Banner and drawer omit spend unless that env is set. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
 
 If an older NCLI build already changed your Cursor CLI default to Haiku, startup prints the file path and the original value when known. It does not rewrite the file.
 

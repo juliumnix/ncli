@@ -95,6 +95,7 @@ export interface CompactStatus {
   budget: number;
   model: string;
   error?: string;
+  paused?: "budget";
 }
 
 export interface TreeNode {

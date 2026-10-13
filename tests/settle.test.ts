@@ -26,7 +26,7 @@ test("settle waits until every cover line is built and shows no raw excerpt", as
   expect(mem.viewLines().join("\n")).not.toMatch(/user: .{50,}/);
 });
 
-test("a settle timeout paints the recipe placeholder, never a raw excerpt", async () => {
+test("a hanging compressor still seeds a local cut so settle does not wait", async () => {
   const mem = new Memory({
     dir: tmpDir("settle-timeout"),
     nodeBytes: 40,
@@ -36,11 +36,11 @@ test("a settle timeout paints the recipe placeholder, never a raw excerpt", asyn
   });
   mem.append({ kind: "user", text: `pending raw ${"y".repeat(80)}` });
   const ok = await mem.settle(80);
-  expect(ok).toBe(false);
-  expect(mem.allBuilt()).toBe(false);
-  expect(mem.viewLines()).toEqual([`0+1|${PLACEHOLDER}`]);
-  expect(assemble(mem).system).toContain(PLACEHOLDER);
-  expect(assemble(mem).system).not.toContain("short raw excerpt");
+  expect(ok).toBe(true);
+  expect(mem.allBuilt()).toBe(true);
+  expect(mem.viewLines()[0]).not.toContain(PLACEHOLDER);
+  expect(mem.viewLines()[0]).not.toMatch(/y{50}/);
+  mem.paused = true;
 });
 
 test("a burst of raw leaves cannot keep the cover above the 2x ceiling", async () => {
@@ -77,10 +77,11 @@ test("settle stays registered across notifies until the cover is built", async (
   mem.append({ kind: "user", text: `long pending ${"x".repeat(80)}` });
   const waiting = mem.settle(5_000);
   await Bun.sleep(20);
-  expect(mem.allBuilt()).toBe(false);
+  expect(mem.allBuilt()).toBe(true);
   release("done line for the waiter");
   expect(await waiting).toBe(true);
   expect(mem.allBuilt()).toBe(true);
+  mem.paused = true;
 });
 
 test("settle returns when the cover is built even if a parent is still pending", async () => {
@@ -102,7 +103,7 @@ test("settle returns when the cover is built even if a parent is still pending",
   }
   expect(await mem.settle(5_000)).toBe(true);
   expect(mem.allBuilt()).toBe(true);
-  expect(mem.nodeOf(1, 0)).toBeUndefined();
+  expect(mem.nodeOf(1, 0)?.text).toBeDefined();
   release("parent line after the cover settled");
   expect(await mem.settleQuiescent(5_000)).toBe(true);
   expect(mem.nodeOf(1, 0)?.text).toContain("parent line");
@@ -129,10 +130,12 @@ test("a stuck compressor times out and frees the slot", async () => {
   expect(performance.now() - t0).toBeLessThan(200);
   expect(mem.hasInFlight()).toBe(false);
   expect(mem.deferredCount()).toBeGreaterThan(0);
-  expect(mem.nodeOf(0, 0)).toBeUndefined();
+  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
+  expect(mem.nodeOf(0, 0)?.text).not.toBe("late line that must not land");
   await Bun.sleep(450);
   expect(late).toBe("late line that must not land");
-  expect(mem.nodeOf(0, 0)).toBeUndefined();
+  expect(mem.nodeOf(0, 0)?.text).not.toBe("late line that must not land");
+  mem.paused = true;
 });
 
 test("the turn prompt is view, then inbox, then the user line", async () => {

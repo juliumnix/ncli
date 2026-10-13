@@ -14,6 +14,7 @@ export interface SpaceRegistryOptions {
   compressor: Compressor;
   cwd: string;
   pumpBatch?: number;
+  compactJobs?: number;
   deferCutAfter?: number;
   compressTimeoutMs?: number;
 }
@@ -84,6 +85,7 @@ export class SpaceRegistry {
       viewBytes: this.opts.viewBytes,
       compressor: this.opts.compressor,
       pumpBatch: this.opts.pumpBatch,
+      compactJobs: this.opts.compactJobs,
       deferCutAfter: this.opts.deferCutAfter,
       compressTimeoutMs: this.opts.compressTimeoutMs,
     });

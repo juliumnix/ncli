@@ -56,6 +56,13 @@ export type SessionChrome = {
   showWelcome: boolean;
 };
 
+export function compactSpendLabel(tokensToday: number, budget: number): string | null {
+  if (budget <= 0) return null;
+  const k = Math.round(tokensToday / 100) / 10;
+  const b = Math.round(budget / 1000);
+  return `${k}k/${b}k`;
+}
+
 export function sessionChrome(input: ChromeInput): SessionChrome {
   const extraSeat = input.mainHarness !== "claude" && input.mainHarness !== "mock";
   const sparked = input.sparkCount > 0;

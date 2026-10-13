@@ -22,7 +22,7 @@ test("a 281-byte line is cut locally after N deferrals instead of staying pendin
   });
   mem.append({ kind: "user", text: OVER });
   await mem.pump();
-  expect(mem.nodeOf(0, 0)).toBeUndefined();
+  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
   await Bun.sleep(80);
   await mem.pump();
   const node = mem.nodeOf(0, 0);
@@ -42,8 +42,8 @@ test("deferred nodes back off instead of retrying on every append", async () => 
     viewBytes: 4000,
     deferCutAfter: 8,
     deferBackoffMs: 5_000,
-    compressor: async () => {
-      calls += 1;
+    compressor: async (input) => {
+      if (input.kind === "leaf") calls += 1;
       throw new CompactDeferred();
     },
   });

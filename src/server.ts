@@ -93,7 +93,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         }
         if (body.apply) {
           void hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }).catch(() => undefined);
-          return Response.json({ ok: true, started: true, via: "worker" });
+          return Response.json({ ok: true, started: true, via: "job" });
         }
         return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
       }
