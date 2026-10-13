@@ -6,7 +6,7 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning is a child `bun` process with piped stdio, not a thread `Worker`, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
+You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning runs in the hub process and yields between batches. It is not a thread `Worker` and not a bun child that would inherit sqlite fds, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
 
 ```bash
 bunx github:juliumnix/ncli
