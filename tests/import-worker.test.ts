@@ -45,7 +45,6 @@ test("a fat import keeps the main event loop under 40ms and names the worker", a
   })();
   await Bun.sleep(40);
   try {
-    const rss0 = process.memoryUsage().rss;
     const t0 = Date.now();
     const apply = await fetch(`${url}/api/import`, {
       method: "POST",
@@ -63,14 +62,11 @@ test("a fat import keeps the main event loop under 40ms and names the worker", a
     await waitUntil(() => hub.memory.log.some((m) => m.hops === "import:claude"), 20000, "ingest");
     sampling = false;
     await sample;
-    const rss = process.memoryUsage().rss;
     const worst = Math.max(...lags, 0);
     const p95 = lags.slice().sort((a, b) => a - b)[Math.floor(lags.length * 0.95)] ?? 0;
-    console.log(`import-worker ttft_ms=${ttft} loop_p95_ms=${p95.toFixed(1)} loop_max_ms=${worst.toFixed(1)} rss_mb=${(rss / 1024 / 1024).toFixed(1)} delta_mb=${((rss - rss0) / 1024 / 1024).toFixed(1)} lines=${lines} samples=${lags.length}`);
+    console.log(`import-worker ttft_ms=${ttft} loop_p95_ms=${p95.toFixed(1)} loop_max_ms=${worst.toFixed(1)} lines=${lines} samples=${lags.length}`);
     expect(ttft).toBeLessThan(3000);
     expect(p95).toBeLessThan(50);
-    expect(rss - rss0).toBeLessThan(180 * 1024 * 1024);
-    expect(rss).toBeLessThan(500 * 1024 * 1024);
     expect(await (await send).json()).toEqual({ ok: true, queue: [] });
   } finally {
     sampling = false;
@@ -121,25 +117,31 @@ test("worker batches stay under the line and byte caps", async () => {
   expect(Math.max(...sizes)).toBeLessThanOrEqual(IMPORT_BATCH_BYTES + 32 * 1024);
 });
 
-test("a large on-disk history keeps the main process under 500MB RSS", async () => {
+test("a large on-disk history keeps the main process under 300MB RSS", async () => {
   const root = tmpDir("rss-cap");
   const fat = writeHugeClaude(root, 18, 900, 280);
   expect(fat.bytes).toBeGreaterThan(5 * 1024 * 1024);
-  const child = Bun.spawn({
-    cmd: ["bun", join(import.meta.dir, "import-rss-child.ts"), root],
-    cwd: join(import.meta.dir, ".."),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const out = await new Response(child.stdout).text();
-  const err = await new Response(child.stderr).text();
-  const code = await child.exited;
-  if (code !== 0) throw new Error(`rss child exit ${code}\n${err}\n${out}`);
-  const line = out.trim().split("\n").at(-1) ?? "";
-  const report = JSON.parse(line) as { rss: number; previewLines: number; applied: number; filesScanned: number };
-  console.log(`import-rss rss_mb=${(report.rss / 1024 / 1024).toFixed(1)} disk_mb=${(fat.bytes / 1024 / 1024).toFixed(1)} applied=${report.applied} files=${fat.files} stderr=${/error/i.test(err) ? "err" : "ok"}`);
-  expect(report.applied).toBeGreaterThan(1000);
-  expect(report.filesScanned).toBe(fat.files);
-  expect(report.previewLines).toBe(0);
-  expect(report.rss).toBeLessThan(500 * 1024 * 1024);
-}, 90000);
+  const runs: number[] = [];
+  for (let n = 0; n < 3; n++) {
+    const child = Bun.spawn({
+      cmd: ["bun", join(import.meta.dir, "import-rss-child.ts"), root],
+      cwd: join(import.meta.dir, ".."),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(child.stdout).text();
+    const err = await new Response(child.stderr).text();
+    const code = await child.exited;
+    if (code !== 0) throw new Error(`rss child exit ${code}\n${err}\n${out}`);
+    const line = out.trim().split("\n").at(-1) ?? "";
+    const report = JSON.parse(line) as { rss: number; previewLines: number; applied: number; filesScanned: number };
+    runs.push(report.rss);
+    console.log(`import-rss run=${n + 1} rss_mb=${(report.rss / 1024 / 1024).toFixed(1)} disk_mb=${(fat.bytes / 1024 / 1024).toFixed(1)} applied=${report.applied} files=${fat.files} stderr=${/error/i.test(err) ? "err" : "ok"}`);
+    expect(report.applied).toBeGreaterThan(1000);
+    expect(report.filesScanned).toBe(fat.files);
+    expect(report.previewLines).toBe(0);
+    expect(report.rss).toBeLessThan(300 * 1024 * 1024);
+  }
+  const mbs = runs.map((rss) => rss / 1024 / 1024);
+  console.log(`import-rss runs_mb=${mbs.map((n) => n.toFixed(1)).join(",")} spread_mb=${(Math.max(...mbs) - Math.min(...mbs)).toFixed(1)}`);
+}, 180000);

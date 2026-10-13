@@ -422,8 +422,25 @@ export class Memory {
     }
   }
 
-  seed(): void {
+  seed(opts: { coverOnly?: boolean } = {}): void {
     this.seedLocalTree();
+    if (opts.coverOnly) this.dropOffCover();
+  }
+
+  private dropOffCover(): void {
+    const keep = new Set<string>();
+    for (const p of this.view) keep.add(Memory.key(p.l, p.i));
+    for (const key of this.nodes.keys()) {
+      if (!keep.has(key)) this.nodes.delete(key);
+    }
+    this.readyQ = this.readyQ.filter((slot) => {
+      const key = Memory.key(slot.l, slot.i);
+      if (keep.has(key)) return true;
+      this.queued.delete(key);
+      return false;
+    });
+    this.refineQ = this.refineQ.filter((slot) => keep.has(Memory.key(slot.l, slot.i)));
+    this.recountWork();
   }
 
   private flushTree(): void {

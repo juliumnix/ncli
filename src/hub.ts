@@ -584,6 +584,7 @@ export class Hub {
         })),
         { quiet: true },
       );
+      mem.seed({ coverOnly: true });
       this.importer.ledger.add(bucket.map((line) => line.fingerprint));
     }
     return [...groups.keys()];

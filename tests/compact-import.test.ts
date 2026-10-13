@@ -36,9 +36,9 @@ test("a 6592-line ingest is recallable before compact and seeds the tree in unde
   const t1 = performance.now();
   mem.seed();
   const seedMs = performance.now() - t1;
-  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
-  expect(mem.nodeOf(0, 6591)?.text).toBeDefined();
+  expect(mem.recall(FACT).join("\n")).toContain(FACT);
   expect(mem.view.length).toBeGreaterThan(0);
+  expect(mem.view.length).toBeLessThan(6592);
   expect(mem.viewBytesUsed()).toBeLessThanOrEqual(mem.viewHigh);
   expect(ingestMs + seedMs).toBeLessThan(60_000);
   mem.paused = true;
