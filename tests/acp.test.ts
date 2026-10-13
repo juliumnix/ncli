@@ -40,13 +40,16 @@ test("claude -p is the primary path: stream-json, model, mcp, system-prompt-file
   const sid = args[args.indexOf("--session-id") + 1];
   expect(sid).toMatch(UUID);
   expect(args).not.toContain("main");
+  expect(args).toContain("--input-format");
+  expect(args).toContain("stream-json");
   const sp = args[args.indexOf("--system-prompt-file") + 1];
   expect(existsSync(sp)).toBe(true);
   expect(readFileSync(sp, "utf8")).toContain("You are NCLI.");
-  expect(args.at(-1)).toBe("confirma o desconto");
+  expect(args.at(-1)).not.toBe("confirma o desconto");
+  expect(args).not.toContain("confirma o desconto");
 });
 
-test("a second claude turn on the same NCLI session uses --resume with the same UUID", () => {
+test("a second claude spawn resumes a small session and rotates a fat one", () => {
   const dataDir = tmpDir("acp-resume");
   const cfg = loadConfig({ dataDir, claudeBin: "claude" });
   const first = buildClaudeArgs(cfg, { prompt: "oi", session: "main" });

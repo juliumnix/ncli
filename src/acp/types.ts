@@ -12,4 +12,6 @@ export type AcpUpdate =
 export interface AcpAdapter {
   id: string;
   run(opts: RunOpts): AsyncIterable<AcpUpdate>;
+  warm?(opts: RunOpts): Promise<void>;
+  close?(): void;
 }

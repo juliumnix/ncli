@@ -14,6 +14,7 @@ import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
+import { persistClaudeModel, readClaudeModel } from "./acp/claude";
 import { displaySeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
 import { isSeatKind, UsageBoard, type LimitPolicy } from "./harness/usage";
@@ -134,7 +135,7 @@ export class Hub {
       codex: cfg.importCodex || defaults.codex,
       cursor: cfg.importCursor || defaults.cursor,
     });
-    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind);
+    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind) ?? readClaudeModel(cfg.dataDir, "main");
     this.bus = new Bus({
       cfg,
       cwdFor: (spark) => (spark ? this.sparks.get(spark)?.worktree?.path ?? cfg.repo : cfg.repo),
@@ -179,13 +180,15 @@ export class Hub {
   }
 
   switchMain(kind: HarnessKind): void {
+    this.harness.close?.();
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.sparks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
-    this.model = displaySeatModel(this.cfg, kind);
+    this.model = displaySeatModel(this.cfg, kind) ?? (kind === "claude" ? readClaudeModel(this.cfg.dataDir, "main") : undefined);
     this.spawnMain = null;
     this.spawnHarness = "";
     this.emit({ type: "main", main: this.mainAgent() });
+    void this.warmMain();
   }
 
   mainAgent(): MainAgent {
@@ -229,6 +232,26 @@ export class Hub {
     return this.spawnMain;
   }
 
+  private async warmMain(): Promise<void> {
+    if (!this.harness.warm) return;
+    const inj = this.mainSpawn();
+    try {
+      await this.harness.warm({
+        prompt: "",
+        system: this.spaces.assemble(this.cfg.repo).system,
+        cwd: this.cfg.repo,
+        session: "main",
+        mcpConfigPath: inj.mcpConfigPath,
+        mcpServers: inj.mcpServers,
+        addDir: this.harness.id === "claude" ? inj.addDir : undefined,
+      });
+    } catch (err) {
+      if (process.env.NCLI_DEBUG === "1" || process.env.NCLI_CLAUDE_DEBUG === "1") {
+        console.error("claude warm failed", err);
+      }
+    }
+  }
+
   async start(): Promise<void> {
     await this.bus.listen();
     await this.views.loadAll();
@@ -243,6 +266,7 @@ export class Hub {
     this.emitUsage();
     if (!this.turning) void this.drainSession("main");
     void this.resumeImport();
+    void this.warmMain();
   }
 
   subscribe(fn: (ev: HubEvent) => void): () => void {
@@ -938,6 +962,7 @@ export class Hub {
   private handle(ev: HarnessEvent, tools: string[]): void {
     if (ev.type === "model") {
       this.model = ev.model;
+      if (this.harness.id === "claude") persistClaudeModel(this.cfg.dataDir, "main", ev.model);
       this.emit({ type: "main", main: this.mainAgent() });
     }
     const applied = this.live?.apply(ev);
@@ -1056,6 +1081,7 @@ export class Hub {
     this.importAbort?.abort();
     this.memory.paused = true;
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
+    this.harness.close?.();
     this.usage.close();
     this.views.close();
     this.bus.close();

@@ -1,5 +1,6 @@
 import { seatOf } from "../agent";
 import type { SeatId, Turn, TurnStep } from "../types";
+import { STILL_MS } from "./turn";
 
 export interface QuietStatus {
   phrase: string;
@@ -34,8 +35,9 @@ export function quietStatus(turn: Turn, now = Date.now()): QuietStatus {
   const steps = turn.steps ?? [];
   const running = [...steps].reverse().find((s) => s.status === "running") ?? steps.at(-1);
   const answer = steps.filter((s) => s.kind === "text").map((s) => s.text).join("");
+  const silent = Math.max(0, now - Date.parse(turn.lastEventAt || turn.startedAt));
   return {
-    phrase: phraseOf(running),
+    phrase: turn.status === "running" && silent >= STILL_MS ? stuckPhrase(turn.seat) : phraseOf(running),
     elapsedMs: Math.max(0, now - Date.parse(turn.startedAt || String(now))),
     stepCount: steps.length,
     chips: consultChips(turn),
@@ -62,8 +64,30 @@ export function workedLabel(turn: Turn): string {
   return `Trabalhou por ${s}s · ${n} ${n === 1 ? "passo" : "passos"}`;
 }
 
+export function formatElapsed(ms: number): string {
+  if (ms < 10_000) return `${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function stuckPhrase(seat: SeatId): string {
+  switch (seat) {
+    case "claude":
+      return "Sem resposta do Claude. O processo ainda não enviou tokens.";
+    case "codex":
+      return "Sem resposta do Codex. O processo ainda não enviou tokens.";
+    case "cursor":
+      return "Sem resposta do Cursor. O processo ainda não enviou tokens.";
+    default: {
+      const _n: never = seat;
+      return _n;
+    }
+  }
+}
+
 function phraseOf(step: TurnStep | undefined): string {
-  if (!step) return "Trabalhando…";
+  if (!step) return "Pensando…";
   switch (step.kind) {
     case "thinking":
       return "Pensando…";

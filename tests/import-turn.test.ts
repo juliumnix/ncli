@@ -113,7 +113,7 @@ test("chrome: oi streams while the welcome chip is still importing", async () =>
     await waitUntil(
       () => driver.session.evaluate(`(() => {
         const text = document.body.innerText || "";
-        return text.includes("Trabalhando") || text.includes("Ok.");
+        return text.includes("Pensando") || text.includes("Trabalhando") || text.includes("Ok.");
       })()`),
       8000,
       "oi first signal",
