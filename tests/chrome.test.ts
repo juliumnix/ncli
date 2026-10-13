@@ -49,8 +49,8 @@ test("a limit or the cursor seat shows the switcher", () => {
   expect(sessionChrome({ ...empty, messageCount: 2, mainHarness: "mock" }).showSwitcher).toBe(false);
 });
 
-test("compact tokens turn the chip on", () => {
-  expect(sessionChrome({ ...empty, compactTokens: 1 }).showCompact).toBe(true);
+test("only a running compact job shows the indicator", () => {
+  expect(sessionChrome({ ...empty, compactTokens: 1 }).showCompact).toBe(false);
   expect(sessionChrome({ ...empty, compactRunning: true, compactTokens: 0 }).showCompact).toBe(true);
   expect(sessionChrome(empty).showCompact).toBe(false);
 });

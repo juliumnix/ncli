@@ -113,7 +113,7 @@ test("chrome: a memory question during import shows the fact and the migrating n
     );
     await driver.session.evaluate(`document.querySelector("[data-welcome-import='claude']")?.click()`);
     await waitUntil(
-      () => driver.session.evaluate(`/trazendo/.test(document.body.innerText || "")`),
+      () => driver.session.evaluate(`/Lendo|trazendo/.test(document.body.innerText || "")`),
       8000,
       "importing",
     );

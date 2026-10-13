@@ -89,9 +89,12 @@ export interface MainAgent {
 export interface CompactStatus {
   running: boolean;
   lastNodes: number;
+  done: number;
+  total: number;
   tokensToday: number;
   budget: number;
   model: string;
+  error?: string;
 }
 
 export interface TreeNode {
@@ -203,7 +206,7 @@ export type HubEvent =
   | { type: "queue"; items: QueueItem[] }
   | { type: "usage"; usage: UsageSnapshot }
   | { type: "import"; preview: ImportPreview; offers?: { source: ImportSource; sessions: number }[] }
-  | { type: "import-progress"; source: ImportSource; done: number; total: number; pct: number | null }
+  | { type: "import-progress"; source: ImportSource; done: number; total: number; pct: number | null; error?: string }
   | { type: "views"; views: ViewInfo[] }
   | { type: "debug"; session: string; lines: string[]; bytes: number; budget: number; levels: string[] }
   | { type: "recall"; session: string; turnId: string; events: RecallEvent[]; citations: Citation[] }

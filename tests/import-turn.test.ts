@@ -85,18 +85,18 @@ test("chrome: oi streams while the welcome chip is still importing", async () =>
     const labels: string[] = [];
     await waitUntil(async () => {
       const label = await driver.session.evaluate<string>(
-        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+        `document.getElementById("jobInd")?.innerText || document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
       );
-      if (/trazendo/.test(label) && !labels.includes(label)) labels.push(label);
-      return /trazendo/.test(label);
-    }, 8000, "importing chip");
+      if (/Lendo/.test(label) && !labels.includes(label)) labels.push(label);
+      return /Lendo/.test(label);
+    }, 8000, "importing job rail");
     const until = Date.now() + 400;
     while (Date.now() < until) {
       const label = await driver.session.evaluate<string>(
-        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+        `document.getElementById("jobInd")?.innerText || ""`,
       );
-      if (/trazendo/.test(label) && !labels.includes(label)) labels.push(label);
-      if (/\d+%/.test(label)) break;
+      if (/Lendo/.test(label) && !labels.includes(label)) labels.push(label);
+      if (/\d+/.test(label)) break;
       await Bun.sleep(40);
     }
     writeFileSync(join(shots, "import-oi-mid.png"), await driver.session.screenshot());
@@ -125,7 +125,7 @@ test("chrome: oi streams while the welcome chip is still importing", async () =>
       "oi reply",
     );
     const chip = await driver.session.evaluate<string>(
-      `document.querySelector("[data-welcome-import='claude']")?.textContent || document.getElementById("ibar")?.innerText || ""`,
+      `document.getElementById("jobInd")?.innerText || document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
     );
     console.log(`import-turn chrome_ttft_ms=${ttft} chip=${JSON.stringify(chip)} labels=${JSON.stringify(labels)}`);
     expect(ttft).toBeLessThan(3000);

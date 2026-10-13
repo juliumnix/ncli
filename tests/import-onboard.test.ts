@@ -11,7 +11,8 @@ const SHOTS = shotsDir();
 
 test("empty hub offers the richest CLI history and welcome has one-click import", async () => {
   expect(appJs).toContain("data-welcome-import");
-  expect(appJs).toContain("trazendo… ${pct}%");
+  expect(appJs).toContain("jobInd");
+  expect(appJs).not.toContain("compactando");
   const { hub } = await makeHub({ importClaude: CLAUDE });
   try {
     expect(hub.lastImport?.source).toBe("claude");
@@ -88,8 +89,8 @@ test("chrome: welcome chip shows live import percent", async () => {
   const root = tmpDir("fat-welcome");
   const proj = join(root, "workspace");
   mkdirSync(proj, { recursive: true });
-  for (let f = 0; f < 8; f++) {
-    const rows = Array.from({ length: 8 }, (_, i) => JSON.stringify({
+  for (let f = 0; f < 24; f++) {
+    const rows = Array.from({ length: 16 }, (_, i) => JSON.stringify({
       type: "user",
       timestamp: `2026-10-12T0${f}:00:${String(i).padStart(2, "0")}.000Z`,
       cwd: "/workspace",
@@ -114,16 +115,17 @@ test("chrome: welcome chip shows live import percent", async () => {
     const seen: string[] = [];
     await waitUntil(async () => {
       const label = await driver.session.evaluate<string>(
-        `document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
+        `document.getElementById("jobInd")?.innerText || document.querySelector("[data-welcome-import='claude']")?.textContent || ""`,
       );
-      if (/trazendo/.test(label) && !seen.includes(label)) {
+      if (/Lendo/.test(label) && !seen.includes(label)) {
         seen.push(label);
         writeFileSync(`${SHOTS}/import-progress-${seen.length}.png`, await driver.session.screenshot());
       }
-      return /trazendo… \d+%/.test(label);
-    }, 8000, "percent chip");
+      return seen.some((t) => /Lendo seu histórico/.test(t));
+    }, 8000, "job rail");
     const label = seen.at(-1) ?? "";
-    expect(label).toMatch(/trazendo… \d+%/);
+    expect(label).toMatch(/Lendo seu histórico do Claude/);
+    expect(label).not.toMatch(/compactando/);
     writeFileSync(`${SHOTS}/import-progress.png`, await driver.session.screenshot());
     console.log(`import-progress chrome_labels=${JSON.stringify(seen)}`);
   } finally {

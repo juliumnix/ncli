@@ -19,8 +19,7 @@ export function importPct(done: number, total: number): number | null {
 
 export function formatImportChip(source: ImportSource, progress?: ImportProgress): string {
   if (!progress) return `trazer ${NAMES[source]}`;
-  const pct = importPct(progress.done, progress.total);
-  return pct === null ? "trazendo…" : `trazendo… ${pct}%`;
+  return "Lendo…";
 }
 
 export function importTalkNote(progress?: ImportProgress): string {
