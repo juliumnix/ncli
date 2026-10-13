@@ -4,9 +4,23 @@ import { listCompactCatalog, resolveCompactModel } from "./compact-model";
 
 export type SdkCompactFn = (prompt: string, model: string, apiKey: string) => Promise<string>;
 
+export type SdkCompactResult = {
+  status?: string;
+  result?: unknown;
+  error?: { message?: string; code?: string };
+};
+
 export function isSdkUnavailable(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /Cannot find module ['"]@cursor\/sdk['"]|ERR_MODULE_NOT_FOUND|@cursor\/sdk/i.test(msg);
+}
+
+export function sdkFailMessage(result: SdkCompactResult): string {
+  const status = result.status?.trim() || "unknown";
+  const code = result.error?.code?.trim();
+  const body = result.error?.message?.trim();
+  const bits = [status, code, body].filter(Boolean);
+  return `cursor-sdk compact run failed (${bits.join(": ")})`;
 }
 
 export async function runCursorSdkCompact(
@@ -22,8 +36,8 @@ export async function runCursorSdkCompact(
     model: { id: choice.id, params: choice.params.length ? choice.params : undefined },
     local: { cwd, settingSources: [] },
   });
-  if (result.status === "error") {
-    throw new Error("cursor-sdk compact run failed");
+  if (result.status !== "finished") {
+    throw new Error(sdkFailMessage(result));
   }
   const text = typeof result.result === "string" ? result.result.trim() : "";
   if (!text) throw new Error("cursor-sdk compact returned no text");
