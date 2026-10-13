@@ -49,10 +49,18 @@ test("a limit or the cursor seat shows the switcher", () => {
   expect(sessionChrome({ ...empty, messageCount: 2, mainHarness: "mock" }).showSwitcher).toBe(false);
 });
 
-test("compact tokens turn the chip on", () => {
-  expect(sessionChrome({ ...empty, compactTokens: 1 }).showCompact).toBe(true);
+test("only a running compact job shows the indicator", () => {
+  expect(sessionChrome({ ...empty, compactTokens: 1 }).showCompact).toBe(false);
   expect(sessionChrome({ ...empty, compactRunning: true, compactTokens: 0 }).showCompact).toBe(true);
   expect(sessionChrome(empty).showCompact).toBe(false);
+});
+
+test("an empty in-flight import keeps the welcome chips up", () => {
+  expect(sessionChrome({ ...empty, importing: true }).showWelcome).toBe(true);
+});
+
+test("a first turn hides welcome even while import still runs", () => {
+  expect(sessionChrome({ ...empty, messageCount: 1, importing: true }).showWelcome).toBe(false);
 });
 
 test("userHelp lists /help and import and skips scaffold", () => {

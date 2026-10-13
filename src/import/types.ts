@@ -27,6 +27,8 @@ export interface ImportPreview {
 export interface ImportApply {
   preview: ImportPreview;
   applied: number;
+  filesSkipped?: number;
+  filesScanned?: number;
 }
 
 export interface ImportArgv {

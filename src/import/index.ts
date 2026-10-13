@@ -1,20 +1,36 @@
 import type { Message } from "../types";
 import { ImportLedger } from "./ledger";
-import { listSessionFiles, parseSessionFile } from "./parse";
+import { listSessionFiles, parseSessionFile, parseSessionLines } from "./parse";
 import { defaultImportRoots, rootFor } from "./roots";
+import type { ImportProgress } from "./progress";
 import type { ImportApply, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
 
 export type { ImportApply, ImportArgv, ImportLine, ImportPreview, ImportRoots, ImportSource } from "./types";
+export type { ImportProgress } from "./progress";
+export { formatImportChip, importPct, importTalkNote, withImportTalkNote } from "./progress";
+export { importKnownLines } from "./known";
+export {
+  applyCursor,
+  clearCheckpoint,
+  isResumeOpen,
+  loadCheckpoint,
+  mergeCheckpoint,
+  saveCheckpoint,
+} from "./checkpoint";
 export { isImportSource, parseImportArgv } from "./args";
 export { defaultImportRoots, rootFor } from "./roots";
-export { listSessionFiles, parseSessionFile, textOf } from "./parse";
+export { listSessionFiles, parseSessionFile, parseSessionLines, parseSessionStream, textOf } from "./parse";
+export { runImportJob } from "./job";
+export { IMPORT_BATCH_BYTES, IMPORT_BATCH_LINES, IMPORT_YIELD_MS } from "./protocol";
 export { fingerprintOf, lineOf } from "./fingerprint";
 
 export class Importer {
+  readonly dir: string;
   readonly roots: ImportRoots;
   readonly ledger: ImportLedger;
 
   constructor(dir: string, roots: ImportRoots = defaultImportRoots()) {
+    this.dir = dir;
     this.roots = roots;
     this.ledger = new ImportLedger(dir);
   }
@@ -59,26 +75,57 @@ export class Importer {
     };
   }
 
-  apply(
+  async apply(
     source: ImportSource,
     since: string | undefined,
     append: (line: ImportLine) => Message | undefined,
     already: (line: ImportLine) => boolean,
-  ): ImportApply {
-    const preview = this.preview(source, since);
+    onProgress?: (progress: ImportProgress) => void,
+  ): Promise<ImportApply> {
+    const root = rootFor(source, this.roots);
+    const files = listSessionFiles(root, source);
+    const sinceMs = since ? Date.parse(since) : undefined;
+    const total = files.length;
+    onProgress?.({ source, done: 0, total });
     let applied = 0;
+    let seenCount = 0;
+    let skipped = 0;
     const marked: string[] = [];
-    for (const line of preview.lines) {
-      if (already(line) || this.ledger.has(line.fingerprint)) {
+    for (let i = 0; i < files.length; i++) {
+      for (const line of parseSessionLines(source, files[i]!)) {
+        if (sinceMs !== undefined) {
+          const at = Date.parse(line.at);
+          if (!Number.isFinite(at) || at < sinceMs) {
+            skipped += 1;
+            continue;
+          }
+        }
+        if (already(line) || this.ledger.has(line.fingerprint)) {
+          marked.push(line.fingerprint);
+          seenCount += 1;
+          continue;
+        }
+        append(line);
         marked.push(line.fingerprint);
-        continue;
+        applied += 1;
       }
-      append(line);
-      marked.push(line.fingerprint);
-      applied += 1;
+      onProgress?.({ source, done: i + 1, total });
+      await Bun.sleep(8);
     }
     this.ledger.add(marked);
-    return { preview, applied };
+    return {
+      preview: {
+        source,
+        root,
+        sessions: files.length,
+        lines: [],
+        newCount: 0,
+        seenCount: seenCount + applied,
+        skipped,
+        since,
+      },
+      applied,
+    };
   }
 }
 

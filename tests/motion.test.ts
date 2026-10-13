@@ -23,7 +23,8 @@ test("motion CSS is transform/opacity, ease-out, and honors reduced motion", () 
   expect(css).toMatch(/\.m\.enter/);
   expect(css).not.toMatch(/transition:\s*all\b/);
   expect(css).not.toMatch(/scale\(0\)/);
-  expect(css.replace(/ease-in-out/g, "")).not.toMatch(/ease-in\b/);
+  expect(css).toMatch(/\.job-ind\.is-out[\s\S]{0,200}--ease-in/);
+  expect(css.replace(/ease-in-out/g, "").replace(/--ease-in\b/g, "")).not.toMatch(/ease-in\b/);
   const reduce = css.split("@media (prefers-reduced-motion: reduce)");
   expect(reduce.length).toBeGreaterThan(1);
   expect(reduce[1]).toContain(".overlay");

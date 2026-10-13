@@ -45,7 +45,9 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "queue", items: hub.queue.list() })}\n\n`));
             c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "usage", usage: hub.usage.snapshot() })}\n\n`));
-            if (hub.lastImport) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "import", preview: hub.lastImport })}\n\n`));
+            if (hub.lastImport) {
+              c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "import", preview: hub.lastImport, offers: hub.importOffers })}\n\n`));
+            }
           },
           cancel() {
             clients.delete(controller);
@@ -90,12 +92,14 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
         }
         if (body.apply) {
-          return Response.json({
-            ok: true,
-            apply: hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }),
-          });
+          void hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }).catch(() => undefined);
+          return Response.json({ ok: true, started: true, via: "worker" });
         }
         return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
+      }
+      if (url.pathname === "/api/compact" && req.method === "POST") {
+        hub.retryCompact();
+        return Response.json({ ok: true, compact: hub.compact });
       }
       if (url.pathname === "/api/usage" && req.method === "POST") {
         const body = (await req.json()) as { seat?: string; policy?: "resume" | "snooze" };
