@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import {
@@ -111,6 +111,26 @@ test("a full batch is one Cursor call with a short numbered prompt", async () =>
   expect(row.items).toBe(2);
   expect(row.tokensIn).toBeGreaterThan(0);
   expect(row.model).toBe("composer-2.5");
+});
+
+test("a spent compact-budget.json does not pause when no daily cap is set", async () => {
+  const dir = tmpDir("nocap");
+  writeFileSync(join(dir, "compact-budget.json"), JSON.stringify({
+    day: new Date().toISOString().slice(0, 10),
+    tokens: 400000,
+    calls: 20,
+  }));
+  let calls = 0;
+  const compact = cursorCompressor(
+    cfg(dir, { compactBatch: 1, compactSkipTokens: 1, compactBudgetTokens: 0 }),
+    async () => {
+      calls += 1;
+      return "1. ok";
+    },
+  );
+  const text = await compact({ kind: "leaf", source: LONG, contextLines: [], nodeBytes: 140 });
+  expect(calls).toBe(1);
+  expect(text).toBe("ok");
 });
 
 test("daily budget stops further Cursor calls and leaves the node unbuilt", async () => {

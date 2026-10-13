@@ -53,7 +53,7 @@ test("boot banner is URL, CLIs and version; compact and cli-config stay in verbo
     uiUrl: "http://127.0.0.1:47231",
     mcpUrl: "http://127.0.0.1:47231/mcp",
     main: { harness: "claude", model: "opus" },
-    compact: { backend: "cursor", model: DEFAULT_COMPACT_MODEL, budget: 250000, sdk: "ok" as const },
+    compact: { backend: "cursor", model: DEFAULT_COMPACT_MODEL, budget: 0, sdk: "ok" as const },
     warning: "NCLI will not rewrite your Cursor CLI config.",
     clis: { claude: true, codex: false, cursor: true },
     bus: "/tmp/ncli-bus.sock",
@@ -70,7 +70,9 @@ test("boot banner is URL, CLIs and version; compact and cli-config stay in verbo
   expect(verbose).toContain("agent claude · opus");
   expect(verbose).toContain("compact: cursor-sdk ok");
   expect(verbose).toContain(DEFAULT_COMPACT_MODEL);
+  expect(verbose).not.toContain("budget");
   expect(verbose).toContain("Cursor CLI config");
+  expect(formatBoot({ ...report, compact: { ...report.compact, budget: 250000 } }, { verbose: true })).toContain("budget 250000");
   expect(formatBoot({ ...report, revision: "" })).toBe(
     "NCLI rodando em http://localhost:47231\nclis  claude ok, codex missing, cursor ok",
   );
@@ -84,8 +86,20 @@ test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap",
   expect(cfg.compactTimeoutMs).toBe(120_000);
   expect(cfg.compactBatch).toBe(200);
   expect(cfg.compactJobs).toBe(6);
+  expect(cfg.compactBudgetTokens).toBe(0);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
+});
+
+test("NCLI_COMPACT_DAILY_BUDGET is the only opt-in compact cap", () => {
+  const prev = process.env.NCLI_COMPACT_DAILY_BUDGET;
+  process.env.NCLI_COMPACT_DAILY_BUDGET = "250000";
+  try {
+    expect(loadConfig({ dataDir: tmpDir("daily-budget") }).compactBudgetTokens).toBe(250000);
+  } finally {
+    if (prev === undefined) delete process.env.NCLI_COMPACT_DAILY_BUDGET;
+    else process.env.NCLI_COMPACT_DAILY_BUDGET = prev;
+  }
 });
 
 test("bootVerbose is NCLI_VERBOSE or --verbose", () => {

@@ -69,7 +69,7 @@ Optional env:
 | `NCLI_COMPACT_BATCH` | `200` | summaries per SDK call, still split under `NCLI_COMPACT_MAX_INPUT` |
 | `NCLI_JOBS` | `6` | parallel SDK compact calls |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
-| `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
+| `NCLI_COMPACT_DAILY_BUDGET` | unset | optional daily token cap for compaction. Unset means no cap. Banner and drawer hide spend unless this is set |
 | `NCLI_COMPACT_SETTLE` | `0` | unused on the turn path. The turn never waits for compaction. The view enriches later |
 | `NCLI_COMPACT_TIMEOUT` | `120000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the 100k 5x surcharge band) |
@@ -124,7 +124,7 @@ chmod 600 ~/.config/ncli/secrets.env
 
 Mint the key at [https://cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents). NCLI loads that file at startup. A process-env `NCLI_CURSOR_API_KEY` overrides the file. NCLI never reads `CURSOR_API_KEY` or `~/.cursor` for this. The key is passed only as `apiKey` to `Agent.prompt`. CLI children get a scrubbed env. Startup prints `compact: cursor-sdk ok` when the key is present. The key is never logged.
 
-Import writes the log and seeds the tree with local cuts, so recall and the cover work before any SDK call. SDK refine is recent-first, up to `NCLI_COMPACT_BATCH` nodes per call (default 200), `NCLI_JOBS` calls in parallel (default 6), split before a prompt would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). Tiny nodes skip the SDK. Identical nodes hit a content-hash cache. Hitting `NCLI_COMPACT_BUDGET` pauses refine and the job rail says so; it does not freeze the bar. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
+Import writes the log and seeds the tree with local cuts, so recall and the cover work before any SDK call. SDK refine is recent-first, up to `NCLI_COMPACT_BATCH` nodes per call (default 200), `NCLI_JOBS` calls in parallel (default 6), split before a prompt would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). Tiny nodes skip the SDK. Identical nodes hit a content-hash cache. There is no daily token cap unless `NCLI_COMPACT_DAILY_BUDGET` is set; then refine pauses at that number and the job rail says so. Banner and drawer omit spend unless that env is set. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
 
 If an older NCLI build already changed your Cursor CLI default to Haiku, startup prints the file path and the original value when known. It does not rewrite the file.
 

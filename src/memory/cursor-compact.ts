@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { NcliConfig } from "../config";
+import { hasCompactDailyBudget, type NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import { flattenLine, keepRecent, utf8Bytes } from "../util";
 import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
@@ -102,8 +102,7 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
       logCall(cfg.dataDir, { t: new Date().toISOString(), model: cfg.compactModel, items: 1, tokensIn: 0, tokensOut: 0, cached: 0, skipped: 1 });
       return cut(flattenLine(source), input.nodeBytes);
     }
-    const budget = loadBudget(cfg);
-    if (budget.tokens >= cfg.compactBudgetTokens) throw new CompactBudgetPause();
+    if (overDailyBudget(cfg)) throw new CompactBudgetPause();
     return new Promise((resolve, reject) => {
       queue.push({ input, hash, resolve, reject });
       if (queue.length >= batchN) flush();
@@ -188,7 +187,7 @@ async function runBatch(
   jobs: Job[],
   onProgress?: CompactListener,
 ): Promise<void> {
-  if (loadBudget(cfg).tokens >= cfg.compactBudgetTokens) {
+  if (overDailyBudget(cfg)) {
     const pause = new CompactBudgetPause();
     onProgress?.(compactSnapshot(cfg, false, 0, undefined, "budget"));
     for (const j of jobs) j.reject(pause);
@@ -299,6 +298,11 @@ async function sdkUnavailableCliFallback(cfg: NcliConfig, prompt: string, model:
   const text = await new Response(proc.stdout).text();
   await proc.exited;
   return parseCursorPrint(text);
+}
+
+function overDailyBudget(cfg: NcliConfig): boolean {
+  if (!hasCompactDailyBudget(cfg.compactBudgetTokens)) return false;
+  return loadBudget(cfg).tokens >= cfg.compactBudgetTokens;
 }
 
 function today(): string {

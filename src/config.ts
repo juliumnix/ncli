@@ -62,6 +62,17 @@ function millis(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function optionalPositive(name: string): number {
+  const v = process.env[name];
+  if (!v) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function hasCompactDailyBudget(n: number): boolean {
+  return n > 0;
+}
+
 export const DEFAULT_COMPACT_MODEL = "composer-2.5";
 
 export function parseCursorModel(raw: string | undefined): string {
@@ -110,7 +121,7 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     compactSkipTokens: num("NCLI_COMPACT_SKIP", 80),
     compactBatch: num("NCLI_COMPACT_BATCH", 200),
     compactDebounceMs: num("NCLI_COMPACT_DEBOUNCE", 2500),
-    compactBudgetTokens: num("NCLI_COMPACT_BUDGET", 250000),
+    compactBudgetTokens: optionalPositive("NCLI_COMPACT_DAILY_BUDGET"),
     compactMaxInputTokens: num("NCLI_COMPACT_MAX_INPUT", 60_000),
     compactSettleMs: millis("NCLI_COMPACT_SETTLE", 0),
     compactTimeoutMs: millis("NCLI_COMPACT_TIMEOUT", 120_000),

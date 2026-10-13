@@ -1193,6 +1193,13 @@ function jobEtaLabelOf(ms) {
   return min === 1 ? "~1 min" : `~${min} min`;
 }
 
+function compactSpendLabelOf(tokensToday, budget) {
+  if (!(budget > 0)) return null;
+  const k = Math.round((tokensToday || 0) / 100) / 10;
+  const b = Math.round(budget / 1000);
+  return `${k}k/${b}k`;
+}
+
 function jobSourceName(src) {
   return src === "codex" ? "Codex" : src === "cursor" ? "Cursor" : "Claude";
 }
@@ -1614,10 +1621,11 @@ function renderContext() {
   const tree = $("ctxTree");
   const raw = debugView;
   if (head && ctx) {
-    const k = Math.round((ctx.compact?.tokensToday || 0) / 100) / 10;
-    const b = Math.round((ctx.compact?.budget || ctx.budget || 0) / 1000);
     const model = ctx.compact?.model || "haiku";
-    head.textContent = `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${k}k/${b}k · ${model}`;
+    const spend = compactSpendLabelOf(ctx.compact?.tokensToday || 0, ctx.compact?.budget || 0);
+    head.textContent = spend
+      ? `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${spend} · ${model}`
+      : `${ctx.T} msgs · ${ctx.bytes}/${ctx.budget} · ${model}`;
   } else if (head && state.debug) {
     const d = state.debug;
     head.textContent = `${d.bytes}/${d.budget} bytes · ${d.T ?? "?"} msgs · ${(d.levels || []).join(" ")}`;

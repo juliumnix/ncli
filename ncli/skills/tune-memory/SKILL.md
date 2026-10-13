@@ -26,7 +26,7 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 | `NCLI_JOBS` | 6 | parallel SDK compact calls |
 | `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens and cut locally |
 | `NCLI_CURSOR_API_KEY` | file | compaction SDK only; `~/.config/ncli/secrets.env` |
-| `NCLI_COMPACT_BUDGET` | 250000 | daily compaction tokens |
+| `NCLI_COMPACT_DAILY_BUDGET` | unset | optional daily compaction token cap. Unset: no cap, banner and drawer hide spend |
 | `NCLI_COMPACT_SETTLE` | 0 | unused on the turn path. The turn never waits for compaction |
 | `NCLI_COMPACT_TIMEOUT` | 120000 | compressor call timeout. `0` disables it. A stuck call becomes `CompactDeferred` so it does not hold a pump slot |
 | `NCLI_COMPACT_MAX_INPUT` | 60000 | max input tokens per compact call |

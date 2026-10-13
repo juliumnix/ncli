@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { agentTrio, detectClis, sessionChrome, userHelp, type ChromeInput } from "../src/ui/chrome";
+import { agentTrio, compactSpendLabel, detectClis, sessionChrome, userHelp, type ChromeInput } from "../src/ui/chrome";
 import { makeHub } from "./helpers";
 
 const empty: ChromeInput = {
@@ -47,6 +47,11 @@ test("a limit or the cursor seat shows the switcher", () => {
     showWelcome: false,
   });
   expect(sessionChrome({ ...empty, messageCount: 2, mainHarness: "mock" }).showSwitcher).toBe(false);
+});
+
+test("drawer compact spend is hidden unless a daily budget is set", () => {
+  expect(compactSpendLabel(41000, 0)).toBeNull();
+  expect(compactSpendLabel(41000, 250000)).toBe("41k/250k");
 });
 
 test("only a running compact job shows the indicator", () => {
