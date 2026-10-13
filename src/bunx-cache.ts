@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { documentedLaunch } from "./revision";
+import { documentedLaunch, parseRevision } from "./revision";
 
 export type LaunchMainOpts = {
   tmpDirs?: string[];
@@ -47,9 +47,19 @@ export function listNcliBunxExtracts(dirs: string[], uid: number): string[] {
   return found;
 }
 
-export function clearNcliBunxExtracts(dirs: string[], uid: number): string[] {
+export function ncliExtractName(path: string, uid: number): string | undefined {
+  const prefix = ncliExtractPrefix(uid);
+  return path.split("/").find((part) => part.startsWith(prefix));
+}
+
+export function clearNcliBunxExtracts(dirs: string[], uid: number, liveExtract?: string): string[] {
+  const skip = liveExtract ? ncliExtractName(liveExtract, uid) : undefined;
   const removed: string[] = [];
+  const seen = new Set<string>();
   for (const dir of listNcliBunxExtracts(dirs, uid)) {
+    const name = ncliExtractName(dir, uid);
+    if (!name || name === skip || seen.has(name)) continue;
+    seen.add(name);
     rmSync(dir, { recursive: true, force: true });
     removed.push(dir);
   }
@@ -61,4 +71,33 @@ export function launchMain(sha: string, opts: LaunchMainOpts = {}): LaunchPlan {
   const tmpDirs = opts.tmpDirs ?? bunxTmpCandidates();
   const removed = clearNcliBunxExtracts(tmpDirs, uid);
   return { ...documentedLaunch(sha), removed };
+}
+
+export function bunxExtractRoot(path: string, uid: number): string | undefined {
+  const name = ncliExtractName(path, uid);
+  if (!name) return undefined;
+  const parts = path.split("/");
+  return parts.slice(0, parts.indexOf(name) + 1).join("/");
+}
+
+export type BunxRefreshPlan =
+  | { kind: "boot" }
+  | { kind: "reexec"; argv: string[]; env: { NCLI_REVISION: string }; removed: string[] };
+
+export function planBunxRefresh(opts: {
+  runningPath: string;
+  env: Record<string, string | undefined>;
+  uid: number;
+  remoteSha?: string;
+  tmpDirs?: string[];
+}): BunxRefreshPlan {
+  const extract = bunxExtractRoot(opts.runningPath, opts.uid);
+  if (!extract) return { kind: "boot" };
+  const remote = parseRevision(opts.remoteSha);
+  if (!remote) return { kind: "boot" };
+  const local = parseRevision(opts.env.NCLI_REVISION);
+  if (local && local.sha === remote.sha) return { kind: "boot" };
+  const tmpDirs = opts.tmpDirs ?? bunxTmpCandidates(opts.env);
+  const removed = clearNcliBunxExtracts(tmpDirs, opts.uid, extract);
+  return { kind: "reexec", ...documentedLaunch(remote.sha), removed };
 }

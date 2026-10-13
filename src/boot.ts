@@ -49,7 +49,7 @@ export function bootVerbose(env: NodeJS.ProcessEnv = process.env, argv: string[]
 
 export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): string {
   const url = r.uiUrl.replace("127.0.0.1", "localhost");
-  const rev = r.revision ? ` · ${r.revision}` : "";
+  const rev = r.revision && r.revision !== "unknown" ? ` · ${r.revision}` : "";
   const short = [`NCLI rodando em ${url}${rev}`, formatClis(r.clis)].join("\n");
   if (!opts.verbose) return short;
   return [

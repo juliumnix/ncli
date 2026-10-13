@@ -6,17 +6,22 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). One command installs the package and starts the hub in this directory (data in `./data`, repo is cwd). HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning is a child `bun` process with piped stdio, not a thread `Worker`, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
+You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning is a child `bun` process with piped stdio, not a thread `Worker`, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
 
 ```bash
-sha=$(git ls-remote https://github.com/juliumnix/ncli.git refs/heads/main | cut -f1)
+bunx github:juliumnix/ncli
+```
+
+Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `github:juliumnix/ncli` hashes as `latest`, so an extract from before the fd-guard fix keeps crashing (`zsh: killed`) and prints no sha. After this build, the bin itself pins the live tip. If a leftover extract is still the old bin, wipe once:
+
+```bash
 uid=$(id -u)
 rm -rf /tmp/bunx-$uid-ncli@github@* /private/tmp/bunx-$uid-ncli@github@*
 [ -n "$TMPDIR" ] && rm -rf "${TMPDIR%/}"/bunx-$uid-ncli@github@*
-NCLI_REVISION=$sha bunx github:juliumnix/ncli#$sha
+bunx github:juliumnix/ncli
 ```
 
-Bun 1.3.3 reuses `{tmp}/bunx-<uid>-ncli@github@<hash>/` for about a day. A bare `bunx github:juliumnix/ncli` hashes the version as `latest`, so that directory stays put even after `main` moves (old banner, old compact model). Pinning `#<sha>` is a different key, but only after the leftover extract is gone. The block above deletes those dirs, then pins the live `main` tip. The ready banner prints a short sha from `NCLI_REVISION`, git HEAD, `.ncli-revision`, a github spec in the path or env, or the newest bun install cache dir. It omits the sha when none of those resolve. From a clone, `scripts/bunx-main.sh` does the same wipe and pin.
+From a clone, `scripts/bunx-main.sh` does the same wipe and pin. `bun start` is for hacking this repo, not the daily path.
 
 The process prints `NCLI rodando em http://localhost:47231 · <sha>` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. If 47231 is taken, NCLI tries the next free port. An explicit `NCLI_PORT` that is busy prints a short message instead of a stack trace. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
 

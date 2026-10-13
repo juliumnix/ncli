@@ -1,0 +1,16 @@
+name: macos-import
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fd-guard:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.3"
+      - run: bun install
+      - run: bun test tests/fd-guard.test.ts tests/bunx-refresh.test.ts tests/bunx-cache.test.ts tests/revision.test.ts --timeout 60000
