@@ -60,6 +60,8 @@ test("claude spawn gets --mcp-config --strict-mcp-config and --add-dir skills", 
   expect(args).toContain("--include-partial-messages");
   expect(args).toContain("--add-dir");
   expect(args).toContain(inj.addDir[0]);
+  expect(args).toContain("--allowedTools");
+  expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__ncli__*");
 });
 
 test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prompt", () => {
@@ -80,6 +82,20 @@ test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prom
   expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("You are NCLI.");
   expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("ping");
   expect(args).toContain("-c");
+  expect(flags.join(" ")).toContain("mcp_servers.ncli.default_tools_approval_mode=approve");
+  expect(flags.join(" ")).toContain("enabled_tools=");
+  expect(flags.join(" ")).toContain("recall");
+  expect(flags.join(" ")).toContain("zoom");
+  expect(flags.join(" ")).not.toContain("approval_policy=never");
+});
+
+test("ncli MCP marks read tools read-only so Codex can skip the exec prompt", () => {
+  const recall = NCLI_TOOLS.find((t) => t.name === "recall");
+  const zoom = NCLI_TOOLS.find((t) => t.name === "zoom");
+  const ask = NCLI_TOOLS.find((t) => t.name === "ask");
+  expect(recall?.annotations?.readOnlyHint).toBe(true);
+  expect(zoom?.annotations?.readOnlyHint).toBe(true);
+  expect(ask?.annotations?.readOnlyHint).not.toBe(true);
 });
 
 test("cursor workspace mcp is only written inside a spark worktree, not the user home", () => {

@@ -6,7 +6,7 @@ ACP in this repo is **NCLI's internal session contract**, not a vendor SDK. Clau
 
 ## How to run
 
-You need [Bun](https://bun.sh) 1.1+ (`package.json` `engines.bun`). The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning runs in the hub process and yields between batches. It is not a thread `Worker` and not a bun child that would inherit sqlite fds, so bun 1.3.3 on macOS does not `close` a guarded fd and die with `EXC_GUARD`. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`.
+You need [Bun](https://bun.sh) 1.4.3+ (`package.json` `engines.bun`). Boot prints a warning if the running bun is older. The official way to run NCLI is `bunx github:juliumnix/ncli`. That command reads the live `main` sha, wipes a stale bunx extract, and re-execs `bunx github:juliumnix/ncli#<sha>` so the ready banner always shows that short sha. Data lives in `./data`. The repo is cwd. HTTP UI, SSE, the ncli MCP on `/mcp`, ncli-bus, view hot-reload, compaction, and harness detection share that process. The MCP endpoint is listening before any Claude, Codex, or Cursor child starts. Import scanning runs in the hub process and yields between batches. It is not a thread `Worker` and not a bun child that would inherit sqlite fds. Spawn never passes a numeric stdio fd. Memory appends with `appendFileSync`; the hub never calls `openSync`/`closeSync`. bun 1.3.3 on macOS can still `EXC_GUARD` inside the runtime on a guarded close. Use 1.4.3+.
 
 ```bash
 bunx github:juliumnix/ncli
@@ -87,9 +87,9 @@ NCLI adapters implement the same session updates (`agent_message_chunk`, `tool_c
 
 | Seat | Real command | Tests |
 | --- | --- | --- |
-| Claude | unmodified `claude -p --output-format stream-json --verbose --input-format stream-json` plus `--model`, `--mcp-config --strict-mcp-config`, `--resume` / `--session-id` (UUID), `--system-prompt-file`. Prompt is a stream-json user line on stdin; the process stays hot across turns. Sessions over 256 KB are rotated to a new `--session-id`. Docs: [CLI reference](https://code.claude.com/docs/en/cli-reference), [headless](https://code.claude.com/docs/en/headless), [sessions](https://code.claude.com/docs/en/sessions). | `fake-claude` + `parseClaudeLine`. Never spawn `claude`. |
-| Cursor | first-party [`cursor-agent acp`](https://cursor.com/docs/cli/acp) / `agent acp` (JSON-RPC ndjson on stdio). Not `npx cursor-agent-acp`. One ACP process: `initialize` + `session/new` at warm, then `session/prompt` per turn. Fat sessions get a new `session/new` on the same process. | `fake-cursor` + `cursorUpdate` + `NdjsonRpc`. |
-| Codex | wrap [`codex exec --json`](https://developers.openai.com/codex/cli/slash-commands) with prompt on stdin (`-`). OpenAI has not shipped a native ACP entrypoint; third-party `@agentclientprotocol/codex-acp` is out of scope. A waiter is pre-spawned; EOF starts the turn. After `thread.started`, the next waiter is `codex exec --json resume <thread_id> -`. Rollouts over 256 KB are not resumed. | `fake-codex` + `parseCodexLine`. |
+| Claude | unmodified `claude -p --output-format stream-json --verbose --input-format stream-json` plus `--model`, `--mcp-config --strict-mcp-config`, `--allowedTools mcp__ncli__*`, `--resume` / `--session-id` (UUID), `--system-prompt-file`. Prompt is a stream-json user line on stdin; the process stays hot across turns. Sessions over 256 KB are rotated to a new `--session-id`. Docs: [CLI reference](https://code.claude.com/docs/en/cli-reference), [headless](https://code.claude.com/docs/en/headless), [sessions](https://code.claude.com/docs/en/sessions). | `fake-claude` + `parseClaudeLine`. Never spawn `claude`. |
+| Cursor | first-party [`cursor-agent acp`](https://cursor.com/docs/cli/acp) / `agent acp` (JSON-RPC ndjson on stdio). Not `npx cursor-agent-acp`. One ACP process: `initialize` + `session/new` at warm, then `session/prompt` per turn. Fat sessions get a new `session/new` on the same process. `session/request_permission` for `mcp__ncli__*` picks `allow-always`. | `fake-cursor` + `cursorUpdate` + `NdjsonRpc`. |
+| Codex | wrap [`codex exec --json`](https://developers.openai.com/codex/cli/slash-commands) with prompt on stdin (`-`). Spawn sets `mcp_servers.ncli.default_tools_approval_mode=approve` and `enabled_tools` to the ncli list. It does not set `approval_policy=never`. OpenAI has not shipped a native ACP entrypoint; third-party `@agentclientprotocol/codex-acp` is out of scope. A waiter is pre-spawned; EOF starts the turn. After `thread.started`, the next waiter is `codex exec --json resume <thread_id> -`. Rollouts over 256 KB are not resumed. | `fake-codex` + `parseCodexLine`. |
 
 Child processes get a scrubbed env: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CURSOR_API_KEY`, `NCLI_CURSOR_API_KEY`, and similar keys are stripped. Opt in to the Anthropic API key only with `NCLI_CLAUDE_API_KEY=1`. OAuth tokens and the compaction SDK key are never passed through.
 
@@ -231,9 +231,15 @@ bun test
 | `tests/self-hack.test.ts` | skills in system prompt; add-view appears live; remove-view drops it | mock agent, real watch |
 | `tests/runtime-skills.test.ts` | assembled system + spawn AGENTS omit pstack; add-dir is runtime + emil | in-process |
 | `tests/motion.test.ts` | overlay/drawer exit class; ease-out; reduced motion | source |
+| `tests/ux-mac.test.ts` | Reviewed paint under 16 ms; send keeps scroll when not at the floor; open/close/open a spark 3× | Chrome CDP |
 | `tests/bus.test.ts` | idle = 0 extra processes; ask/wait promise; post→next prompt; depth/cycle | mock CLI |
-| `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude | temp dirs |
+| `tests/mcp-inject.test.ts` | one ncli HTTP MCP; spawn files under data/; no global ~/.claude; Claude `--allowedTools mcp__ncli__*`; Codex `default_tools_approval_mode=approve` + `enabled_tools` | temp dirs |
+| `tests/mcp-recall-e2e.test.ts` | Claude, Codex, and Cursor answer the memory-index question from recall with the import percent | fake CLIs + HTTP MCP |
+| `tests/input-paint.test.ts` | p95 input→paint under 16 ms while import and a stream run on a large log | Chrome CDP |
 | `tests/mcp-http.test.ts` | initialize, tools/list, tools/call with a spawn token | in-process HTTP |
+| `tests/fd-guard.test.ts` | no Worker/openSync/closeSync/numeric stdio in `src/`; 6.6k-line in-process import | temp dirs |
+| `tests/bun-version.test.ts` | bun 1.3.3 is below engines `>=1.4.3`; 1.4.3 is not | in-process |
+| `tests/macos-bunx-import.test.ts` | 66×100 Claude lines, kill at half, resume on restart; CI matrix 1.3.3 and 1.4.3 | local extract + workflow |
 | `tests/startup.test.ts` | `bootNcli` listens for UI, SSE, MCP, bus; favicon; summary | mock hub |
 | `tests/stream.test.ts` | POST /api/message returns at once; SSE deltas; harness switch | mock |
 | `tests/live-turn.test.ts` | Turn timeline, still-working, Claude stream-json parse | in-process |

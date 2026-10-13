@@ -1,5 +1,13 @@
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  codexNcliApproved,
+  MCP_BLOCKED,
+  mcpFromCodexArgs,
+  recallImportState,
+  replyFromRecall,
+  wantsMemoryState,
+} from "./fake-ncli-mcp";
 
 const logPath = process.env.FAKE_CODEX_LOG;
 const argv = process.argv.slice(2);
@@ -20,11 +28,20 @@ function emit(obj: unknown): void {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
 }
 
-async function turn(): Promise<void> {
+async function answer(prompt: string): Promise<string> {
+  if (!wantsMemoryState(prompt)) return reply;
+  if (!codexNcliApproved(argv)) return MCP_BLOCKED;
+  const mcp = mcpFromCodexArgs(process.argv);
+  if (!mcp) return MCP_BLOCKED;
+  return replyFromRecall(await recallImportState(mcp));
+}
+
+async function turn(prompt = ""): Promise<void> {
+  const text = await answer(prompt);
   if (delayInit) await Bun.sleep(delayInit);
   emit({ type: "thread.started", thread_id: threadId, thread: { id: threadId, model } });
   if (delayToken) await Bun.sleep(delayToken);
-  emit({ type: "item.completed", item: { id: "m1", type: "agent_message", text: reply } });
+  emit({ type: "item.completed", item: { id: "m1", type: "agent_message", text } });
   emit({ type: "turn.completed" });
 }
 
@@ -39,4 +56,4 @@ for await (const chunk of Bun.stdin.stream()) {
   buf += decoder.decode(chunk, { stream: true });
 }
 if (!buf.trim() && process.env.FAKE_CODEX_REQUIRE_PROMPT === "1") process.exit(0);
-await turn();
+await turn(buf);

@@ -15,6 +15,7 @@ import {
   sessionCap,
   type SeatTurnTrace,
 } from "./session";
+import { NCLI_TOOLS } from "../mcp/tools";
 import type { AcpAdapter, AcpUpdate } from "./types";
 
 export function cursorAcpSpawn(cfg: NcliConfig): { command: string; args: string[] } {
@@ -53,6 +54,36 @@ export function cursorAcpServers(
       env: nameValues(s.env),
     };
   });
+}
+
+export type CursorPermissionOption = {
+  optionId: string;
+  name?: string;
+  kind?: string;
+};
+
+export type CursorPermissionRequest = {
+  toolCall?: { toolCallId?: string; title?: string };
+  options?: CursorPermissionOption[];
+};
+
+const NCLI_TOOL_NAMES = new Set(NCLI_TOOLS.map((t) => t.name));
+
+export function isNcliMcpTitle(title: string): boolean {
+  const t = title.trim();
+  if (/^mcp__ncli__/i.test(t)) return true;
+  const bare = t.replace(/^mcp__/, "").replace(/^ncli__/i, "");
+  return NCLI_TOOL_NAMES.has(t) || NCLI_TOOL_NAMES.has(bare);
+}
+
+export function cursorPermissionChoice(params: CursorPermissionRequest): string {
+  const options = params.options ?? [];
+  const pick = (kind: string, re: RegExp) =>
+    options.find((o) => o.kind === kind || re.test(o.optionId))?.optionId;
+  if (isNcliMcpTitle(params.toolCall?.title ?? "")) {
+    return pick("allow_always", /allow[_-]?always/i) ?? "allow-always";
+  }
+  return pick("allow_once", /allow[_-]?once/i) ?? "allow-once";
 }
 
 function nameValues(rec?: Record<string, string>): Array<{ name: string; value: string }> {
@@ -213,13 +244,14 @@ export class CursorAcpAdapter implements AcpAdapter {
     };
     rpc.onRequest = (id, method, params) => {
       if (method !== "session/request_permission") return;
-      const tool = (params as { toolCall?: { toolCallId?: string; title?: string } }).toolCall;
+      const req = (params ?? {}) as CursorPermissionRequest;
+      const tool = req.toolCall;
       hot.q.push({
         sessionUpdate: "permission_request",
         toolCallId: tool?.toolCallId ?? "perm",
         title: tool?.title ?? "permission",
       });
-      rpc.respond(id, { outcome: { outcome: "selected", optionId: "allow-once" } });
+      rpc.respond(id, { outcome: { outcome: "selected", optionId: cursorPermissionChoice(req) } });
       hot.wake?.();
     };
     await rpc.request("initialize", {

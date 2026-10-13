@@ -1,9 +1,19 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultImportRoots, runImportJob } from "../src/import";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { tmpDir } from "./helpers";
+
+function walkTs(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) out.push(...walkTs(path));
+    else if (name.endsWith(".ts")) out.push(path);
+  }
+  return out;
+}
 
 function writeTinyClaude(root: string, files = 2, lines = 8): void {
   const proj = join(root, "workspace");
@@ -57,20 +67,19 @@ test("import scan and jsonl append can loop without throwing", async () => {
 });
 
 test("src import and memory paths do not Worker, spawn a scan child, openSync, or closeSync", () => {
-  const files = [
-    "src/import/job.ts",
-    "src/import/scan.ts",
-    "src/memory/store.ts",
-    "src/memory/cursor-compact.ts",
-    "src/memory/compact.ts",
-    "src/boot.ts",
-    "src/index.ts",
-    "src/hub.ts",
-  ].map((rel) => join(import.meta.dir, "..", rel));
+  const srcRoot = join(import.meta.dir, "../src");
+  const files = walkTs(srcRoot);
+  expect(files.length).toBeGreaterThan(20);
   const joined = files.map((f) => readFileSync(f, "utf8")).join("\n");
   expect(joined).not.toMatch(/\bnew Worker\b/);
   expect(joined).not.toMatch(/\bopenSync\b/);
   expect(joined).not.toMatch(/\bcloseSync\b/);
+  expect(joined).not.toMatch(/\bnew Database\b/);
+  expect(joined).not.toMatch(/\bdb\.close\s*\(/);
+  expect(joined).not.toMatch(/stdin:\s*\d/);
+  expect(joined).not.toMatch(/stdout:\s*\d/);
+  expect(joined).not.toMatch(/stderr:\s*\d/);
+  expect(joined).not.toMatch(/stdio:\s*\[[^\]]*\d/);
   const job = readFileSync(join(import.meta.dir, "../src/import/job.ts"), "utf8");
   expect(job).not.toMatch(/\bBun\.spawn\b/);
   expect(job).toContain("runImportScan");
@@ -81,13 +90,13 @@ test("src import and memory paths do not Worker, spawn a scan child, openSync, o
 
 test("a large synthetic Claude history imports through the in-process scan", async () => {
   const root = tmpDir("fd-large");
-  writeTinyClaude(root, 40, 40);
+  writeTinyClaude(root, 66, 100);
   const result = await runImportJob({
     source: "claude",
     roots: { ...defaultImportRoots(), claude: root },
     seenFile: join(tmpDir("fd-large-seen"), "import-seen.json"),
     onBatch: () => undefined,
   });
-  expect(result.applied).toBe(40 * 40);
+    expect(result.applied).toBe(66 * 100);
   expect(await scanProcPids()).toEqual([]);
 });
