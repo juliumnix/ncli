@@ -29,11 +29,15 @@ test("switching the main agent updates the header snapshot and fallback posts a 
   process.env.CODEX_HOME = home;
   const { hub } = await makeHub();
   try {
+    await hub.send("o desconto member fica no alpha.json");
     hub.switchMain("codex");
     expect(hub.snapshot().main.harness).toBe("codex");
     expect(hub.snapshot().main.model).toBe("gpt-6.1-sol");
+    expect(hub.memory.log.some((m) => m.text.includes("alpha.json"))).toBe(true);
+    expect(hub.snapshot().seats.map((s) => s.harness)).toEqual(["claude", "codex", "cursor"]);
     hub.switchMain("cursor");
     expect(hub.snapshot().main.model).toBe("composer-2.5");
+    expect(hub.memory.log.some((m) => m.text.includes("alpha.json"))).toBe(true);
     expect(agentLabel("codex", "gpt-6.1-sol")).toBe("Codex · GPT 6.1-sol");
     expect(agentLabel("claude", "claude-opus-4-5")).toBe("Claude · Opus 4.5");
   } finally {

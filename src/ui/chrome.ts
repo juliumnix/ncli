@@ -64,10 +64,9 @@ export function compactSpendLabel(tokensToday: number, budget: number): string |
 }
 
 export function sessionChrome(input: ChromeInput): SessionChrome {
-  const extraSeat = input.mainHarness !== "claude" && input.mainHarness !== "mock";
   const sparked = input.sparkCount > 0;
   return {
-    showSwitcher: input.limited || sparked || extraSeat,
+    showSwitcher: true,
     showCompact: input.compactRunning,
     showSparks: sparked,
     showViews: sparked,

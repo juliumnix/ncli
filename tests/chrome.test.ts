@@ -11,9 +11,9 @@ const empty: ChromeInput = {
   mainHarness: "claude",
 };
 
-test("empty first session shows welcome and hides the rest", () => {
+test("empty first session shows welcome and the agent switcher", () => {
   expect(sessionChrome(empty)).toEqual({
-    showSwitcher: false,
+    showSwitcher: true,
     showCompact: false,
     showSparks: false,
     showViews: false,
@@ -46,7 +46,7 @@ test("a limit or the cursor seat shows the switcher", () => {
     showViews: false,
     showWelcome: false,
   });
-  expect(sessionChrome({ ...empty, messageCount: 2, mainHarness: "mock" }).showSwitcher).toBe(false);
+  expect(sessionChrome({ ...empty, messageCount: 2, mainHarness: "mock" }).showSwitcher).toBe(true);
 });
 
 test("drawer compact spend is hidden unless a daily budget is set", () => {

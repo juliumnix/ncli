@@ -49,6 +49,26 @@ export class TurnQueue {
     return true;
   }
 
+  update(id: string, text: string): boolean {
+    const item = this.items.find((i) => i.id === id);
+    const next = text.trim();
+    if (!item || !next) return false;
+    item.text = next;
+    this.save();
+    return true;
+  }
+
+  promote(id: string): QueueItem | undefined {
+    const i = this.items.findIndex((item) => item.id === id);
+    if (i < 0) return undefined;
+    const item = this.items[i]!;
+    this.items.splice(i, 1);
+    item.mode = "steer";
+    this.items.unshift(item);
+    this.save();
+    return item;
+  }
+
   takeNext(session: string): QueueItem | undefined {
     const mine = this.items.filter((i) => i.session === session);
     const item = mine.find((i) => i.mode === "steer") ?? mine[0];
