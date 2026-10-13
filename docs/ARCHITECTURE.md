@@ -7,7 +7,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | Path | Contract |
 | --- | --- |
 | `src/index.ts` | bunx/`bin.ncli` entry: `bootNcli()` then print the startup summary |
-| `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize |
+| `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize. Warns when bun is below 1.4.3 |
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` and GitHub PR URL open, pick harness/compressor |
 | `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
 | `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
@@ -26,7 +26,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/views/manifest.ts` | `ViewManifest` schema, exclusive skills, `FlowStep`, `SparkResult` |
 | `src/views/pack.ts` | `ncli view add <path|git-url>` / `view update` / `view pack` |
 | `src/acp/types.ts` | `AcpAdapter` → `AcpUpdate` (in-process ACP shape, not a vendor SDK) |
-| `src/acp/*.ts` | CLI wrappers (`claude -p --input-format stream-json` kept hot, `cursor-agent --model NCLI_CURSOR_MODEL acp` kept on one JSON-RPC process, `codex exec --json -` pre-warmed with `resume <thread_id>`). `--model` on Codex only when `NCLI_CODEX_MODEL` is set. Each seat rotates jsonl over 256 KB and records spawn→init→token. The Cursor seat never imports `@cursor/sdk` |
+| `src/acp/*.ts` | CLI wrappers (`claude -p --input-format stream-json` kept hot, `cursor-agent --model NCLI_CURSOR_MODEL acp` kept on one JSON-RPC process, `codex exec --json -` pre-warmed with `resume <thread_id>`). Claude gets `--allowedTools mcp__ncli__*`. Codex gets per-server `default_tools_approval_mode=approve` plus `enabled_tools`. Cursor auto-allows ncli MCP permission requests. `--model` on Codex only when `NCLI_CODEX_MODEL` is set. Each seat rotates jsonl over 256 KB and records spawn→init→token. The Cursor seat never imports `@cursor/sdk` |
 | `src/harness/*.ts` | `HarnessEvent` stream; `child-env` strips Anthropic, `CURSOR_API_KEY`, and `NCLI_CURSOR_API_KEY` |
 | `src/live/parse.ts` + `frame.ts` + `ui-frame.ts` | ` ```ncli kind ` fences → sandboxed iframe. `ui` injects theme tokens, `ncliChart`, height/`send` host messages |
 | `src/live/turn.ts` | one `Turn` / `TurnStep` timeline from harness events |
@@ -38,7 +38,7 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `ncli/mcp.json` | the only MCP registry; injected per spawn, never into ~/.claude ~/.codex ~/.cursor |
 | `src/mcp/` | Streamable HTTP `ncli` on `/mcp` (memory + bus + control). Token per spawn. No shim process |
 | `src/bus/` | ncli-bus: unix socket + in-memory tickets. `ask`/`wait`/`post`/`inbox`/`read` |
-| `public/` | chat UI, shortcuts rail, review modal. Overlay gen cancels a stale hide. Send snaps only when already at the floor. Reviewed paints before the act POST. |
+| `public/` | chat UI, shortcuts rail, review modal. Composer space is a ResizeObserver on `#dock`. Import/job ticks update the chip in place. Chat appends new `data-mid` rows instead of rebuilding the log. Overlay gen cancels a stale hide. Send snaps only when already at the floor. Reviewed paints before the act POST. |
 | `src/perf/` | `bun run perf` traces. p50/p95 for start, paint, send, TTFT, SSE, fork, drawer, scroll, compact |
 
 ## Extension points (one line each)

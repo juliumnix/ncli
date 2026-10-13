@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
 import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
 import { loadMcpFile, loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
+import { NCLI_TOOLS } from "./tools";
 
 export interface SpawnInject {
   dir: string;
@@ -86,6 +87,7 @@ export function codexMcpFlags(servers: McpServerSpec[]): string[] {
         if (!v) continue;
         out.push("-c", `mcp_servers.${s.name}.http_headers.${k}=${v}`);
       }
+      if (s.name === "ncli") out.push(...codexNcliTrustFlags(s.name));
       continue;
     }
     out.push("-c", `mcp_servers.${s.name}.command=${s.command ?? "bun"}`);
@@ -94,8 +96,18 @@ export function codexMcpFlags(servers: McpServerSpec[]): string[] {
       if (!v) continue;
       out.push("-c", `mcp_servers.${s.name}.env.${k}=${v}`);
     }
+    if (s.name === "ncli") out.push(...codexNcliTrustFlags(s.name));
   }
   return out;
+}
+
+export function codexNcliTrustFlags(name = "ncli"): string[] {
+  return [
+    "-c",
+    `mcp_servers.${name}.default_tools_approval_mode=approve`,
+    "-c",
+    `mcp_servers.${name}.enabled_tools=${JSON.stringify(NCLI_TOOLS.map((t) => t.name))}`,
+  ];
 }
 
 export function asClaudeMap(servers: McpServerSpec[]): Record<string, Record<string, unknown>> {

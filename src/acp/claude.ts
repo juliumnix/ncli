@@ -263,7 +263,10 @@ export function claudeSpawn(cfg: NcliConfig, opts: RunOpts): { args: string[]; p
     "stream-json",
   ];
   if (opts.model ?? cfg.claudeModel) args.push("--model", opts.model ?? cfg.claudeModel);
-  if (opts.mcpConfigPath) args.push("--mcp-config", opts.mcpConfigPath, "--strict-mcp-config");
+  if (opts.mcpConfigPath) {
+    args.push("--mcp-config", opts.mcpConfigPath, "--strict-mcp-config");
+    if (!opts.extraArgs?.includes("--allowedTools")) args.push("--allowedTools", "mcp__ncli__*");
+  }
   for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
   let plan: ClaudeSessionPlan | undefined;

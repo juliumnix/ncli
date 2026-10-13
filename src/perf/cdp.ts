@@ -97,7 +97,7 @@ export interface ChromeDriver {
   close(): void;
 }
 
-export async function launchChrome(port: number): Promise<ChromeDriver> {
+export async function launchChrome(port: number, extraArgs: string[] = []): Promise<ChromeDriver> {
   const bin = chromePath();
   if (!bin) throw new Error("chrome not found");
   const profile = mkdtempSync(join(tmpdir(), "ncli-perf-chrome-"));
@@ -116,6 +116,7 @@ export async function launchChrome(port: number): Promise<ChromeDriver> {
       `--remote-debugging-port=${port}`,
       `--user-data-dir=${profile}`,
       "--window-size=1440,900",
+      ...extraArgs,
       "about:blank",
     ],
     { stdout: "pipe", stderr: "pipe" },

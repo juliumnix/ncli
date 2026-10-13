@@ -1,24 +1,37 @@
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 export interface McpToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
 }
+
+const READ: McpToolAnnotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 
 export const NCLI_TOOLS: McpToolDef[] = [
   {
     name: "zoom",
     description: "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.",
     inputSchema: { type: "object", properties: { id: { type: "number" }, n: { type: "number" } }, required: ["id", "n"] },
+    annotations: READ,
   },
   {
     name: "date",
     description: "The date and time of message id.",
     inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
+    annotations: READ,
   },
   {
     name: "recall",
     description: "Search the raw log with a regex.",
     inputSchema: { type: "object", properties: { pattern: { type: "string" } }, required: ["pattern"] },
+    annotations: READ,
   },
   {
     name: "supersede",
@@ -66,11 +79,12 @@ export const NCLI_TOOLS: McpToolDef[] = [
     description: "Short message to a seat, spark id, or main.",
     inputSchema: { type: "object", properties: { to: { type: "string" }, msg: { type: "string" } }, required: ["to", "msg"] },
   },
-  { name: "inbox", description: "Drain pending posts for this session.", inputSchema: { type: "object", properties: {} } },
+  { name: "inbox", description: "Drain pending posts for this session.", inputSchema: { type: "object", properties: {} }, annotations: READ },
   {
     name: "read",
     description: "Search the ncli-bus ledger.",
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    annotations: READ,
   },
   {
     name: "open_spark",
@@ -86,8 +100,8 @@ export const NCLI_TOOLS: McpToolDef[] = [
     description: "Finish and merge a spark back into the main chat.",
     inputSchema: { type: "object", properties: { id: { type: "string" }, summary: { type: "string" } }, required: ["id"] },
   },
-  { name: "list_views", description: "List view:// plugins.", inputSchema: { type: "object", properties: {} } },
-  { name: "list_sparks", description: "List open sparks.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_views", description: "List view:// plugins.", inputSchema: { type: "object", properties: {} }, annotations: READ },
+  { name: "list_sparks", description: "List open sparks.", inputSchema: { type: "object", properties: {} }, annotations: READ },
   {
     name: "switch_harness",
     description: "Switch the main harness (claude, codex, cursor, mock). Same memory, tools, and skills continue.",
@@ -97,6 +111,7 @@ export const NCLI_TOOLS: McpToolDef[] = [
     name: "budget",
     description: "Memory view budget: bytes, lines, levels.",
     inputSchema: { type: "object", properties: {} },
+    annotations: READ,
   },
 ];
 
