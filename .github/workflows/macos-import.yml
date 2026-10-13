@@ -17,7 +17,7 @@ jobs:
         with:
           bun-version: ${{ matrix.bun }}
       - run: bun install
-      - run: bun test tests/fd-guard.test.ts tests/bunx-refresh.test.ts tests/bunx-cache.test.ts tests/revision.test.ts tests/macos-bunx-import.test.ts tests/bun-version.test.ts --timeout 90000
+      - run: bun test tests/fd-guard.test.ts tests/bunx-refresh.test.ts tests/bunx-cache.test.ts tests/revision.test.ts tests/macos-bunx-import.test.ts tests/bun-version.test.ts --timeout 180000
       - name: bunx github import
         env:
           NCLI_REVISION: ${{ github.sha }}

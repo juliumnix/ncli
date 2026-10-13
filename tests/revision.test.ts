@@ -6,6 +6,7 @@ import {
   documentedLaunch,
   fetchMainTip,
   ncliSpecAt,
+  readyBannerSha,
   parseGithubCommitSha,
   readBootRevision,
   parseRevision,
@@ -87,4 +88,13 @@ test("fetchMainTip reads the injected GitHub body and never needs git", async ()
 test("readBootRevision keeps a set NCLI_REVISION without fetching", () => {
   const empty = tmpDir("rev-pin");
   expect(readBootRevision(empty, { NCLI_REVISION: MAIN }).sha).toBe(MAIN);
+});
+
+test("a stale pin prints the live main sha on the ready banner", () => {
+  const pin = "dcf4a93d350f37b5e28999e59373d3978d3993f2";
+  const live = "04f0353d350f37b5e28999e59373d3978d3993f2";
+  expect(pin).toHaveLength(40);
+  expect(live).toHaveLength(40);
+  expect(shortSha(readyBannerSha(pin, live))).toBe("04f0353");
+  expect(shortSha(readyBannerSha(pin, undefined))).toBe("dcf4a93");
 });

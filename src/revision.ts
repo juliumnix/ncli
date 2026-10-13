@@ -81,6 +81,10 @@ export async function fetchMainTip(opts: { get?: () => Promise<string | undefine
   }
 }
 
+export function readyBannerSha(pin: string, live: string | undefined): string {
+  return parseRevision(live)?.sha ?? pin;
+}
+
 export function readBootRevision(
   root: string,
   env: Record<string, string | undefined> = process.env,
