@@ -7,6 +7,7 @@ import {
   fetchMainTip,
   ncliSpecAt,
   parseLsRemoteMain,
+  readBootRevision,
   parseRevision,
   parseShaFromGithubSpec,
   parseShaFromPath,
@@ -88,4 +89,9 @@ test("fetchMainTip parses git ls-remote stdout via the injected runner", () => {
   });
   expect(sha).toBe(MAIN);
   expect(fetchMainTip({ lsRemote: () => ({ exitCode: 1, stdout: "" }) })).toBeUndefined();
+});
+
+test("readBootRevision keeps a set NCLI_REVISION without fetching", () => {
+  const empty = tmpDir("rev-pin");
+  expect(readBootRevision(empty, { NCLI_REVISION: MAIN }).sha).toBe(MAIN);
 });

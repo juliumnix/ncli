@@ -93,10 +93,9 @@ export function planBunxRefresh(opts: {
 }): BunxRefreshPlan {
   const extract = bunxExtractRoot(opts.runningPath, opts.uid);
   if (!extract) return { kind: "boot" };
+  if (parseRevision(opts.env.NCLI_REVISION)) return { kind: "boot" };
   const remote = parseRevision(opts.remoteSha);
   if (!remote) return { kind: "boot" };
-  const local = parseRevision(opts.env.NCLI_REVISION);
-  if (local && local.sha === remote.sha) return { kind: "boot" };
   const tmpDirs = opts.tmpDirs ?? bunxTmpCandidates(opts.env);
   const removed = clearNcliBunxExtracts(tmpDirs, opts.uid, extract);
   return { kind: "reexec", ...documentedLaunch(remote.sha), removed };

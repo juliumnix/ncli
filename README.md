@@ -25,20 +25,18 @@ From a clone, `scripts/bunx-main.sh` does the same wipe and pin. `bun start` is 
 
 The process prints `NCLI rodando em http://localhost:47231 · <sha>` and the detected CLIs as soon as HTTP is listening, with a sync flush so bunx and other non-TTY pipes still show the line. The first run opens that URL in the browser. Set `NCLI_NO_OPEN=1` to skip. If 47231 is taken, NCLI tries the next free port. An explicit `NCLI_PORT` that is busy prints a short message instead of a stack trace. `preinstall` / `postinstall` print install progress to stderr while bunx fetches `@cursor/sdk`. The process exits if HTTP, the bus, or MCP cannot start.
 
-From a clone, `bun install` then `bun start` is the same process. `bun run ncli` stays the view scaffold.
-
 Open the UI URL (default http://localhost:47231), or let the first run do it. Paste a GitHub pull request URL into the composer to open a review spark.
 
 For a mock harness and a short demo conversation, without Claude Code:
 
 ```bash
-NCLI_HARNESS=mock NCLI_DEMO=1 bun start
+NCLI_HARNESS=mock NCLI_DEMO=1 bunx github:juliumnix/ncli
 ```
 
 Talk to a real Claude Code install (your own `claude` login; NCLI never touches OAuth tokens):
 
 ```bash
-NCLI_HARNESS=claude bun start
+NCLI_HARNESS=claude bunx github:juliumnix/ncli
 ```
 
 Optional env:

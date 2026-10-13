@@ -13,4 +13,8 @@ jobs:
         with:
           bun-version: "1.3.3"
       - run: bun install
-      - run: bun test tests/fd-guard.test.ts tests/bunx-refresh.test.ts tests/bunx-cache.test.ts tests/revision.test.ts --timeout 60000
+      - run: bun test tests/fd-guard.test.ts tests/bunx-refresh.test.ts tests/bunx-cache.test.ts tests/revision.test.ts tests/macos-bunx-import.test.ts --timeout 60000
+      - name: bunx github import
+        env:
+          NCLI_REVISION: ${{ github.sha }}
+        run: bun scripts/macos-bunx-import.ts --bunx

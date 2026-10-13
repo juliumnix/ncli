@@ -44,14 +44,14 @@ test("a bunx extract without NCLI_REVISION re-execs the pinned spec even if .ncl
   });
 });
 
-test("when NCLI_REVISION already matches live main, boot in place", () => {
+test("when NCLI_REVISION is set, boot in place even if live main moved", () => {
   const tmp = tmpDir("bunx-fresh");
   const extract = plantExtract(tmp);
   const plan = planBunxRefresh({
     runningPath: join(extract, "src/index.ts"),
     env: { NCLI_REVISION: LIVE },
     uid: UID,
-    remoteSha: LIVE,
+    remoteSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     tmpDirs: [tmp],
   });
   expect(plan).toEqual({ kind: "boot" });

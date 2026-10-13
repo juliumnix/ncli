@@ -72,6 +72,16 @@ export function fetchMainTip(opts: { lsRemote?: () => LsRemoteResult } = {}): st
   }
 }
 
+export function readBootRevision(
+  root: string,
+  env: Record<string, string | undefined> = process.env,
+  extra: string[] = [],
+): NcliRevision {
+  const first = resolveRevision(root, env, extra);
+  if (first.sha !== "unknown") return first;
+  return resolveRevision(root, env, extra, fetchMainTip());
+}
+
 function defaultLsRemote(): LsRemoteResult {
   const proc = Bun.spawnSync(
     ["git", "ls-remote", "https://github.com/juliumnix/ncli.git", "refs/heads/main"],
