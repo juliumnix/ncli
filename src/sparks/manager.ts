@@ -69,6 +69,7 @@ export class SparkManager {
         viewBytes: this.cfg.viewBytes,
         compressor: this.hooks.compressor,
         pumpBatch: this.cfg.compactBatch,
+        compactJobs: this.cfg.compactJobs,
         deferCutAfter: this.cfg.compactTries,
         compressTimeoutMs: this.cfg.compactTimeoutMs,
       });
@@ -165,6 +166,7 @@ export class SparkManager {
       viewBytes: this.cfg.viewBytes,
       compressor: this.hooks.compressor,
       pumpBatch: this.cfg.compactBatch,
+      compactJobs: this.cfg.compactJobs,
       deferCutAfter: this.cfg.compactTries,
       compressTimeoutMs: this.cfg.compactTimeoutMs,
     });

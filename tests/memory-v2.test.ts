@@ -74,7 +74,7 @@ test("fsync append still writes the log line", () => {
   expect(readFileSync(join(dir, "log.jsonl"), "utf8")).toContain("hello fsync");
 });
 
-test("a deferred compact leaves the node unbuilt", async () => {
+test("a deferred compact keeps the local cut so the cover stays usable", async () => {
   const mem = new Memory({
     dir: tmpDir("v2-defer"),
     nodeBytes: 20,
@@ -85,8 +85,9 @@ test("a deferred compact leaves the node unbuilt", async () => {
   });
   mem.append({ kind: "user", text: "x".repeat(80) });
   await mem.pump();
-  expect(mem.nodeOf(0, 0)).toBeUndefined();
-  expect(mem.view[0]?.built).toBe(false);
-  expect(mem.viewLines()[0]).toContain("(not summarized yet: zoom it)");
-  expect(mem.pendingCount()).toBeGreaterThan(0);
+  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
+  expect(mem.view[0]?.built).toBe(true);
+  expect(mem.viewLines()[0]).not.toContain("(not summarized yet: zoom it)");
+  expect(mem.compactWork.total).toBeGreaterThan(0);
+  mem.paused = true;
 });

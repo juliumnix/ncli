@@ -1206,11 +1206,19 @@ function jobStageOf(job) {
   }
   if (job.phase === "done") return "Memória organizada";
   if (job.phase === "error") return "Não deu pra organizar a memória";
+  if (job.phase === "paused") return "Pausado: limite diário";
   return "Organizando a memória";
 }
 
 function jobLineOf(job) {
   const stage = jobStageOf(job);
+  if (job.phase === "paused") {
+    const bits = [stage];
+    const pct = jobPctOf(job.done, job.total);
+    if (pct !== null) bits.push(`${pct}%`);
+    bits.push("continua amanhã");
+    return bits.join(" · ");
+  }
   if (job.phase !== "running") return stage;
   const bits = [stage];
   if (job.kind === "import" && job.total > 0) {
@@ -1262,8 +1270,8 @@ function activeJob() {
     };
   }
   const c = state.compact;
-  if (c && (c.running || c.error || state.jobFade === "compact")) {
-    const phase = c.error ? "error" : c.running ? "running" : "done";
+  if (c && (c.running || c.error || c.paused || state.jobFade === "compact")) {
+    const phase = c.error ? "error" : c.paused === "budget" ? "paused" : c.running ? "running" : "done";
     if (phase === "running") markJobStart("compact");
     return {
       kind: "compact",
@@ -2203,7 +2211,7 @@ function applyEvent(ev) {
       if (ev.compact && ev.compact.running) {
         markJobStart("compact");
         state.jobFade = null;
-      } else if (ev.compact && !ev.compact.error && (ev.compact.done > 0 || ev.compact.total > 0)) {
+      } else if (ev.compact && !ev.compact.error && !ev.compact.paused && (ev.compact.done > 0 || ev.compact.total > 0)) {
         state.jobFade = "compact";
         renderJob();
         setTimeout(() => {

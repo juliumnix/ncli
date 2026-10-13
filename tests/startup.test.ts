@@ -81,7 +81,9 @@ test("loadConfig keeps Composer 2.5 as the compact default and a 60k input cap",
   expect(cfg.compactModel).toBe("composer-2.5");
   expect(cfg.compactMaxInputTokens).toBe(60_000);
   expect(cfg.compactSettleMs).toBe(0);
-  expect(cfg.compactTimeoutMs).toBe(30_000);
+  expect(cfg.compactTimeoutMs).toBe(120_000);
+  expect(cfg.compactBatch).toBe(200);
+  expect(cfg.compactJobs).toBe(6);
   expect(cfg.cursorModel).toBe("composer-2.5");
   expect(cfg.codexModel).toBe("");
 });

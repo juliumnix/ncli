@@ -8,10 +8,10 @@ import { flattenLine, keepRecent, utf8Bytes } from "../util";
 import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
 import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
 import { COMPACT_PROMPT } from "./compact";
-import { CompactDeferred } from "./compact-deferred";
+import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
 import type { CompactInput, Compressor } from "./store";
 
-export { CompactDeferred };
+export { CompactBudgetPause, CompactDeferred };
 
 export const CURSOR_COMPACT_PROMPT =
   "One-line memory for NCLI. Output only the line. Keep user words, decisions, ids. If a later item replaces an earlier one, keep the final state and name what it replaced. Drop tool noise.";
@@ -21,6 +21,9 @@ export type CompactRunner = (prompt: string, model: string) => Promise<string>;
 export interface CompactProgress {
   running: boolean;
   nodes: number;
+  done?: number;
+  total?: number;
+  paused?: "budget";
   tokensToday: number;
   budget: number;
   model: string;
@@ -76,15 +79,13 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
 
   const flush = () => {
     timer = null;
-    const taken = queue.splice(0, Math.max(queue.length, batchN));
+    const taken = queue.splice(0);
     if (!taken.length) return;
     const batches = splitJobsByTokens(taken, {
       maxItems: batchN,
       maxInputTokens: cfg.compactMaxInputTokens,
     });
-    void (async () => {
-      for (const jobs of batches) await runBatch(cfg, run, cache, jobs, onProgress);
-    })();
+    void mapLimit(batches, cfg.compactJobs, (jobs) => runBatch(cfg, run, cache, jobs, onProgress));
   };
 
   const compress: Compressor = async (input) => {
@@ -102,7 +103,7 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
       return cut(flattenLine(source), input.nodeBytes);
     }
     const budget = loadBudget(cfg);
-    if (budget.tokens >= cfg.compactBudgetTokens) throw new CompactDeferred();
+    if (budget.tokens >= cfg.compactBudgetTokens) throw new CompactBudgetPause();
     return new Promise((resolve, reject) => {
       queue.push({ input, hash, resolve, reject });
       if (queue.length >= batchN) flush();
@@ -113,18 +114,31 @@ export function cursorCompressor(cfg: NcliConfig, runner?: CompactRunner, onProg
 }
 
 export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
+  const chat = jobs[0]?.input.contextLines?.join("\n") ?? "";
   const body = jobs
     .map((j, i) => {
       const ruler = "-".repeat(j.input.nodeBytes);
-      const chat = (j.input.contextLines ?? []).join("\n");
       const step =
         j.input.kind === "leaf"
           ? `Compress:\n<input>\n${j.input.source}\n</input>`
           : `Merge:\n<input>\n${j.input.left}\n${j.input.right}\n</input>`;
-      return `### ${i + 1} (max ${j.input.nodeBytes} bytes)\n${ruler}\n<chat>\n${chat}\n</chat>\n${step}`;
+      return `### ${i + 1} (max ${j.input.nodeBytes} bytes)\n${ruler}\n${step}`;
     })
     .join("\n\n");
-  return `${COMPACT_PROMPT}\n${CURSOR_COMPACT_PROMPT}\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
+  return `${COMPACT_PROMPT}\n${CURSOR_COMPACT_PROMPT}\n<chat>\n${chat}\n</chat>\nOutput ${jobs.length} lines, numbered 1..${jobs.length}. Nothing else.\n\n${body}`;
+}
+
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  const n = Math.max(1, limit);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next];
+      next += 1;
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
 }
 
 export function splitJobsByTokens<T extends { input: CompactInput }>(
@@ -148,7 +162,13 @@ export function splitJobsByTokens<T extends { input: CompactInput }>(
   return out;
 }
 
-export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0, error?: string): CompactProgress {
+export function compactSnapshot(
+  cfg: NcliConfig,
+  running = false,
+  lastNodes = 0,
+  error?: string,
+  paused?: "budget",
+): CompactProgress {
   const b = loadBudget(cfg);
   return {
     running,
@@ -157,6 +177,7 @@ export function compactSnapshot(cfg: NcliConfig, running = false, lastNodes = 0,
     budget: cfg.compactBudgetTokens,
     model: cfg.compactModel,
     ...(error ? { error } : {}),
+    ...(paused ? { paused } : {}),
   };
 }
 
@@ -167,6 +188,12 @@ async function runBatch(
   jobs: Job[],
   onProgress?: CompactListener,
 ): Promise<void> {
+  if (loadBudget(cfg).tokens >= cfg.compactBudgetTokens) {
+    const pause = new CompactBudgetPause();
+    onProgress?.(compactSnapshot(cfg, false, 0, undefined, "budget"));
+    for (const j of jobs) j.reject(pause);
+    return;
+  }
   const prompt = jobPrompt(jobs);
   const tokensIn = estimateTokens(prompt);
   onProgress?.(compactSnapshot(cfg, true, jobs.length));

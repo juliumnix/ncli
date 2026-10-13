@@ -82,7 +82,6 @@ export class Hub {
   model?: string;
   live: LiveTurn | null = null;
   compact: CompactStatus;
-  private compactWave = 0;
   private listeners = new Set<(ev: HubEvent) => void>;
   readonly compressor: Compressor;
   private turning = false;
@@ -103,7 +102,7 @@ export class Hub {
     this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
     this.compact = compactStatusOf(compactSnapshot(cfg));
     this.compressor = pickCompressor(cfg, (ev) => {
-      this.compact = this.foldCompact(ev);
+      this.compact = this.syncCompact(ev);
       this.emit({ type: "compact", compact: this.compact });
     });
     this.spaces = new SpaceRegistry({
@@ -113,11 +112,16 @@ export class Hub {
       compressor: this.compressor,
       cwd: cfg.repo,
       pumpBatch: cfg.compactBatch,
+      compactJobs: cfg.compactJobs,
       deferCutAfter: cfg.compactTries,
       compressTimeoutMs: cfg.compactTimeoutMs,
     });
     this.memory = this.spaces.current();
-    this.memory.onChange = () => this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId));
+    this.memory.onChange = () => {
+      this.compact = this.syncCompact();
+      this.emit(contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId));
+      this.emit({ type: "compact", compact: this.compact });
+    };
     this.queue = new TurnQueue(cfg.dataDir);
     this.views = new ViewRegistry(viewsDir);
     this.harness = harness ?? pickHarness({ ...cfg, harness: readMainHarness(cfg) ?? cfg.harness });
@@ -586,7 +590,8 @@ export class Hub {
   }
 
   retryCompact(): void {
-    this.compact = { ...this.compact, running: true, error: undefined };
+    this.memory.compactWork.paused = null;
+    this.compact = { ...this.compact, running: true, error: undefined, paused: undefined };
     this.emit({ type: "compact", compact: this.compact });
     this.memory.paused = false;
     this.pumpWhenIdle();
@@ -594,32 +599,43 @@ export class Hub {
 
   publishCompact(status: CompactStatus): void {
     this.compact = status;
-    if (status.running && status.total > 0) this.compactWave = status.total;
     this.emit({ type: "compact", compact: this.compact });
   }
 
-  private foldCompact(ev: {
+  private syncCompact(ev?: {
     running: boolean;
     nodes: number;
     tokensToday: number;
     budget: number;
     model: string;
     error?: string;
+    paused?: "budget";
   }): CompactStatus {
-    const pending = this.memory ? this.memory.pendingCount() : ev.nodes;
-    if (ev.error) {
-      return compactStatusOf(ev, this.compact.done, this.compactWave || this.compact.total, ev.error);
+    const work = this.memory.compactWork;
+    const tokensToday = ev?.tokensToday ?? this.compact.tokensToday;
+    const budget = ev?.budget ?? this.compact.budget;
+    const model = ev?.model ?? this.compact.model;
+    const lastNodes = ev?.nodes ?? this.compact.lastNodes;
+    const paused = work.paused ?? ev?.paused;
+    const total = work.total || this.compact.total;
+    const done = work.done;
+    if (paused === "budget") {
+      return {
+        running: false,
+        lastNodes,
+        done,
+        total,
+        tokensToday,
+        budget,
+        model,
+        paused: "budget",
+      };
     }
-    if (ev.running) {
-      if (!this.compactWave) this.compactWave = Math.max(pending, ev.nodes, 1);
-      const done = Math.max(0, this.compactWave - pending);
-      return compactStatusOf(ev, done, this.compactWave);
+    if (ev?.error) {
+      return compactStatusOf({ running: false, nodes: lastNodes, tokensToday, budget, model }, done, total, ev.error);
     }
-    const total = this.compactWave || ev.nodes;
-    const still = pending > 0;
-    const done = still ? Math.max(0, total - pending) : total;
-    if (!still) this.compactWave = 0;
-    return compactStatusOf({ ...ev, running: still }, done, total);
+    const running = total > 0 && done < total;
+    return compactStatusOf({ running, nodes: lastNodes, tokensToday, budget, model }, done, total);
   }
 
   private pumpWhenIdle(): void {

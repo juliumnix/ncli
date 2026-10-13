@@ -46,7 +46,7 @@ test("a cursor-sdk compact throw does not fail Memory.pump and surfaces the erro
   mem.append({ kind: "user", text: LONG });
   await mem.pump();
   expect(seen.some((e) => e.includes("rate_limited"))).toBe(true);
-  expect(mem.nodeOf(0, 0)?.text).toBeUndefined();
+  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
   mem.paused = true;
 });
 
@@ -82,6 +82,6 @@ test("provider compact errors retry with backoff instead of crashing pump", asyn
   await Bun.sleep(80);
   await mem.pump();
   expect(calls).toBeGreaterThan(1);
-  expect(mem.nodeOf(0, 0)?.text).toBeUndefined();
+  expect(mem.nodeOf(0, 0)?.text).toBeDefined();
   mem.paused = true;
 });

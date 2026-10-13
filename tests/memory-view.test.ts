@@ -12,10 +12,16 @@ test("a pending view line is the recipe placeholder, never a raw excerpt", () =>
     compressTimeoutMs: 0,
     compressor: async () => new Promise(() => undefined),
   });
+  mem.paused = true;
   mem.append({ kind: "talk", text: "MCP ncli sem conexão, ask/wait indisponíveis" });
   expect(mem.viewLines()[0]).toBe("0+1|(not summarized yet: zoom it)");
   mem.append({ kind: "talk", text: `tail ${"x".repeat(400)}` });
   expect(mem.viewLines()[1]).toBe("1+1|(not summarized yet: zoom it)");
+  mem.paused = false;
+  mem.seed();
+  expect(mem.viewLines()[0]).not.toBe("0+1|(not summarized yet: zoom it)");
+  expect(mem.viewLines()[0]).not.toContain("MCP ncli sem conexão, ask/wait indisponíveis");
+  mem.paused = true;
 });
 
 test("pump starts a batch of pending leaves together", async () => {

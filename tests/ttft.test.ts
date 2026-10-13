@@ -146,6 +146,6 @@ test("waitForInFlight returns now when only deferred nodes remain", async () => 
   const t0 = performance.now();
   const ok = await mem.waitForInFlight({ timeoutMs: 400 });
   expect(performance.now() - t0).toBeLessThan(50);
-  expect(ok).toBe(false);
+  expect(ok).toBe(true);
   expect(mem.debug().budget).toBe(mem.viewHigh);
 });

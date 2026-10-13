@@ -22,12 +22,14 @@ description: Change OptChat view/node size or compaction budget. Use when the dr
 | `NCLI_NODE` | 280 | summary line target |
 | `NCLI_COMPACT` | auto | `cursor` / `claude` / `mock` |
 | `NCLI_COMPACT_MODEL` | composer-2.5 | `@cursor/sdk` catalog id. No effort suffix, no Max mode. Override with this env. Never writes `~/.cursor` |
-| `NCLI_COMPACT_BATCH` | 6 | nodes per Cursor SDK call |
+| `NCLI_COMPACT_BATCH` | 200 | nodes per Cursor SDK call, split under the input cap |
+| `NCLI_JOBS` | 6 | parallel SDK compact calls |
 | `NCLI_COMPACT_SKIP` | 80 | skip the SDK at or under this many tokens and cut locally |
 | `NCLI_CURSOR_API_KEY` | file | compaction SDK only; `~/.config/ncli/secrets.env` |
 | `NCLI_COMPACT_BUDGET` | 250000 | daily compaction tokens |
 | `NCLI_COMPACT_SETTLE` | 0 | unused on the turn path. The turn never waits for compaction |
-| `NCLI_COMPACT_TIMEOUT` | 30000 | compressor call timeout. `0` disables it. A stuck call becomes `CompactDeferred` so it does not hold a pump slot |
+| `NCLI_COMPACT_TIMEOUT` | 120000 | compressor call timeout. `0` disables it. A stuck call becomes `CompactDeferred` so it does not hold a pump slot |
+| `NCLI_COMPACT_MAX_INPUT` | 60000 | max input tokens per compact call |
 
 Restart after env changes. `Hub.turn` starts `pump()` and assembles the cover that is ready now. Compaction still runs in `pump()`, not inside the model call. The debounce is not flushed at turn start, so siblings can share one Cursor call. The cover cannot stay above `2 × NCLI_VIEW`.
 

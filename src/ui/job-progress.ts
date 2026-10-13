@@ -2,7 +2,7 @@ import { importPct } from "../import/progress";
 import type { ImportSource } from "../import/types";
 
 export type JobKind = "import" | "compact";
-export type JobPhase = "running" | "done" | "error";
+export type JobPhase = "running" | "done" | "error" | "paused";
 
 export type JobProgress = {
   kind: JobKind;
@@ -52,6 +52,8 @@ export function jobStage(job: JobProgress): string {
         return `Histórico do ${name} pronto`;
       case "error":
         return `Não deu pra ler o histórico do ${name}`;
+      case "paused":
+        return `Lendo seu histórico do ${name}`;
       default: {
         const _n: never = job.phase;
         return _n;
@@ -65,6 +67,8 @@ export function jobStage(job: JobProgress): string {
       return "Memória organizada";
     case "error":
       return "Não deu pra organizar a memória";
+    case "paused":
+      return "Pausado: limite diário";
     default: {
       const _n: never = job.phase;
       return _n;
@@ -89,6 +93,11 @@ export function jobLine(job: JobProgress, now = Date.now()): string {
   const pct = jobPct(job);
   const eta = jobEtaLabel(jobEtaMs(job, now));
   const bits = [stage];
+  if (job.phase === "paused") {
+    if (pct !== null) bits.push(`${pct}%`);
+    bits.push("continua amanhã");
+    return bits.join(" · ");
+  }
   if (job.kind === "import" && counts) bits.push(counts);
   else if (pct !== null) bits.push(`${pct}%`);
   else if (counts) bits.push(counts);

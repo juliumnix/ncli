@@ -66,11 +66,12 @@ Optional env:
 | `NCLI_USER_NAME` | `Você` | display name for user rows in the memory drawer. Initial is the first letter |
 | `NCLI_COMPACT` | `auto` | `cursor`, `claude`, `mock`; `auto` is mock when `NCLI_HARNESS=mock`, Cursor SDK otherwise |
 | `NCLI_COMPACT_MODEL` | `composer-2.5` | catalog id for `@cursor/sdk` compaction. No effort suffix and no Max mode. Low effort / no thinking / Max off come from `model.params` after `Cursor.models.list()` |
-| `NCLI_COMPACT_BATCH` | `6` | summaries per SDK call |
+| `NCLI_COMPACT_BATCH` | `200` | summaries per SDK call, still split under `NCLI_COMPACT_MAX_INPUT` |
+| `NCLI_JOBS` | `6` | parallel SDK compact calls |
 | `NCLI_COMPACT_SKIP` | `80` | skip the SDK when the source is at or under this many tokens and cut locally |
 | `NCLI_COMPACT_BUDGET` | `250000` | daily token budget for compaction |
 | `NCLI_COMPACT_SETTLE` | `0` | unused on the turn path. The turn never waits for compaction. The view enriches later |
-| `NCLI_COMPACT_TIMEOUT` | `30000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
+| `NCLI_COMPACT_TIMEOUT` | `120000` | milliseconds a compressor call may run before Memory treats it as deferred. `0` disables the timeout |
 | `NCLI_COMPACT_MAX_INPUT` | `60000` | max input tokens per compact call (stay under the 100k 5x surcharge band) |
 | `NCLI_MOCK_STEP_MS` | unset | extra milliseconds between mock harness events (demo streaming) |
 | `NCLI_IMPORT_CLAUDE` | unset | override root for Claude Code session JSONL. Default is `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
@@ -123,7 +124,7 @@ chmod 600 ~/.config/ncli/secrets.env
 
 Mint the key at [https://cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents). NCLI loads that file at startup. A process-env `NCLI_CURSOR_API_KEY` overrides the file. NCLI never reads `CURSOR_API_KEY` or `~/.cursor` for this. The key is passed only as `apiKey` to `Agent.prompt`. CLI children get a scrubbed env. Startup prints `compact: cursor-sdk ok` when the key is present. The key is never logged.
 
-Batch several nodes, skip tiny ones, cache by content hash, stop at the daily token budget, and split a batch before a call would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). The header shows running state and today's tokens versus `NCLI_COMPACT_BUDGET`. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
+Import writes the log and seeds the tree with local cuts, so recall and the cover work before any SDK call. SDK refine is recent-first, up to `NCLI_COMPACT_BATCH` nodes per call (default 200), `NCLI_JOBS` calls in parallel (default 6), split before a prompt would exceed `NCLI_COMPACT_MAX_INPUT` (default 60k). Tiny nodes skip the SDK. Identical nodes hit a content-hash cache. Hitting `NCLI_COMPACT_BUDGET` pauses refine and the job rail says so; it does not freeze the bar. Log tokens to `data/compact-log.jsonl`. Prove the SDK path with `bun run compact:check`. If `@cursor/sdk` cannot be imported, a marked isolated `cursor-agent --print` fallback runs under a temp `HOME` and still restores `~/.cursor/cli-config.json` byte-for-byte. `NCLI_COMPACT=claude` still exists for Haiku-via-`claude -p`; it is not the default.
 
 If an older NCLI build already changed your Cursor CLI default to Haiku, startup prints the file path and the original value when known. It does not rewrite the file.
 
