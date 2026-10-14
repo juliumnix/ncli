@@ -214,11 +214,31 @@ export class Memory {
   }
 
   viewBytesUsed(): number {
-    const facts = factsOf(this.log);
-    return this.view.reduce((s, p) => {
-      const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
-      return s + p.size + (header ? utf8Bytes(`${header}\n`) : 0);
-    }, 0);
+    const facts = this.factsCached();
+    return this.view.reduce((s, p) => s + this.partBytes(p, facts), 0);
+  }
+
+  private partBytes(p: ViewPart, facts: Map<number, Successor>): number {
+    const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
+    return p.size + (header ? utf8Bytes(`${header}\n`) : 0);
+  }
+
+  private factsMemo: { seen: number; index: Map<number, Successor> } = { seen: 0, index: new Map() };
+
+  /** factsOf(this.log) extended incrementally: the log is append-only, so only new messages are scanned. */
+  private factsCached(): Map<number, Successor> {
+    const memo = this.factsMemo;
+    if (memo.seen > this.log.length) memo.seen = 0, memo.index = new Map();
+    for (; memo.seen < this.log.length; memo.seen++) {
+      const msg = this.log[memo.seen];
+      if (!msg?.supersedes?.length) continue;
+      const by = msg.successor ?? msg.i;
+      const reason = msg.reason ?? "";
+      for (const id of msg.supersedes) {
+        if (Number.isInteger(id) && id >= 0) memo.index.set(id, { by, reason });
+      }
+    }
+    return memo.index;
   }
 
   allBuilt(): boolean {
@@ -705,7 +725,9 @@ export class Memory {
 
   fit(): void {
     this.refreshViewParts();
-    while (this.viewBytesUsed() > this.viewLow) {
+    const facts = this.factsCached();
+    let bytes = this.viewBytesUsed();
+    while (bytes > this.viewLow) {
       let bestAt = -1;
       let bestDue = Number.NEGATIVE_INFINITY;
       let bestBuilt = false;
@@ -730,7 +752,10 @@ export class Memory {
       }
       if (bestAt < 0) break;
       const a = this.view[bestAt];
-      this.view.splice(bestAt, 2, this.partFromLevel(a.l + 1, Math.floor(a.i / 2)));
+      const b = this.view[bestAt + 1];
+      const merged = this.partFromLevel(a.l + 1, Math.floor(a.i / 2));
+      bytes += this.partBytes(merged, facts) - this.partBytes(a, facts) - this.partBytes(b, facts);
+      this.view.splice(bestAt, 2, merged);
       this.notify();
     }
     this.saveView();
@@ -740,9 +765,16 @@ export class Memory {
   rebuildView(): void {
     this.muteChange = true;
     this.view = [];
+    const facts = this.factsCached();
+    let bytes = 0;
     for (let i = 0; i < this.T; i++) {
-      this.view.push(this.partFromLevel(0, i));
-      if (this.viewBytesUsed() > this.viewHigh) this.fit();
+      const part = this.partFromLevel(0, i);
+      this.view.push(part);
+      bytes += this.partBytes(part, facts);
+      if (bytes > this.viewHigh) {
+        this.fit();
+        bytes = this.viewBytesUsed();
+      }
     }
     this.muteChange = false;
     this.saveView();
