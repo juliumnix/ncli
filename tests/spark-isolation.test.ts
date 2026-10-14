@@ -216,6 +216,24 @@ test("restore uses the stored worktree base and ignores a missing path or a file
   views.close();
 });
 
+test("finish releases the spark session process", async () => {
+  const repo = await initTempRepo("iso-release");
+  const dataDir = tmpDir("iso-release-data");
+  const { views } = await isoViews(join(dataDir, "views"));
+  const released: string[] = [];
+  const harness = new MockHarness(() => ({ text: "ok" }));
+  harness.release = (session: string) => {
+    released.push(session);
+  };
+  const mgr = managerFor(repo, dataDir, views, harness);
+  const rt = await mgr.open("iso", { card: "hold" });
+  await waitUntil(() => harness.lastSystems.some((s) => s.includes(rt.spark.id)));
+  await mgr.finish(rt.spark.id, "fim");
+  expect(rt.spark.status).toBe("merged");
+  expect(released).toEqual([rt.spark.id]);
+  views.close();
+});
+
 test("finish persists a restored fork in forks and does not copy it into sparks", async () => {
   const { hub, dataDir } = await makeHub();
   const dir = join(dataDir, "forks", "team-9");

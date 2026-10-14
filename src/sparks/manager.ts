@@ -454,6 +454,7 @@ export class SparkManager {
       rt.spark.status = "done";
       await this.merge(rt, rt.spark.summary ?? talk);
     } catch (err) {
+      if (rt.spark.status === "merged") return;
       rt.spark.status = "error";
       rt.spark.summary = (err as Error).message;
       persistRuntime(rt);
@@ -523,6 +524,7 @@ export class SparkManager {
     const result = rt.spark.result ?? plugin?.result?.(rt.spark) ?? emptyResult(summary);
     result.summary = summary || result.summary;
     rt.spark.status = "merged";
+    this.harnessFor(rt).release?.(rt.spark.id);
     rt.spark.mergedAt = nowIso();
     rt.spark.summary = result.summary;
     rt.spark.result = result;
