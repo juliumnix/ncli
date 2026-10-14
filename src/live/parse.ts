@@ -16,7 +16,8 @@ export type LiveRender =
   | { ok: true; kind: LiveKind; html: string }
   | { ok: false; kind: string; source: string; error: string };
 
-const OPEN = /(```|~~~)(?:ncli(?:-|[ \t]+))?(mermaid|html|react|url|ui|3d)\b[ \t]*\r?\n/i;
+const NCLI_OPEN = /(```|~~~)ncli(?:-|[ \t]+)(mermaid|html|react|url|ui|3d)\b[ \t]*\r?\n/i;
+const MERMAID_OPEN = /(```|~~~)mermaid\b[ \t]*\r?\n/i;
 const BARE_KIND = /^(mermaid|html|react|url|ui|3d)[ \t]*\r?\n/;
 
 export function parseLive(text: string): LiveSeg[] {
@@ -66,14 +67,30 @@ function coerceBlock(kind: LiveKind, source: string): LiveBlock {
   return { kind, source: src };
 }
 
+function firstOpen(slice: string): { index: number; tick: string; kind: LiveKind; match: string } | null {
+  const ncli = NCLI_OPEN.exec(slice);
+  const mermaid = MERMAID_OPEN.exec(slice);
+  const ncliAt = ncli?.index ?? Number.POSITIVE_INFINITY;
+  const mermaidAt = mermaid?.index ?? Number.POSITIVE_INFINITY;
+  if (ncli && ncli.index != null && ncliAt <= mermaidAt) {
+    const kind = (ncli[2] ?? "").toLowerCase();
+    if (!isLiveKind(kind)) return null;
+    return { index: ncli.index, tick: ncli[1] ?? "```", kind, match: ncli[0] };
+  }
+  if (mermaid && mermaid.index != null) {
+    return { index: mermaid.index, tick: mermaid[1] ?? "```", kind: "mermaid", match: mermaid[0] };
+  }
+  return null;
+}
+
 function nextFence(text: string, from: number): { start: number; end: number; kind: LiveKind; source: string } | null {
   const slice = text.slice(from);
-  const m = OPEN.exec(slice);
-  if (!m || m.index == null) return null;
+  const m = firstOpen(slice);
+  if (!m) return null;
   const start = from + m.index;
-  const tick = m[1] ?? "```";
-  const kind = (m[2] ?? "html").toLowerCase() as LiveKind;
-  const bodyStart = start + m[0].length;
+  const tick = m.tick;
+  const kind = m.kind;
+  const bodyStart = start + m.match.length;
   const close = new RegExp(`(?:^|\\n)${escapeRe(tick)}[ \\t]*\\w*[ \\t]*(?:\\n|$)`);
   const rest = text.slice(bodyStart);
   const c = close.exec(rest);

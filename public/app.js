@@ -234,11 +234,17 @@ function bodyHtml(text, streaming) {
 
 function parseLiveClient(text) {
   const segs = [];
-  const openRe = /(```|~~~)(?:ncli(?:-|[ \t]+))?(mermaid|html|react|url|ui|3d)\b[ \t]*\r?\n/i;
+  const ncliRe = /(```|~~~)ncli(?:-|[ \t]+)(mermaid|html|react|url|ui|3d)\b[ \t]*\r?\n/i;
+  const mermaidRe = /(```|~~~)mermaid\b[ \t]*\r?\n/i;
   let i = 0;
   while (i < text.length) {
     const slice = text.slice(i);
-    const m = openRe.exec(slice);
+    const ncli = ncliRe.exec(slice);
+    const mermaid = mermaidRe.exec(slice);
+    const ncliAt = ncli ? ncli.index : Infinity;
+    const mermaidAt = mermaid ? mermaid.index : Infinity;
+    const m = ncli && ncliAt <= mermaidAt ? ncli : mermaid;
+    const kind = ncli && ncliAt <= mermaidAt ? ncli[2].toLowerCase() : "mermaid";
     if (!m) {
       if (i < text.length) segs.push({ type: "text", text: text.slice(i) });
       break;
@@ -246,7 +252,6 @@ function parseLiveClient(text) {
     const start = i + m.index;
     if (start > i) segs.push({ type: "text", text: text.slice(i, start) });
     const tick = m[1];
-    const kind = m[2].toLowerCase();
     const bodyStart = start + m[0].length;
     const close = new RegExp(`(?:^|\\n)${tick.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}[ \\t]*\\w*[ \\t]*(?:\\n|$)`);
     const rest = text.slice(bodyStart);
@@ -332,10 +337,10 @@ function sanitizeLiveMarkup(source) {
     .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
 }
 
-const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();`;
+const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;if(p==="write"||p==="writeln"||p==="open")return function(){};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function muteDoc(d){try{d.write=function(){};d.writeln=function(){};d.open=function(){}}catch(e){}}muteDoc(document);try{muteDoc(Document.prototype)}catch(e5){}function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();`;
 
 function wrapLiveScript(source) {
-  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,eval){"use strict";${source}\n}).apply(a[0],a)})();`;
+  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,ncliEval){"use strict";${source}\n}).apply(a[0],a)})();`;
 }
 
 function compartmentHtml(body, extraHead) {
@@ -426,13 +431,12 @@ function isConfirmedUrlFrame(iframe) {
 }
 
 function liveFrameFromEvent(ev) {
-  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  if (!ev.source) return null;
   for (const iframe of document.querySelectorAll("iframe.live-frame")) {
     if (isConfirmedUrlFrame(iframe)) continue;
     const home = liveFrameHome.get(iframe);
-    if (name && iframe.name === name) return iframe;
-    if (ev.source && iframe.contentWindow === ev.source) return iframe;
-    if (ev.source && home && home.win === ev.source) return iframe;
+    if (iframe.contentWindow === ev.source) return iframe;
+    if (home && home.win === ev.source) return iframe;
   }
   return null;
 }
@@ -454,34 +458,27 @@ function adoptLiveFrame(iframe, win) {
   return home;
 }
 
+const LIVE_DEAD_SRCDOC = '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><style>html,body{margin:0;width:100%;height:100%;background:#0f0f11;color:#eeeef0;color-scheme:dark}</style></head><body></body></html>';
+
 function killLiveFrame(iframe) {
   const home = liveFrameHome.get(iframe) || adoptLiveFrame(iframe, iframe.contentWindow);
   if (!home || home.dead) return;
   home.dead = true;
   iframe.removeAttribute("src");
-  iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body></body></html>';
-}
-
-function killAllLiveFrames() {
-  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
-    if (!isConfirmedUrlFrame(iframe)) killLiveFrame(iframe);
-  }
+  iframe.srcdoc = LIVE_DEAD_SRCDOC;
 }
 
 function killLiveFrames(frame) {
-  if (frame) {
-    killLiveFrame(frame);
-    return;
-  }
-  killAllLiveFrames();
+  if (!frame) return;
+  killLiveFrame(frame);
 }
 
 function liveFrameAway(iframe) {
   const home = liveFrameHome.get(iframe);
   if (!home || home.dead) return false;
   const src = iframe.src || "";
-  if (!/^https?:/i.test(src)) return false;
-  if (!home.src) return true;
+  if (!home.src) return Boolean(src);
+  if (!/^https?:/i.test(src)) return true;
   try {
     return new URL(src).href !== new URL(home.src, location.href).href;
   } catch {
@@ -540,12 +537,11 @@ function bind3dPause() {
 }
 
 function live3dFrame(ev) {
-  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  if (!ev.source) return null;
   const frames = document.querySelectorAll("iframe.live-3d");
   for (const iframe of frames) {
-    if (name && iframe.name === name) return iframe;
     try {
-      if (ev.source && iframe.contentWindow === ev.source) return iframe;
+      if (iframe.contentWindow === ev.source) return iframe;
     } catch {
       continue;
     }
