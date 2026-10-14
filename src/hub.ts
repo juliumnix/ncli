@@ -43,6 +43,7 @@ import {
   clearCheckpoint,
   defaultImportRoots,
   publicImportPreview,
+  publicSpark,
   formatApply,
   formatPreview,
   Importer,
@@ -312,12 +313,12 @@ export class Hub {
   } {
     return {
       messages: this.memory.log,
-      sparks: this.sparks.list(),
-      forks: this.sparks.list(),
+      sparks: this.sparks.list().map((s) => publicSpark(s)),
+      forks: this.sparks.list().map((s) => publicSpark(s)),
       views: this.views.list(),
       debug: this.memory.debug(),
       context: contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId),
-      waiting: this.sparks.waitingOnUser(),
+      waiting: this.sparks.waitingOnUser().map((s) => publicSpark(s)),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,
       compact: this.compact,
