@@ -33,11 +33,20 @@ export type CompactEngine = {
   close: () => Promise<void>;
 };
 
+export async function abortCompactions(
+  engine: Pick<CompactEngine, "killAll">,
+  memories: Memory[],
+): Promise<void> {
+  for (const mem of memories) mem.requeueInFlight();
+  await engine.killAll();
+}
+
 export function bindCompactShutdown(
   engine: Pick<CompactEngine, "killAll">,
+  memories: () => Memory[],
   setCompactorKiller?: (fn: () => void | Promise<void>) => void,
 ): void {
-  setCompactorKiller?.(engine.killAll);
+  setCompactorKiller?.(() => abortCompactions(engine, memories()));
 }
 
 export type SparkMemorySource = {

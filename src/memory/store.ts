@@ -90,6 +90,7 @@ export class Memory {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private pauseFails = 0;
   private pauseUntil = 0;
+  private compactEpoch = 0;
 
   constructor(opts: MemoryOptions) {
     this.dir = opts.dir;
@@ -120,6 +121,26 @@ export class Memory {
 
   static key(l: number, i: number): string {
     return `${l}:${i}`;
+  }
+
+  static parseKey(key: string): { l: number; i: number } | null {
+    const sep = key.lastIndexOf(":");
+    if (sep <= 0) return null;
+    const l = Number(key.slice(0, sep));
+    const i = Number(key.slice(sep + 1));
+    if (!Number.isInteger(l) || !Number.isInteger(i) || l < 0 || i < 0) return null;
+    return { l, i };
+  }
+
+  requeueInFlight(): void {
+    this.compactEpoch += 1;
+    for (const key of this.busy) {
+      const slot = Memory.parseKey(key);
+      if (!slot) continue;
+      if (this.refineQ.some((s) => s.l === slot.l && s.i === slot.i)) continue;
+      this.refineQ.push(slot);
+    }
+    this.busy.clear();
   }
 
   nodeOf(l: number, i: number): TreeNode | undefined {
@@ -699,9 +720,11 @@ export class Memory {
     if (this.refined.has(key) || this.compactWork.paused) return;
     const input = this.compactInput(slot.l, slot.i);
     if (!input) return;
+    const epoch = this.compactEpoch;
     this.busy.add(key);
     try {
       const result = await this.runCompressor(input);
+      if (epoch !== this.compactEpoch) return;
       this.putNode(slot.l, slot.i, result.text, result);
       this.refined.add(key);
       this.compactWork.done += 1;
@@ -709,6 +732,7 @@ export class Memory {
       this.pauseFails = 0;
       this.pauseUntil = 0;
     } catch (err) {
+      if (epoch !== this.compactEpoch) return;
       if (err instanceof CompactHold) {
         this.holdCompact(err.reason);
         this.refineQ.push(slot);
@@ -726,7 +750,7 @@ export class Memory {
       }
       this.onDeferred(slot.l, slot.i);
     } finally {
-      this.busy.delete(key);
+      if (epoch === this.compactEpoch) this.busy.delete(key);
     }
   }
 

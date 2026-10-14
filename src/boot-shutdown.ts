@@ -25,7 +25,7 @@ function runEachMemory(mems: Memory[], fn: (mem: Memory) => void): void {
 
 export function registerBootShutdown(booted: Booted): void {
   setHarnessKiller(() => killHarnessChildren(2000));
-  bindCompactShutdown(booted.hub.engine, setCompactorKiller);
+  bindCompactShutdown(booted.hub.engine, () => liveMemories(booted), setCompactorKiller);
   bindQueueShutdown(booted.hub.memory, booted.hub.sparks, setQueuePersister);
   onShutdown("flush", () => {
     runEachMemory(liveMemories(booted), (mem) => {

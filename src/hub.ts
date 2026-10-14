@@ -8,7 +8,7 @@ import type { ViewAction } from "./views/types";
 import { Memory, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { compactSnapshot } from "./memory/cursor-compact";
-import { createCompactEngine, type CompactEngine } from "./memory/compact-engine";
+import { abortCompactions, createCompactEngine, type CompactEngine } from "./memory/compact-engine";
 import type { CompactChoice } from "./memory/compact-choice";
 import { evalDropVsComposer } from "./memory/compact-eval";
 import { compactCodexLegacyWarn, compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
@@ -689,7 +689,7 @@ export class Hub {
   }
 
   setCompactChoice(next: Partial<CompactChoice>): CompactChoice {
-    this.engine.killAll();
+    void abortCompactions(this.engine, [this.memory, ...this.sparks.sparkMemories()]);
     const choice = this.engine.setChoice(next);
     this.cfg.compactModel = choice.model || this.cfg.compactModel;
     this.memory.clearCompactPause();

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Booted } from "../src/boot";
 import { registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
+import { abortCompactions } from "../src/memory/compact-engine";
 import { loadCompactQueue } from "../src/memory/compact-queue";
 import { Memory } from "../src/memory/store";
 import { installChildShutdown, resetShutdownForTest, runShutdown, setHarnessKiller } from "../src/shutdown";
@@ -245,4 +246,37 @@ test("SIGTERM mid hung compact writes the killed job to compact-queue.json and t
     expect(again.nodeOf(l, i)?.compactor).toBe("cli");
   }
   again.paused = true;
+});
+
+test("abortCompactions returns busy slots to refineQ so persist keeps them", async () => {
+  const dir = join(tmpDir("abort-shared"), "mem");
+  const LONG = "marcador-shared FACT_SETCHOICE_AND_SHUTDOWN_REQUEUE applies. ".repeat(8);
+  const hung = new Promise<never>(() => {});
+  const mem = new Memory({
+    dir,
+    nodeBytes: 40,
+    viewBytes: 4000,
+    compactJobs: 1,
+    pumpBatch: 1,
+    compressTimeoutMs: 0,
+    compressor: async () => hung,
+  });
+  mem.append({ kind: "user", text: LONG });
+  const deadline = Date.now() + 3000;
+  while (mem["busy"].size === 0 && Date.now() < deadline) await Bun.sleep(5);
+  const inFlight = [...mem["busy"]] as string[];
+  expect(inFlight.length).toBeGreaterThan(0);
+
+  let killed = 0;
+  await abortCompactions({ killAll: async () => { killed += 1; } }, [mem]);
+  expect(killed).toBe(1);
+  expect(mem["busy"].size).toBe(0);
+  mem.shutdown();
+  const jobs = loadCompactQueue(dir);
+  expect(jobs === null ? 0 : jobs.length).toBeGreaterThan(0);
+  for (const key of inFlight) {
+    const [l, i] = key.split(":").map(Number);
+    expect(jobs!.some((job) => job.l === l && job.i === i)).toBe(true);
+  }
+  mem.paused = true;
 });

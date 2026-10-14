@@ -105,9 +105,9 @@ async function fakeCodexBatch(dir: string, n: number): Promise<{ bin: string; pi
 
 test("bindCompactShutdown runs killAll when the hook slot exists", () => {
   let killed = 0;
-  bindCompactShutdown({ killAll: () => { killed += 1; } }, (fn) => fn());
+  bindCompactShutdown({ killAll: () => { killed += 1; } }, () => [], (fn) => fn());
   expect(killed).toBe(1);
-  bindCompactShutdown({ killAll: () => { killed += 1; } });
+  bindCompactShutdown({ killAll: () => { killed += 1; } }, () => []);
   expect(killed).toBe(1);
 });
 
