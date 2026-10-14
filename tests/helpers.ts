@@ -49,7 +49,7 @@ export async function makeHub<H extends Harness = MockHarness>(opts: {
     ghMode: "mock",
     viewBytes: opts.viewBytes ?? 800,
     nodeBytes: opts.nodeBytes ?? 140,
-    port: 47231,
+    port: 0,
     backupHarness: opts.backupHarness ?? "mock",
     fallbackChain: opts.fallbackChain ?? parseFallbackChain(undefined, opts.backupHarness ?? "mock"),
     importClaude: opts.importClaude ?? importEmpty,

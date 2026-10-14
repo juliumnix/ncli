@@ -47,7 +47,8 @@ test("send and turn events patch one row and never rebuild the log", () => {
   const send = app.slice(sendStart, app.indexOf('$("form").addEventListener', sendStart));
   expect(send).toContain("echoUser");
   expect(send).toContain("paintLive");
-  expect(send).toContain("revealOwn");
+  expect(send).toContain("atFloor");
+  expect(send).not.toContain("revealOwn");
   expect(send).not.toContain("syncChat");
   expect(send).not.toContain("renderChat");
   expect(send).not.toContain("scheduleFullPaint");
@@ -61,6 +62,9 @@ test("send and turn events patch one row and never rebuild the log", () => {
   expect(turn).not.toContain("dropStreamNode");
   expect(send).toContain("snapToFloor");
   expect(app).toContain("function syncPref");
+  expect(app).toContain("if (!virt.heights.size) return n * EST_H");
+  expect(app).toContain("function confirmLiveUrl");
+  expect(app).not.toContain("if (virt.count !== prev) syncPref");
   expect(app).toContain("node.dataset.mid !== mid");
   expect(app).toContain("if (node === cursor)");
   expect(app).not.toContain("gap.appendChild(node)");
@@ -219,44 +223,36 @@ test("chrome: send while scrolled up keeps the user bubble above the composer", 
       "scrolled up",
     );
     const fact = await driver.session.evaluate<{
-      visible: boolean;
-      above: boolean;
+      top: number;
+      pill: string;
       quiet: number;
       findOpen: boolean;
     }>(`(async () => {
+      const chat = document.getElementById("chat");
       const input = document.getElementById("input");
       const form = document.getElementById("form");
-      const dock = document.getElementById("dock");
-      if (!input || !form || !dock) {
-        return { visible: false, above: false, quiet: 1, findOpen: false };
+      const before = chat ? chat.scrollTop : -1;
+      if (!input || !form || !chat) {
+        return { top: -1, pill: "", quiet: 1, findOpen: false };
       }
       const mark = "acima-" + Date.now().toString(36);
       input.value = mark;
       form.requestSubmit();
-      const start = performance.now();
-      let bubble = null;
-      while (performance.now() - start < 300) {
-        bubble = [...document.querySelectorAll(".u")].find((n) => (n.textContent || "").includes(mark)) || null;
-        if (bubble) {
-          const box = bubble.getBoundingClientRect();
-          if (box.height > 0 && box.bottom > 0 && box.top < window.innerHeight) break;
-        }
-        await new Promise((r) => requestAnimationFrame(r));
-      }
-      const r = bubble ? bubble.getBoundingClientRect() : { top: 0, bottom: 0, height: 0 };
-      const dockTop = dock.getBoundingClientRect().top;
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
       await new Promise((r) => requestAnimationFrame(r));
       const find = document.getElementById("histFind");
+      const jump = document.getElementById("jumpLatest");
       return {
-        visible: Boolean(bubble) && r.bottom > 0 && r.top < window.innerHeight && r.height > 0,
-        above: Boolean(bubble) && r.bottom < dockTop,
+        top: Math.abs((chat.scrollTop || 0) - before),
+        pill: jump && !jump.hidden ? jump.textContent || "" : "",
         quiet: document.querySelectorAll(".live.quiet").length,
         findOpen: Boolean(find && find.classList.contains("open")),
       };
     })()`);
-    expect(fact.visible).toBe(true);
-    expect(fact.above).toBe(true);
+    expect(fact.top).toBeLessThan(16);
+    expect(fact.pill).toMatch(/nova resposta|agora/);
     expect(fact.quiet).toBe(0);
     expect(fact.findOpen).toBe(true);
   } finally {

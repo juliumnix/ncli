@@ -547,21 +547,31 @@ function bindLiveGuards(root) {
   }
 }
 
+function confirmLiveUrl(btn) {
+  const href = httpHref(btn.getAttribute("data-href") || "");
+  const wrap = btn.closest(".live-url-ask");
+  if (!href || !wrap) return;
+  wrap.classList.remove("live-url-ask");
+  wrap.classList.remove("ready");
+  wrap.innerHTML = `<iframe class="live-frame" data-live-kind="url" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
+  const frame = wrap.querySelector("iframe");
+  if (frame) frame.addEventListener("load", () => wrap.classList.add("ready"), { once: true });
+}
+
 function bindLiveUrlAsks(root) {
   const scope = root || document;
+  if (log && !log._ncliUrlAsk) {
+    log._ncliUrlAsk = true;
+    log.addEventListener("click", (e) => {
+      const btn = e.target.closest?.(".live-url-go");
+      if (!btn || !log.contains(btn)) return;
+      confirmLiveUrl(btn);
+    });
+  }
   for (const btn of scope.querySelectorAll(".live-url-go")) {
     if (btn.dataset.ncliBound) continue;
     btn.dataset.ncliBound = "1";
-    btn.addEventListener("click", () => {
-      const href = httpHref(btn.getAttribute("data-href") || "");
-      const wrap = btn.closest(".live-url-ask");
-      if (!href || !wrap) return;
-      wrap.classList.remove("live-url-ask");
-      wrap.classList.remove("ready");
-      wrap.innerHTML = `<iframe class="live-frame" data-live-kind="url" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
-      const frame = wrap.querySelector("iframe");
-      if (frame) frame.addEventListener("load", () => wrap.classList.add("ready"), { once: true });
-    });
+    btn.addEventListener("click", () => confirmLiveUrl(btn));
   }
 }
 
@@ -943,7 +953,12 @@ function cachedRowHtml(m, mid, light) {
   return html;
 }
 
+function isLiveFence(text) {
+  return /```ncli\s+(url|html|ui|3d)\b/i.test(text || "");
+}
+
 function isHeavyMd(text) {
+  if (isLiveFence(text)) return false;
   return Boolean(text && (text.length > 360 || text.includes("```")));
 }
 
@@ -1141,21 +1156,32 @@ function estimatedH(m) {
 function heightOf(i) {
   const hit = virt.heights.get(i);
   if (hit) return hit;
-  return estimatedH(virt.byId.get(i));
+  const m = virt.byId.get(i);
+  return m ? estimatedH(m) : EST_H;
 }
 
 function markBlock(i) {
   const b = Math.floor(i / VBLOCK);
   virt.dirty[b] = true;
-  syncPref(b);
+  virt.block[b] = undefined;
+  if (virt.pref.length) syncPref(b);
 }
 
 function blockH(b) {
   if (!virt.dirty[b] && virt.block[b] != null) return virt.block[b];
   const from = b * VBLOCK;
   const to = Math.min(virt.count, from + VBLOCK);
+  const len = to - from;
+  if (len <= 0) return 0;
+  if (!virt.dirty[b]) {
+    virt.block[b] = len * EST_H;
+    return virt.block[b];
+  }
   let s = 0;
-  for (let i = from; i < to; i++) s += heightOf(i);
+  for (let i = from; i < to; i++) {
+    const hit = virt.heights.get(i);
+    s += hit != null ? hit : EST_H;
+  }
   virt.block[b] = s;
   virt.dirty[b] = false;
   return s;
@@ -1173,16 +1199,22 @@ function syncPref(fromBlock) {
 
 function offsetOf(i) {
   const n = Math.max(0, Math.min(i, virt.count));
+  if (!virt.heights.size) return n * EST_H;
   const b = Math.floor(n / VBLOCK);
   const blocks = Math.max(0, Math.ceil(virt.count / VBLOCK));
   if (virt.pref.length !== blocks) syncPref(0);
   let y = b > 0 ? virt.pref[b - 1] || 0 : 0;
-  for (let k = b * VBLOCK; k < n; k++) y += heightOf(k);
+  const from = b * VBLOCK;
+  for (let k = from; k < n; k++) {
+    const hit = virt.heights.get(k);
+    y += hit != null ? hit : EST_H;
+  }
   return y;
 }
 
 function indexAt(y) {
   if (y <= 0) return 0;
+  if (!virt.heights.size) return Math.min(virt.count - 1, Math.floor(y / EST_H));
   const blocks = Math.max(1, Math.ceil(virt.count / VBLOCK));
   if (virt.pref.length !== blocks) syncPref(0);
   let lo = 0;
@@ -1201,7 +1233,8 @@ function indexAt(y) {
   const from = b * VBLOCK;
   const to = Math.min(virt.count, from + VBLOCK);
   for (let i = from; i < to; i++) {
-    acc += heightOf(i);
+    const hit = virt.heights.get(i);
+    acc += hit != null ? hit : EST_H;
     if (acc > y) return i;
   }
   return Math.max(0, virt.count - 1);
@@ -1222,7 +1255,11 @@ function seedVirt(messages, count) {
   if (count != null) virt.count = Math.max(virt.count, count);
   const maxI = messages && messages.length ? Math.max(...messages.map((m) => m.i).filter((i) => i >= 0)) : -1;
   if (maxI >= 0) virt.count = Math.max(virt.count, maxI + 1);
-  if (virt.count !== prev) syncPref(Math.floor(prev / VBLOCK));
+  if (virt.count !== prev) {
+    virt.pref.length = 0;
+    virt.block.length = 0;
+    virt.dirty.length = 0;
+  }
 }
 
 function watchHeight(el) {
@@ -3302,7 +3339,7 @@ async function sendUser(text, mode) {
       steps: [],
     };
     log.classList.add("turning");
-    const node = echoUser(pending);
+    echoUser(pending);
     paintLive();
     if (atFloor) {
       stick.follow = true;
@@ -3311,7 +3348,7 @@ async function sendUser(text, mode) {
         if (stick.follow) snapToFloor();
       });
     } else {
-      revealOwn(node);
+      stick.follow = false;
     }
     paintScrollHints();
     paintTick();
@@ -3544,11 +3581,12 @@ chat.addEventListener("scroll", () => {
     paintHist();
     return;
   }
-  if (userUp || top < lastScrollTop) {
+  if (leftover <= STICK_SLOP) {
+    stick.follow = true;
+    userUp = false;
+  } else {
     stick.follow = false;
     userUp = false;
-  } else if (leftover <= STICK_SLOP) {
-    stick.follow = true;
   }
   lastScrollTop = top;
   if (virt.count) {

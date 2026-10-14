@@ -293,7 +293,7 @@ export class Memory {
     const signal = opts.signal;
     if (signal?.aborted) return Promise.resolve(false);
     if (!this.hasInFlight()) return Promise.resolve(this.allBuilt());
-    return this.waitUntil(() => !this.hasInFlight(), timeoutMs, signal).then(() => this.allBuilt());
+    return this.waitUntil(() => !this.hasInFlight(), timeoutMs, signal).then((ok) => ok && this.allBuilt());
   }
 
   private waitUntil(ready: () => boolean, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {

@@ -15,7 +15,7 @@ import { detectClis, type CliPresence } from "./ui/chrome";
 import { startLiveOrigin } from "./live/origin";
 import { announceReady, flushText, formatClis, openReadyBrowser, readyUrl } from "./boot-ready";
 import { bunVersionWarning } from "./bun-version";
-import { busyPortMessage, isAddrInUse, nextPorts, portPinned } from "./listen-port";
+import { busyPortMessage, isAddrInUse, listenCandidates, portPinned } from "./listen-port";
 import { readBootRevision, type NcliRevision } from "./revision";
 export { detectClis };
 
@@ -177,7 +177,7 @@ export async function bootNcli(opts: {
 
 function listenUi(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const pinned = portPinned();
-  const ports = pinned ? [cfg.port] : nextPorts(cfg.port);
+  const ports = listenCandidates(cfg.port, pinned);
   let last: unknown;
   for (const port of ports) {
     try {

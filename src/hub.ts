@@ -311,8 +311,10 @@ export class Hub {
 
   snapshot(opts: StatePageOpts = {}) {
     const page = pageMessages(this.memory.log, opts);
+    const messageCount = this.memory.logIndex.count || page.messageCount;
     return {
       ...page,
+      messageCount,
       sparks: this.sparks.list().map((s) => publicSpark(s)),
       forks: this.sparks.list().map((s) => publicSpark(s)),
       views: this.views.list(),

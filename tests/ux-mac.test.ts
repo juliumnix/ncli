@@ -21,6 +21,8 @@ test("send does not pin to the last user bubble", () => {
   expect(appJs).toContain("const atFloor = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP");
   const send = appJs.slice(appJs.indexOf("async function sendUser"), appJs.indexOf('$("form").addEventListener("submit"'));
   expect(send).not.toContain("pinNewAnswer()");
+  expect(send).toContain("stick.follow = false");
+  expect(send).not.toContain("revealOwn");
 });
 
 test("Reviewed flips the button before the act fetch", () => {
@@ -135,10 +137,11 @@ test("chrome: sending a message keeps scroll when the user is not at the floor",
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver.session.evaluate(`document.querySelectorAll("#log .m, #log .u").length > 20`),
+      () => driver.session.evaluate(`document.querySelectorAll("#log [data-mid]").length > 5`),
       8000,
       "seeded chat",
     );
+    await driver.session.evaluate(`(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))()`);
     const before = await driver.session.evaluate<number>(`(() => {
       const chat = document.getElementById("chat");
       if (!chat) return -1;

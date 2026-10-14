@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { bootNcli } from "../src/boot";
-import { busyPortMessage, isAddrInUse, nextPorts, portPinned } from "../src/listen-port";
+import { busyPortMessage, isAddrInUse, listenCandidates, nextPorts, portPinned } from "../src/listen-port";
 import { chromePath, launchChrome } from "../src/perf/cdp";
 import { makeHub, shotsDir, waitUntil } from "./helpers";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -9,6 +9,9 @@ test("portPinned is only true when NCLI_PORT is set", () => {
   expect(portPinned({})).toBe(false);
   expect(portPinned({ NCLI_PORT: "47231" })).toBe(true);
   expect(nextPorts(47231, 3)).toEqual([47231, 47232, 47233]);
+  expect(listenCandidates(0, false)).toEqual([0]);
+  expect(listenCandidates(47231, true)).toEqual([47231]);
+  expect(listenCandidates(47231, false).at(-1)).toBe(0);
   expect(isAddrInUse(Object.assign(new Error("Failed to start server. Is port 47231 in use?"), { code: "EADDRINUSE" }))).toBe(true);
   expect(isAddrInUse(new Error("Failed to start server. Is port 47231 in use?"))).toBe(true);
   expect(busyPortMessage(47231)).toBe("A porta 47231 está ocupada. Feche o outro NCLI ou use NCLI_PORT=47232.");
@@ -42,7 +45,7 @@ test("an unpinned busy port takes the next free one", async () => {
     const booted = await bootNcli({ cfg: hub.cfg, hub, root: process.cwd() });
     try {
       expect(booted.server.port).not.toBe(blocker.port);
-      expect(booted.server.port).toBeGreaterThanOrEqual(blocker.port + 1);
+      expect(booted.server.port).toBeGreaterThan(0);
       expect(booted.report.revision.length).toBeGreaterThanOrEqual(7);
       const page = await fetch(booted.report.uiUrl);
       expect(page.ok).toBe(true);
@@ -51,7 +54,9 @@ test("an unpinned busy port takes the next free one", async () => {
     }
   } finally {
     if (prev !== undefined) process.env.NCLI_PORT = prev;
+    else delete process.env.NCLI_PORT;
     blocker.stop(true);
+    hub.close();
   }
 });
 
@@ -80,6 +85,8 @@ test("chrome: fallback port still paints welcome", async () => {
     driver.close();
     booted.stop();
     blocker.stop(true);
+    hub.close();
     if (prev !== undefined) process.env.NCLI_PORT = prev;
+    else delete process.env.NCLI_PORT;
   }
 }, 30000);

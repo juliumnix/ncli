@@ -9,6 +9,7 @@ import { sanitizeViewHtml } from "./util";
 import { liveOrigin } from "./live/origin";
 import { publicJson, redactValue } from "./redact";
 import { publicImportPreview, publicSpark } from "./import/roots";
+import { pageLimit } from "./state-page";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -91,10 +92,19 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       if (url.pathname === "/api/state") {
         const beforeRaw = url.searchParams.get("before");
         const limitRaw = url.searchParams.get("limit");
-        const snap = hub.snapshot({
-          before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
-          limit: limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw),
-        });
+        const before = beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw);
+        const limit = limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw);
+        const snap = hub.snapshot({ before, limit });
+        if (hub.memory.logIndex.count > hub.memory.log.length) {
+          const disk = await hub.messagesPage({ before, limit: pageLimit(limit) });
+          return publicJson({
+            ...snap,
+            messages: disk.messages,
+            before: disk.before,
+            hasMore: disk.hasMoreBefore,
+            messageCount: disk.messageCount,
+          });
+        }
         return publicJson(snap);
       }
       if (url.pathname === "/api/message" && req.method === "POST") {

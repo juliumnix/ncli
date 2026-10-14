@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
 import { serve } from "../src/server";
@@ -102,13 +102,47 @@ test("GET /api/state?before= pages older messages", async () => {
   }
 });
 
-test("/api/state serves the in-memory window and does not reread the log", () => {
+test("/api/state rereads the log only when the index is ahead of memory", () => {
   const server = readFileSync(join(import.meta.dir, "../src/server.ts"), "utf8");
   const route = server.slice(server.indexOf('pathname === "/api/state"'), server.indexOf('pathname === "/api/message"'));
   expect(route).toContain("hub.snapshot");
   expect(route).toContain("return Response.json(snap)");
-  expect(route).not.toContain("messagesPage");
-  expect(route).not.toContain("logIndex.count");
+  expect(route).toContain("logIndex.count > hub.memory.log.length");
+  expect(route.indexOf("logIndex.count > hub.memory.log.length")).toBeLessThan(route.indexOf("messagesPage"));
+});
+
+test("GET /api/state serves the last index page when memory is empty", async () => {
+  const { hub } = await makeHub();
+  const n = 240;
+  const lines = Array.from({ length: n }, (_, i) => JSON.stringify({
+    i,
+    kind: i % 2 === 0 ? "user" : "talk",
+    text: `linha ${i}`,
+    size: 16,
+    date: "2020-01-01T00:00:00.000Z",
+  }));
+  writeFileSync(join(hub.memory.dir, "log.jsonl"), `${lines.join("\n")}\n`);
+  await hub.memory.logIndex.rebuild();
+  expect(hub.memory.log.length).toBe(0);
+  expect(hub.memory.logIndex.count).toBe(n);
+  hub.cfg.port = 0;
+  const server = serve(hub, hub.cfg, join(import.meta.dir, "../public"));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/state`);
+    const body = (await res.json()) as {
+      messages: Array<{ i: number }>;
+      messageCount: number;
+      hasMore: boolean;
+    };
+    expect(body.messageCount).toBe(n);
+    expect(body.messages.length).toBeGreaterThan(0);
+    expect(body.messages.length).toBeLessThanOrEqual(STATE_PAGE);
+    expect(body.messages.at(-1)?.i).toBe(n - 1);
+    expect(body.hasMore).toBe(true);
+  } finally {
+    server.stop(true);
+    hub.close();
+  }
 });
 
 test("GET /api/state after ingest stays on the memory page", async () => {
