@@ -90,41 +90,31 @@ export class LogIndex {
     writeFileSync(join(this.dir, DAYS_FILE), JSON.stringify(this.days));
   }
 
-  async rebuild(): Promise<void> {
-    this.offsets = [];
-    this.days = [];
-    this.bytes = 0;
+  rebuildSync(): void {
+    this.reset();
     if (!existsSync(this.logPath)) {
       this.persist();
       return;
     }
-    const file = Bun.file(this.logPath);
-    const size = file.size;
-    const chunk = 1 << 20;
-    let pos = 0;
-    let lineStart = 0;
-    let leftover = new Uint8Array(0);
-    while (pos < size) {
-      const end = Math.min(size, pos + chunk);
-      const part = new Uint8Array(await file.slice(pos, end).arrayBuffer());
-      const buf = leftover.length ? concatBytes(leftover, part) : part;
-      let from = 0;
-      for (let i = 0; i < buf.length; i++) {
-        if (buf[i] !== 10) continue;
-        const line = Buffer.from(buf.subarray(from, i)).toString("utf8");
-        if (line.trim()) this.recordLine(lineStart, line);
-        lineStart += i - from + 1;
-        from = i + 1;
+    const buf = readFileSync(this.logPath);
+    let start = 0;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] !== 10) continue;
+      if (i > start) {
+        const line = buf.toString("utf8", start, i);
+        if (line.trim()) this.recordLine(start, line);
       }
-      leftover = buf.subarray(from);
-      pos = end;
+      start = i + 1;
     }
-    if (leftover.length) {
-      const line = Buffer.from(leftover).toString("utf8");
-      if (line.trim()) this.recordLine(lineStart, line);
+    if (start < buf.length) {
+      const line = buf.toString("utf8", start, buf.length);
+      if (line.trim()) this.recordLine(start, line);
     }
-    this.bytes = size;
     this.persist();
+  }
+
+  async rebuild(): Promise<void> {
+    this.rebuildSync();
   }
 
   async page(opts: SliceOpts = {}): Promise<MessageSlice> {
@@ -277,13 +267,6 @@ export class LogIndex {
       }
     }
   }
-}
-
-function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }
 
 function dayOf(iso: string): string {

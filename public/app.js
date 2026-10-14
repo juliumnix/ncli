@@ -153,7 +153,7 @@ function markEnter() {
 }
 
 const STATE_PAGE = 80;
-const MSG_PAGE = 100;
+const MSG_PAGE = 24;
 const EST_H = 240;
 const OVERSCAN = 720;
 const VBLOCK = 256;
@@ -349,6 +349,7 @@ function httpHref(raw) {
 
 function sanitizeLiveMarkup(source) {
   return String(source || "")
+    .replace(/<\/?(?:html|head|body)\b[^>]*>/gi, "")
     .replace(/<meta\b[^>]*>/gi, (tag) => (/refresh|url\s*=/i.test(tag) ? "" : tag))
     .replace(/<base\b[^>]*>/gi, "")
     .replace(/\s(?:href|src|action|formaction|xlink:href|poster)\s*=\s*(['"])[\s\S]*?\1/gi, "")
@@ -1286,19 +1287,26 @@ function watchHeight(el) {
 
 function virtRange() {
   const view = chat ? chat.clientHeight : 800;
+  const cap = 32;
+  let start;
+  let end;
   if (stick.follow || !virt.primed) {
-    const end = virt.count;
+    end = virt.count;
     let y = 0;
-    let start = end;
-    while (start > 0 && y < view + OVERSCAN) {
+    start = end;
+    while (start > 0 && y < view + OVERSCAN && end - start < cap) {
       start -= 1;
       y += heightOf(start);
     }
-    return { start, end: Math.max(start + 1, end) };
+  } else {
+    const top = chat ? chat.scrollTop : 0;
+    start = indexAt(Math.max(0, top - OVERSCAN));
+    end = Math.min(virt.count, indexAt(top + view + OVERSCAN) + 1);
   }
-  const top = chat ? chat.scrollTop : 0;
-  const start = indexAt(Math.max(0, top - OVERSCAN));
-  const end = Math.min(virt.count, indexAt(top + view + OVERSCAN) + 1);
+  if (end - start > cap) {
+    if (stick.follow) start = end - cap;
+    else end = start + cap;
+  }
   return { start, end: Math.max(start + 1, end) };
 }
 

@@ -95,7 +95,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const before = beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw);
         const limit = limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw);
         const snap = hub.snapshot({ before, limit });
-        if (hub.memory.logIndex.count > hub.memory.log.length) {
+        if (hub.memory.logIndex.count > 0) {
           const disk = await hub.messagesPage({ before, limit: pageLimit(limit) });
           return publicJson({
             ...snap,
@@ -103,9 +103,14 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             before: disk.before,
             hasMore: disk.hasMoreBefore,
             messageCount: disk.messageCount,
+            debug: { ...snap.debug, lines: [] },
           });
         }
+<<<<<<< HEAD
         return publicJson(snap);
+=======
+        return Response.json({ ...snap, debug: { ...snap.debug, lines: [] } });
+>>>>>>> 83102aa (perf(state): boot the log index and page the last window)
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };

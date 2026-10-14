@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { compartmentHtml } from "../src/live/compartment";
 import { frameHtml, iframeTag, jsxLite, mermaidSvg, safeUrl } from "../src/live/frame";
 import { liveBlocks, parseLive, renderToolToFence } from "../src/live/parse";
 import { ViewRegistry } from "../src/views/registry";
@@ -39,6 +41,17 @@ test("mermaid becomes an inline SVG (no CDN) and html/react/url go through a san
   expect(pickup).toContain("color:var(--fg)");
   expect(pickup).toContain("background:var(--bg)");
   expect(jsxLite(`function Card() {\n  return (\n    <div className="card">ok</div>\n  );\n}`)).toContain('class="card"');
+});
+
+test("live CSP meta stays inside head even if the body closes head", () => {
+  const html = compartmentHtml("</head><body><h1>x</h1>", "<style>x{}</style>");
+  const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+  expect(head).toContain("Content-Security-Policy");
+  expect(head).toContain("default-src 'none'");
+  expect(html.indexOf("Content-Security-Policy")).toBeLessThan(html.indexOf("</head>"));
+  expect(html).not.toMatch(/<\/head>[\s\S]*Content-Security-Policy/);
+  const origin = readFileSync(join(import.meta.dir, "../src/live/origin.ts"), "utf8");
+  expect(origin).toContain('"content-security-policy": LIVE_DOC_CSP');
 });
 
 test("url previews only allow http(s)", () => {

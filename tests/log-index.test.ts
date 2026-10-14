@@ -102,7 +102,6 @@ test("a crash after 100 appends rebuilds the index past the 64-line persist", as
   for (let i = 0; i < 100; i++) first.append({ kind: "user", text: `n ${i}` });
   expect(first.log.length).toBe(100);
   const again = memAt(dir);
-  expect(again.log.length).toBe(100);
   expect(again.logIndex.count).toBe(100);
   expect(again.logIndex.stale()).toBe(false);
   const last = await again.logIndex.page({ limit: 10 });
@@ -117,7 +116,6 @@ test("a log shrunk from 50 to 5 rebuilds instead of paging empty", async () => {
   memAt(dir).ingest(Array.from({ length: 50 }, (_, i) => ({ kind: "user" as const, text: `n ${i}` })));
   writeLog(dir, 5);
   const again = memAt(dir);
-  expect(again.log.length).toBe(5);
   expect(again.logIndex.count).toBe(5);
   const page = await again.logIndex.page({});
   expect(page.messageCount).toBe(5);
@@ -142,6 +140,7 @@ test("load keeps a last line without a newline and the next append gets a new id
   expect(file.endsWith("\n")).toBe(true);
   const ids = file.trimEnd().split("\n").map((line) => (JSON.parse(line) as { i: number }).i);
   expect(ids).toEqual([0, 1, 2]);
+  expect(file).not.toContain("}{");
 });
 
 test("ingest stringifies each message once", () => {

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
 import { serve } from "../src/server";
 import { STATE_PAGE } from "../src/state-page";
-import { makeHub } from "./helpers";
+import { makeHub, tmpDir } from "./helpers";
 
 function seedLog(hub: Awaited<ReturnType<typeof makeHub>>["hub"], n = 6600) {
   hub.memory.ingest(
@@ -102,6 +102,45 @@ test("GET /api/state?before= pages older messages", async () => {
   }
 });
 
+test("GET /api/state after boot serves only the last window of a large log", async () => {
+  const dataDir = tmpDir("state-boot");
+  const main = join(dataDir, "main");
+  mkdirSync(main, { recursive: true });
+  const n = 2500;
+  const lines = Array.from({ length: n }, (_, i) => JSON.stringify({
+    i,
+    kind: "user",
+    text: `n ${i}`,
+    size: 8,
+    date: "2020-01-01T00:00:00.000Z",
+  }));
+  writeFileSync(join(main, "log.jsonl"), `${lines.join("\n")}\n`);
+  const { hub } = await makeHub({ dataDir });
+  expect(hub.memory.log.length).toBe(0);
+  expect(hub.memory.logIndex.count).toBe(n);
+  hub.cfg.port = 0;
+  const server = serve(hub, hub.cfg, join(import.meta.dir, "../public"));
+  try {
+    const t0 = performance.now();
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/state`);
+    const ms = performance.now() - t0;
+    const body = (await res.json()) as {
+      messages: Array<{ i: number }>;
+      messageCount: number;
+      debug?: { lines?: string[] };
+    };
+    expect(body.messageCount).toBe(n);
+    expect(body.messages.length).toBe(STATE_PAGE);
+    expect(body.messages[0]?.i).toBe(n - STATE_PAGE);
+    expect(body.messages.at(-1)?.i).toBe(n - 1);
+    expect(body.debug?.lines ?? []).toEqual([]);
+    expect(ms).toBeLessThan(80);
+  } finally {
+    server.stop(true);
+    hub.close();
+  }
+});
+
 test("GET /api/state after a shrunk log serves the five remaining messages", async () => {
   const { hub } = await makeHub();
   hub.memory.ingest(Array.from({ length: 50 }, (_, i) => ({ kind: "user" as const, text: `n ${i}` })));
@@ -129,13 +168,13 @@ test("GET /api/state after a shrunk log serves the five remaining messages", asy
   }
 });
 
-test("/api/state rereads the log only when the index is ahead of memory", () => {
+test("/api/state pages from the index whenever it has records", () => {
   const server = readFileSync(join(import.meta.dir, "../src/server.ts"), "utf8");
   const route = server.slice(server.indexOf('pathname === "/api/state"'), server.indexOf('pathname === "/api/message"'));
   expect(route).toContain("hub.snapshot");
-  expect(route).toContain("return Response.json(snap)");
-  expect(route).toContain("logIndex.count > hub.memory.log.length");
-  expect(route.indexOf("logIndex.count > hub.memory.log.length")).toBeLessThan(route.indexOf("messagesPage"));
+  expect(route).toContain("messagesPage");
+  expect(route).toContain("logIndex.count > 0");
+  expect(route.indexOf("logIndex.count > 0")).toBeLessThan(route.indexOf("messagesPage"));
 });
 
 test("GET /api/state serves the last index page when memory is empty", async () => {
@@ -196,6 +235,8 @@ test("app.js syncs chat by data-mid and never wipes the log", () => {
   expect(app).toContain("function syncChat");
   expect(app).toContain("rowHtmlCache");
   expect(app).toContain("loadOlder");
+  expect(app).toContain("const MSG_PAGE = 24");
+  expect(app).toContain("const cap = 32");
   expect(app).not.toMatch(/log\.innerHTML = parts\.join/);
   expect(app).not.toMatch(/log\.innerHTML = built\.html/);
   const spark = app.slice(app.indexOf('case "spark"'), app.indexOf('case "views"'));

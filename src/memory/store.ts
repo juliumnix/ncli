@@ -103,6 +103,17 @@ export class Memory {
     return this.log.length;
   }
 
+  async ensureIndex(): Promise<void> {
+    if (this.logIndex.count > 0 && !this.logIndex.stale()) return;
+    this.logIndex.rebuildSync();
+  }
+
+  private nextSeq(): number {
+    const last = this.log.at(-1)?.i;
+    const fromLog = last == null ? this.log.length : last + 1;
+    return Math.max(fromLog, this.logIndex.count);
+  }
+
   get viewLow(): number {
     return this.viewBytes;
   }
@@ -181,7 +192,7 @@ export class Memory {
     }
     const text = capText(partial.text, 80_000);
     const msg: Message = {
-      i: this.log.length,
+      i: this.nextSeq(),
       kind: partial.kind,
       text,
       size: utf8Bytes(`${partial.kind}: ${text}`),
@@ -805,32 +816,30 @@ export class Memory {
     const logPath = join(this.dir, "log.jsonl");
     const treePath = join(this.dir, "tree.jsonl");
     if (existsSync(logPath)) {
+      ensureLogNewline(logPath);
       const known = this.logIndex.count;
       const fresh = known > 0 && !this.logIndex.stale();
-      if (!fresh) this.logIndex.reset();
-      const buf = readFileSync(logPath);
-      let start = 0;
-      for (let i = 0; i < buf.length; i++) {
-        if (buf[i] !== 10) continue;
-        if (i > start) {
-          try {
-            const msg = JSON.parse(buf.toString("utf8", start, i)) as Message;
-            this.log.push(msg);
-            if (!fresh) this.logIndex.push(start, msg.date, i - start + 1);
-          } catch {
+      if (!fresh) this.logIndex.rebuildSync();
+      if (this.logIndex.count <= 2000) {
+        const buf = readFileSync(logPath);
+        let start = 0;
+        for (let i = 0; i < buf.length; i++) {
+          if (buf[i] !== 10) continue;
+          if (i > start) {
+            try {
+              this.log.push(JSON.parse(buf.toString("utf8", start, i)) as Message);
+            } catch {
+            }
           }
+          start = i + 1;
         }
-        start = i + 1;
-      }
-      if (start < buf.length) {
-        const tail = buf.toString("utf8", start, buf.length);
-        if (tail.trim()) {
-          try {
-            const msg = JSON.parse(tail) as Message;
-            this.log.push(msg);
-            persistRaw(logPath, "\n");
-            if (!fresh) this.logIndex.push(start, msg.date, buf.length - start + 1);
-          } catch {
+        if (start < buf.length) {
+          const tail = buf.toString("utf8", start, buf.length);
+          if (tail.trim()) {
+            try {
+              this.log.push(JSON.parse(tail) as Message);
+            } catch {
+            }
           }
         }
       }
@@ -852,7 +861,7 @@ export class Memory {
         }
       }
     }
-    if (!this.loadSavedView()) this.rebuildView();
+    if (!this.loadSavedView() && this.log.length) this.rebuildView();
     this.seedReady();
   }
 
@@ -945,23 +954,24 @@ function isPair(item: unknown): item is [number, number] {
   return Array.isArray(item) && item.length >= 2 && typeof item[0] === "number" && typeof item[1] === "number";
 }
 
+function ensureLogNewline(path: string): void {
+  if (!existsSync(path)) return;
+  const size = statSync(path).size;
+  if (size <= 0) return;
+  const fd = openSync(path, "r");
+  try {
+    const last = Buffer.alloc(1);
+    readSync(fd, last, 0, 1, size - 1);
+    if (last[0] !== 10) appendFileSync(path, "\n");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function persistRaw(path: string, raw: string): void {
   if (!raw) return;
-  let out = raw;
-  if (existsSync(path)) {
-    const size = statSync(path).size;
-    if (size > 0) {
-      const fd = openSync(path, "r");
-      try {
-        const last = Buffer.alloc(1);
-        readSync(fd, last, 0, 1, size - 1);
-        if (last[0] !== 10 && !raw.startsWith("\n")) out = `\n${raw}`;
-      } finally {
-        closeSync(fd);
-      }
-    }
-  }
-  appendFileSync(path, out);
+  ensureLogNewline(path);
+  appendFileSync(path, raw);
 }
 
 function persistLine(path: string, obj: unknown): void {

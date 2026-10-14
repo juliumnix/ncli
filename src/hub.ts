@@ -273,6 +273,7 @@ export class Hub {
   }
 
   async start(): Promise<void> {
+    await this.memory.ensureIndex();
     await this.bus.listen();
     await this.views.loadAll();
     this.views.watch();

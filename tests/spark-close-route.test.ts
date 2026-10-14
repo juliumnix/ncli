@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { bootNcli } from "../src/boot";
 import { makeHub } from "./helpers";
 
@@ -13,6 +13,27 @@ test("overlay X posts /close and ignores a missing route", () => {
   expect(close).toContain('method: "POST"');
   expect(close).toContain("404");
   expect(close.indexOf("const id = state.openSpark")).toBeLessThan(close.indexOf("hideOverlay()"));
+});
+
+test("overlay X can open and close a spark three times without leftover worktrees", async () => {
+  const { hub } = await makeHub();
+  const paths: string[] = [];
+  try {
+    for (let n = 0; n < 3; n++) {
+      const rt = await hub.sparks.open("refino", { card: `x-${n}` });
+      const wt = rt.worktree?.path;
+      expect(wt).toBeTruthy();
+      expect(existsSync(wt!)).toBe(true);
+      paths.push(wt!);
+      await hub.sparks.close(rt.spark.id);
+      expect(hub.sparks.get(rt.spark.id)?.spark.status).toBe("merged");
+      expect(rt.abort.signal.aborted).toBe(true);
+      expect(existsSync(wt!)).toBe(false);
+    }
+    expect(new Set(paths).size).toBe(3);
+  } finally {
+    hub.close();
+  }
 });
 
 test("POST /api/sparks/:id/close merges the spark", async () => {
