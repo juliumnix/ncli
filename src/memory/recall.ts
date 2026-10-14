@@ -22,10 +22,11 @@ export function verifyCitations(
   log: MessageAt,
   space: string,
   facts?: Map<number, Successor>,
+  turnId?: string,
 ): Citation[] {
   const opened = new Set(
     events
-      .filter((e) => e.tool === "zoom" && e.kind === "original" && e.space === space)
+      .filter((e) => e.tool === "zoom" && e.kind === "original" && e.space === space && (!turnId || e.turnId === turnId))
       .map((e) => e.id),
   );
   const at = typeof log === "function" ? log : (id: number) => log[id];
