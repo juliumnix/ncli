@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Booted } from "../src/boot";
 import { memoryHooks, registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
 import { Memory } from "../src/memory/store";
-import { installChildShutdown, resetShutdownForTest } from "../src/shutdown";
+import { installChildShutdown, resetShutdownForTest, runShutdown, setHarnessKiller } from "../src/shutdown";
 import { tmpDir } from "./helpers";
 
 afterEach(() => {
@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 function fakeBooted(mem: Memory): Booted {
-  return { hub: { memory: mem, sparks: { runtimes: new Map() } }, stop: () => {} } as unknown as Booted;
+  return { hub: { memory: mem, sparks: { runtimes: new Map() } }, stop: () => {}, close: async () => {} } as unknown as Booted;
 }
 
 test("a real Memory exposes flushTree and saveView as functions (renaming either turns this red)", () => {
@@ -90,4 +90,38 @@ test("SIGTERM mid muted batch persists treeBuf, leaves whole jsonl lines, and re
     expect(again.nodeOf(l, i)).toBeDefined();
   }
   expect(again.recall("marcador-zebra").some((line) => line.startsWith(`#${first.i} `))).toBe(true);
+});
+
+test("one shutdown path: flush, harness, compactor, queue, close in order, one SIGINT listener", async () => {
+  const mem = new Memory({ dir: join(tmpDir(), "mem"), nodeBytes: 80, viewBytes: 200, compressor: async () => "x" });
+  const order: string[] = [];
+  const flushTree = mem["flushTree"].bind(mem);
+  const saveView = mem["saveView"].bind(mem);
+  Object.defineProperty(mem, "flushTree", { value: () => (order.push("flush"), flushTree()) });
+  Object.defineProperty(mem, "saveView", { value: () => (order.push("saveView"), saveView()) });
+  const others = process.listeners("SIGINT");
+  process.removeAllListeners("SIGINT");
+  const stop = installChildShutdown({ exit: () => {} });
+  const booted = {
+    hub: { memory: mem, sparks: { runtimes: new Map() } },
+    stop: () => {},
+    close: async () => {
+      await Bun.sleep(20);
+      order.push("close");
+    },
+  } as unknown as Booted;
+  registerBootShutdown(booted);
+  expect(process.listenerCount("SIGINT")).toBe(1);
+  setHarnessKiller(async (ms) => {
+    expect(ms).toBe(2000);
+    await Bun.sleep(20);
+    order.push("harness");
+  });
+  setQueuePersister(() => {
+    order.push("queue");
+  });
+  await runShutdown("test");
+  stop();
+  for (const l of others) process.on("SIGINT", l as () => void);
+  expect(order).toEqual(["flush", "harness", "saveView", "queue", "close"]);
 });

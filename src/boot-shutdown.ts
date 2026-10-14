@@ -1,6 +1,7 @@
 import type { Booted } from "./boot";
 import type { Memory } from "./memory/store";
-import { onShutdown } from "./shutdown";
+import { killHarnessChildren } from "./acp/children";
+import { onShutdown, setHarnessKiller } from "./shutdown";
 
 /** What the shutdown stages need from a Memory. Resolved and checked once, at boot. */
 type MemoryHooks = { mem: Memory; flushTree: () => void; saveView: () => void };
@@ -49,6 +50,7 @@ function memories(booted: Booted): MemoryHooks[] {
  */
 export function registerBootShutdown(booted: Booted): void {
   memories(booted);
+  setHarnessKiller(() => killHarnessChildren(2000));
   onShutdown("flush", () => {
     for (const h of memories(booted)) {
       h.mem.paused = true;
@@ -59,5 +61,5 @@ export function registerBootShutdown(booted: Booted): void {
     for (const h of memories(booted)) h.saveView();
     if (queuePersister) await queuePersister();
   });
-  onShutdown("close", () => booted.stop());
+  onShutdown("close", () => booted.close());
 }
