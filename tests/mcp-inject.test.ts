@@ -61,7 +61,14 @@ test("claude spawn gets --mcp-config --strict-mcp-config and --add-dir skills", 
   expect(args).toContain("--add-dir");
   expect(args).toContain(inj.addDir[0]);
   expect(args).toContain("--allowedTools");
-  expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__ncli__*");
+  const allowed = args[args.indexOf("--allowedTools") + 1] ?? "";
+  expect(allowed).not.toContain("mcp__ncli__*");
+  for (const name of ["zoom", "date", "recall", "inbox", "list_views", "list_sparks", "budget"]) {
+    expect(allowed.split(",")).toContain(`mcp__ncli__${name}`);
+  }
+  for (const name of ["supersede", "post", "ask", "open_spark", "close_spark", "switch_harness", "read"]) {
+    expect(allowed.split(",")).not.toContain(`mcp__ncli__${name}`);
+  }
 });
 
 test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prompt", () => {
@@ -84,9 +91,13 @@ test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prom
   expect(args).toContain("-c");
   expect(flags.join(" ")).toContain("mcp_servers.ncli.default_tools_approval_mode=approve");
   expect(flags.join(" ")).toContain("enabled_tools=");
-  expect(flags.join(" ")).toContain("recall");
-  expect(flags.join(" ")).toContain("zoom");
   expect(flags.join(" ")).not.toContain("approval_policy=never");
+  const enabledRaw = flags.find((f) => f.includes("enabled_tools=")) ?? "";
+  const enabled = JSON.parse(enabledRaw.slice(enabledRaw.indexOf("=") + 1)) as string[];
+  expect(enabled.sort()).toEqual(["budget", "date", "inbox", "list_sparks", "list_views", "recall", "zoom"]);
+  for (const name of ["supersede", "post", "ask", "open_spark", "close_spark", "switch_harness", "read"]) {
+    expect(enabled).not.toContain(name);
+  }
 });
 
 test("ncli MCP marks read tools read-only so Codex can skip the exec prompt", () => {

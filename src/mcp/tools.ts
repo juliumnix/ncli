@@ -116,3 +116,24 @@ export const NCLI_TOOLS: McpToolDef[] = [
 ];
 
 export const BUS_TOOL_NAMES = ["ask", "wait", "post", "inbox", "read"] as const;
+
+export function isNcliAutoTool(name: string): boolean {
+  switch (name) {
+    case "zoom":
+    case "date":
+    case "recall":
+    case "inbox":
+    case "budget":
+      return true;
+    default:
+      return name.startsWith("list_");
+  }
+}
+
+export function ncliAutoToolNames(): string[] {
+  return NCLI_TOOLS.map((t) => t.name).filter(isNcliAutoTool);
+}
+
+export function ncliAllowedToolsArg(): string {
+  return ncliAutoToolNames().map((n) => `mcp__ncli__${n}`).join(",");
+}
