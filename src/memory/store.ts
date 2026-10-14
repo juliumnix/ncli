@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
-import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
+import { CompactBudgetPause, CompactDeferred, CompactHold, type CompactHoldReason } from "./compact-deferred";
+import { CompactQueue, type CompactJob } from "./compact-queue";
 import { factsOf, supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
 
@@ -21,10 +23,14 @@ export interface MemoryOptions {
 export type CompactWork = {
   done: number;
   total: number;
-  paused: "budget" | null;
+  paused: "budget" | "limit" | "cli-error" | null;
 };
 
-export type Compressor = (input: CompactInput) => Promise<string>;
+export type CompactStamp = { compactor?: "sdk" | "cli"; agent?: string; model?: string };
+
+export type CompactResult = string | ({ text: string } & CompactStamp);
+
+export type Compressor = (input: CompactInput) => Promise<CompactResult>;
 
 export interface CompactInput {
   kind: "leaf" | "merge";
@@ -67,6 +73,7 @@ export class Memory {
   readonly log: Message[] = [];
   readonly nodes = new Map<string, TreeNode>();
   compactWork: CompactWork = { done: 0, total: 0, paused: null };
+  private readonly compactQ: CompactQueue;
   view: ViewPart[] = [];
   onChange: (() => void) | null = null;
   private busy = new Set<string>();
@@ -81,6 +88,9 @@ export class Memory {
   private treeBuf: TreeNode[] = [];
   paused = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pauseFails = 0;
+  private pauseUntil = 0;
+  private compactEpoch = 0;
 
   constructor(opts: MemoryOptions) {
     this.dir = opts.dir;
@@ -92,6 +102,7 @@ export class Memory {
     this.deferCutAfter = opts.deferCutAfter ?? 3;
     this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
     this.compressTimeoutMs = opts.compressTimeoutMs ?? 30_000;
+    this.compactQ = new CompactQueue(this.dir);
     mkdirSync(this.dir, { recursive: true });
     this.load();
   }
@@ -110,6 +121,26 @@ export class Memory {
 
   static key(l: number, i: number): string {
     return `${l}:${i}`;
+  }
+
+  static parseKey(key: string): { l: number; i: number } | null {
+    const sep = key.lastIndexOf(":");
+    if (sep <= 0) return null;
+    const l = Number(key.slice(0, sep));
+    const i = Number(key.slice(sep + 1));
+    if (!Number.isInteger(l) || !Number.isInteger(i) || l < 0 || i < 0) return null;
+    return { l, i };
+  }
+
+  requeueInFlight(): void {
+    this.compactEpoch += 1;
+    for (const key of this.busy) {
+      const slot = Memory.parseKey(key);
+      if (!slot) continue;
+      if (this.refineQ.some((s) => s.l === slot.l && s.i === slot.i)) continue;
+      this.refineQ.push(slot);
+    }
+    this.busy.clear();
   }
 
   nodeOf(l: number, i: number): TreeNode | undefined {
@@ -415,6 +446,12 @@ export class Memory {
     return this.pumping;
   }
 
+  shutdown(): void {
+    this.flushTree();
+    this.saveView();
+    this.persistRefineQueue();
+  }
+
   private async pumpLoop(): Promise<void> {
     this.seedLocalTree();
     this.notifyWaiters();
@@ -470,11 +507,12 @@ export class Memory {
   }
 
   private async refineLoop(): Promise<void> {
-    if (this.compactWork.paused === "budget") return;
+    if (this.compactWork.paused) return;
     this.sortRefineQ();
     this.recountWork();
-    const waveN = Math.max(1, this.pumpBatch) * this.compactJobs;
-    while (this.refineQ.length && !this.paused && this.compactWork.paused !== "budget") {
+    this.persistRefineQueue();
+    const waveN = Math.max(1, this.pumpBatch) * Math.min(this.compactJobs, 8);
+    while (this.refineQ.length && !this.paused && !this.compactWork.paused) {
       const wave: Slot[] = [];
       const hold: Slot[] = [];
       while (wave.length < waveN && this.refineQ.length) {
@@ -499,6 +537,26 @@ export class Memory {
     }
   }
 
+  clearCompactPause(): void {
+    this.compactWork.paused = null;
+    this.pauseFails = 0;
+    this.pauseUntil = 0;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+
+  private holdCompact(reason: CompactHoldReason): void {
+    this.compactWork.paused = reason;
+    if (reason === "budget") {
+      this.pauseUntil = 0;
+      return;
+    }
+    this.pauseFails += 1;
+    this.pauseUntil = Date.now() + Math.min(30_000, this.deferBackoffMs * 2 ** (this.pauseFails - 1));
+  }
+
   private onDeferred(l: number, i: number): void {
     const key = Memory.key(l, i);
     const prev = this.deferred.get(key);
@@ -512,6 +570,7 @@ export class Memory {
     const wait = Math.min(30_000, this.deferBackoffMs * 2 ** (fails - 1));
     this.deferred.set(key, { fails, until: Date.now() + wait });
     this.refineQ.push({ l, i });
+    this.persistRefineQueue();
   }
 
   private cutSource(l: number, i: number): string {
@@ -535,13 +594,21 @@ export class Memory {
     for (const rec of this.deferred.values()) {
       if (rec.until < next) next = rec.until;
     }
+    if (this.autoResumePause() && this.pauseUntil > 0 && this.pauseUntil < next) next = this.pauseUntil;
     if (!Number.isFinite(next)) return;
     const wait = Math.max(1, next - Date.now());
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
+      if (this.autoResumePause() && this.pauseUntil > 0 && Date.now() >= this.pauseUntil) {
+        this.compactWork.paused = null;
+      }
       void this.pump();
     }, wait);
     this.retryTimer.unref?.();
+  }
+
+  private autoResumePause(): boolean {
+    return this.compactWork.paused === "limit" || this.compactWork.paused === "cli-error";
   }
 
   private nextBuildableBatch(max: number): Slot[] {
@@ -592,6 +659,30 @@ export class Memory {
     });
   }
 
+  private slotJob(slot: Slot): CompactJob | null {
+    const input = this.compactInput(slot.l, slot.i);
+    if (!input) return null;
+    return {
+      l: slot.l,
+      i: slot.i,
+      last: this.spanLast(slot.l, slot.i),
+      hash: compactInputHash(input),
+    };
+  }
+
+  private persistRefineQueue(): void {
+    const jobs: CompactJob[] = [];
+    const seen = new Set<string>();
+    for (const slot of this.refineQ) {
+      const key = Memory.key(slot.l, slot.i);
+      if (seen.has(key) || this.refined.has(key)) continue;
+      seen.add(key);
+      const job = this.slotJob(slot);
+      if (job) jobs.push(job);
+    }
+    this.compactQ.replace(jobs);
+  }
+
   private compactInput(l: number, i: number): CompactInput | undefined {
     const nodeBytes = this.nodeBytes;
     if (l === 0) {
@@ -626,19 +717,32 @@ export class Memory {
 
   private async refineOne(slot: Slot): Promise<void> {
     const key = Memory.key(slot.l, slot.i);
-    if (this.refined.has(key) || this.compactWork.paused === "budget") return;
+    if (this.refined.has(key) || this.compactWork.paused) return;
     const input = this.compactInput(slot.l, slot.i);
     if (!input) return;
+    const epoch = this.compactEpoch;
     this.busy.add(key);
     try {
-      const text = await this.runCompressor(input);
-      this.putNode(slot.l, slot.i, text);
+      const result = await this.runCompressor(input);
+      if (epoch !== this.compactEpoch) return;
+      this.putNode(slot.l, slot.i, result.text, result);
       this.refined.add(key);
       this.compactWork.done += 1;
+      this.compactQ.remove(slot);
+      this.pauseFails = 0;
+      this.pauseUntil = 0;
     } catch (err) {
-      if (err instanceof CompactBudgetPause) {
-        this.compactWork.paused = "budget";
+      if (epoch !== this.compactEpoch) return;
+      if (err instanceof CompactHold) {
+        this.holdCompact(err.reason);
         this.refineQ.push(slot);
+        this.persistRefineQueue();
+        return;
+      }
+      if (err instanceof CompactBudgetPause) {
+        this.holdCompact("budget");
+        this.refineQ.push(slot);
+        this.persistRefineQueue();
         return;
       }
       if (!(err instanceof CompactDeferred)) {
@@ -646,20 +750,24 @@ export class Memory {
       }
       this.onDeferred(slot.l, slot.i);
     } finally {
-      this.busy.delete(key);
+      if (epoch === this.compactEpoch) this.busy.delete(key);
     }
   }
 
-  private async runCompressor(input: CompactInput): Promise<string> {
+  private async runCompressor(input: CompactInput): Promise<{ text: string } & CompactStamp> {
     const work = this.compressor(input);
     const ms = this.compressTimeoutMs;
-    if (ms <= 0) return work;
+    const unwrap = async () => {
+      const out = await work;
+      return typeof out === "string" ? { text: out } : out;
+    };
+    if (ms <= 0) return unwrap();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new CompactDeferred()), ms);
     });
     try {
-      return await Promise.race([work, timeout]);
+      return await Promise.race([unwrap(), timeout]);
     } finally {
       if (timer) clearTimeout(timer);
       void work.then(
@@ -669,13 +777,27 @@ export class Memory {
     }
   }
 
-  private putNode(l: number, i: number, text: string): void {
+  private putNode(l: number, i: number, text: string, meta?: CompactStamp): void {
     const flat = flattenLine(text);
-    const node: TreeNode = { l, i, text: flat, size: utf8Bytes(flat) };
-    this.nodes.set(Memory.key(l, i), node);
+    const key = Memory.key(l, i);
+    const existing = this.nodes.get(key);
+    if (existing?.compactor) {
+      this.compactQ.remove({ l, i });
+      return;
+    }
+    const node: TreeNode = {
+      l,
+      i,
+      text: flat,
+      size: utf8Bytes(flat),
+      ...(meta?.compactor ? { compactor: meta.compactor } : {}),
+      ...(meta?.agent ? { agent: meta.agent } : {}),
+      ...(meta?.model ? { model: meta.model } : {}),
+    };
+    this.nodes.set(key, node);
     if (this.muteChange) this.treeBuf.push(node);
     else persistLine(join(this.dir, "tree.jsonl"), node);
-    this.deferred.delete(Memory.key(l, i));
+    this.deferred.delete(key);
     if (!this.muteChange) this.refreshViewParts();
     this.enqueue(l + 1, Math.floor(i / 2));
     if (!this.muteChange) {
@@ -801,12 +923,21 @@ export class Memory {
       for (const line of readFileSync(treePath, "utf8").split("\n")) {
         if (!line.trim()) continue;
         try {
-          const n = JSON.parse(line) as TreeNode & { dropped?: boolean };
+          const n = JSON.parse(line) as TreeNode & { dropped?: boolean; provider?: string };
           if (typeof n.l !== "number" || typeof n.i !== "number") continue;
           const key = Memory.key(n.l, n.i);
           if (n.dropped) this.nodes.delete(key);
           else if (typeof n.text === "string") {
-            this.nodes.set(key, { l: n.l, i: n.i, text: n.text, size: n.size ?? utf8Bytes(n.text) });
+            const agent = typeof n.agent === "string" ? n.agent : typeof n.provider === "string" ? n.provider : undefined;
+            this.nodes.set(key, {
+              l: n.l,
+              i: n.i,
+              text: n.text,
+              size: n.size ?? utf8Bytes(n.text),
+              ...(n.compactor === "sdk" || n.compactor === "cli" ? { compactor: n.compactor } : {}),
+              ...(agent ? { agent } : {}),
+              ...(typeof n.model === "string" ? { model: n.model } : {}),
+            });
           }
         } catch {
           continue;
@@ -814,7 +945,12 @@ export class Memory {
       }
     }
     if (!this.loadSavedView()) this.rebuildView();
-    this.seedReady();
+    const saved = this.compactQ.load();
+    if (saved) {
+      this.refineQ = saved.map((job) => ({ l: job.l, i: job.i }));
+    } else {
+      this.seedReady();
+    }
   }
 
   private loadSavedView(): boolean {
@@ -913,6 +1049,17 @@ function persistLine(path: string, obj: unknown): void {
 function persistLines(path: string, objs: unknown[]): void {
   if (!objs.length) return;
   appendFileSync(path, objs.map((obj) => `${JSON.stringify(obj)}\n`).join(""));
+}
+
+function compactInputHash(input: CompactInput): string {
+  return createHash("sha256")
+    .update(input.kind)
+    .update("\n")
+    .update(input.source)
+    .update("\n")
+    .update(String(input.nodeBytes))
+    .digest("hex")
+    .slice(0, 24);
 }
 
 export function mockCompressor(): Compressor {

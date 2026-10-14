@@ -33,6 +33,11 @@ test("compact line is human language with a real percent", () => {
   expect(jobStage(compactRun({ done: 3, total: 0 }))).not.toContain("3");
 });
 
+test("provider limit pause is first-class and distinct from the daily budget", () => {
+  expect(jobStage(compactRun({ phase: "paused", reason: "limit" }))).toBe("Pausado no limite");
+  expect(jobLine(compactRun({ phase: "paused", reason: "limit" }))).toContain("Pausado no limite");
+});
+
 test("done and error states drop the counters", () => {
   expect(jobLine(importRun({ phase: "done" }))).toBe("Histórico do Claude pronto");
   expect(jobLine(compactRun({ phase: "done" }))).toBe("Memória organizada");

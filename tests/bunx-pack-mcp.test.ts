@@ -111,9 +111,9 @@ test("a packed bunx boot injects ncli, recalls main and spark, and keeps data ac
     expect(existsSync(treePath)).toBe(true);
     const treeBefore = readFileSync(treePath);
     const queuePath = join(dataDir, "main/compact-queue.json");
-    writeFileSync(queuePath, QUEUE_BODY);
     stop(server);
     server = undefined;
+    writeFileSync(queuePath, QUEUE_BODY);
     rmSync(firstRoot, { recursive: true, force: true });
     expect(existsSync(join(firstRoot, "package/src/index.ts"))).toBe(false);
 
@@ -130,10 +130,14 @@ test("a packed bunx boot injects ncli, recalls main and spark, and keeps data ac
     expect(again).toContain(`#${mainId?.[1]} user: ${marker}`);
     const treeAfter = readFileSync(treePath);
     expect(Buffer.compare(treeAfter.subarray(0, treeBefore.length), treeBefore)).toBe(0);
-    expect(readFileSync(queuePath, "utf8")).toBe(QUEUE_BODY);
+    expect(existsSync(queuePath)).toBe(true);
+    const queue = JSON.parse(readFileSync(queuePath, "utf8")) as { jobs?: unknown };
+    expect(Array.isArray(queue.jobs)).toBe(true);
     expect(treePath.startsWith(dataDir)).toBe(true);
+    expect(queuePath.startsWith(dataDir)).toBe(true);
     expect(treePath.startsWith(secondRoot)).toBe(false);
     expect(existsSync(join(secondRoot, "data/main/tree.jsonl"))).toBe(false);
+    expect(existsSync(join(secondRoot, "data/main/compact-queue.json"))).toBe(false);
     assertNoRoots([...bodies, logs], [home, project, join(firstRoot, "package"), join(secondRoot, "package")]);
   } finally {
     if (server) stop(server);

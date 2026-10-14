@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { memoryHooks } from "../src/boot-shutdown";
 import { onShutdown, resetShutdownForTest, runShutdown } from "../src/shutdown";
 import { makeHub } from "./helpers";
 
@@ -29,13 +28,12 @@ test("shutdown flush and queue keep a closed spark line in log.jsonl", async () 
     await hub.sparks.close(rt.spark.id);
     onShutdown("flush", () => {
       for (const mem of hub.sparks.sparkMemories()) {
-        const hooks = memoryHooks(mem);
-        hooks.mem.paused = true;
-        hooks.flushTree();
+        mem.paused = true;
+        mem.shutdown();
       }
     });
     onShutdown("queue", () => {
-      for (const mem of hub.sparks.sparkMemories()) memoryHooks(mem).saveView();
+      for (const mem of hub.sparks.sparkMemories()) mem.shutdown();
     });
     await runShutdown("spark-close");
     const raw = readFileSync(join(rt.memory.dir, "log.jsonl"), "utf8");

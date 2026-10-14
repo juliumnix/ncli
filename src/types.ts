@@ -100,7 +100,9 @@ export interface CompactStatus {
   budget: number;
   model: string;
   error?: string;
-  paused?: "budget";
+  paused?: "budget" | "limit";
+  mode?: "sdk" | "cli";
+  provider?: string;
 }
 
 export interface TreeNode {
@@ -108,6 +110,9 @@ export interface TreeNode {
   i: number;
   text: string;
   size: number;
+  compactor?: "sdk" | "cli";
+  agent?: string;
+  model?: string;
 }
 
 export interface ViewPart {
