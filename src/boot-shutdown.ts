@@ -13,15 +13,25 @@ function liveMemories(booted: Booted): Memory[] {
   return [booted.hub.memory, ...booted.hub.sparks.sparkMemories()];
 }
 
+function runEachMemory(mems: Memory[], fn: (mem: Memory) => void): void {
+  for (const mem of mems) {
+    try {
+      fn(mem);
+    } catch (err) {
+      process.stderr.write(`ncli shutdown memory: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+}
+
 export function registerBootShutdown(booted: Booted): void {
   setHarnessKiller(() => killHarnessChildren(2000));
   bindCompactShutdown(booted.hub.engine, setCompactorKiller);
   bindQueueShutdown(booted.hub.memory, booted.hub.sparks, setQueuePersister);
   onShutdown("flush", () => {
-    for (const mem of liveMemories(booted)) {
+    runEachMemory(liveMemories(booted), (mem) => {
       mem.paused = true;
       mem.shutdown();
-    }
+    });
   });
   onShutdown("queue", async () => {
     if (queuePersister) await queuePersister();

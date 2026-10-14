@@ -45,7 +45,13 @@ export type SparkMemorySource = {
 };
 
 export function persistMemories(main: Memory, sparks: SparkMemorySource): void {
-  for (const mem of [main, ...sparks.sparkMemories()]) mem.shutdown();
+  for (const mem of [main, ...sparks.sparkMemories()]) {
+    try {
+      mem.shutdown();
+    } catch (err) {
+      process.stderr.write(`ncli shutdown memory: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
 }
 
 export function bindQueueShutdown(

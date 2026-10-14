@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Booted } from "../src/boot";
 import { registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
@@ -12,16 +12,40 @@ afterEach(() => {
   setQueuePersister(undefined);
 });
 
-function fakeBooted(mem: Memory, close: () => void | Promise<void> = async () => {}): Booted {
+function fakeBooted(mem: Memory, close: () => void | Promise<void> = async () => {}, sparks: Memory[] = []): Booted {
   return {
     hub: {
       memory: mem,
-      sparks: { runtimes: new Map(), sparkMemories: () => [] },
+      sparks: { runtimes: new Map(), sparkMemories: () => sparks },
       engine: { killAll: async () => {} },
     },
     stop: () => {},
     close,
   } as unknown as Booted;
+}
+
+async function fillTree(dir: string): Promise<{ mem: Memory; keys: string[]; release: () => void }> {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let calls = 0;
+  const mem = new Memory({
+    dir,
+    nodeBytes: 40,
+    viewBytes: 4000,
+    compactJobs: 4,
+    compressor: async () => {
+      calls += 1;
+      if (calls % 2 === 0) await gate;
+      return `sum ${calls}`.slice(0, 30);
+    },
+  });
+  mem.append({ kind: "user", text: "marcador-irmao ".repeat(20) });
+  for (let k = 0; k < 6; k++) mem.append({ kind: "user", text: `linha ${k} `.repeat(20) });
+  const deadline = Date.now() + 3000;
+  while (mem["treeBuf"].length === 0 && Date.now() < deadline) await Bun.sleep(5);
+  const keys = mem["treeBuf"].map((n) => Memory.key(n.l, n.i));
+  expect(keys.length).toBeGreaterThan(0);
+  return { mem, keys, release };
 }
 
 test("SIGTERM mid muted batch persists treeBuf, leaves whole jsonl lines, and recall finds the earlier id", async () => {
@@ -115,4 +139,43 @@ test("one shutdown path: flush, harness, compactor, queue, close in order, one S
   stop();
   for (const l of others) process.on("SIGINT", l as () => void);
   expect(order).toEqual(["flush", "saveView", "harness", "compactor", "queue", "close"]);
+});
+
+test("one memory flushTree throw still writes the others' tree.jsonl and view.json", async () => {
+  const root = tmpDir("mem-isolate");
+  const broken = new Memory({
+    dir: join(root, "broken"),
+    nodeBytes: 80,
+    viewBytes: 400,
+    compressor: async () => "x",
+  });
+  Object.defineProperty(broken, "flushTree", {
+    value: () => {
+      throw new Error("flush boom");
+    },
+  });
+  broken.append({ kind: "user", text: "quebrado" });
+  const a = await fillTree(join(root, "spark-a"));
+  const b = await fillTree(join(root, "spark-b"));
+  for (const mem of [a.mem, b.mem]) {
+    const view = join(mem.dir, "view.json");
+    if (existsSync(view)) unlinkSync(view);
+  }
+  registerBootShutdown(fakeBooted(broken, async () => {}, [a.mem, b.mem]));
+  await runShutdown("test");
+  a.release();
+  b.release();
+  for (const { mem, keys } of [a, b]) {
+    const tree = readFileSync(join(mem.dir, "tree.jsonl"), "utf8");
+    expect(tree.endsWith("\n")).toBe(true);
+    const lines = tree.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { l: number; i: number });
+    for (const key of keys) {
+      const [l, i] = key.split(":").map(Number);
+      expect(lines.some((n) => n.l === l && n.i === i)).toBe(true);
+    }
+    const viewPath = join(mem.dir, "view.json");
+    expect(existsSync(viewPath)).toBe(true);
+    const view = JSON.parse(readFileSync(viewPath, "utf8")) as { parts: Array<{ l: number; i: number }> };
+    expect(view.parts.length).toBeGreaterThan(0);
+  }
 });
