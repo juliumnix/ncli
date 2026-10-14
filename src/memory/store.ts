@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
@@ -822,6 +822,18 @@ export class Memory {
         }
         start = i + 1;
       }
+      if (start < buf.length) {
+        const tail = buf.toString("utf8", start, buf.length);
+        if (tail.trim()) {
+          try {
+            const msg = JSON.parse(tail) as Message;
+            this.log.push(msg);
+            persistRaw(logPath, "\n");
+            if (!fresh) this.logIndex.push(start, msg.date, buf.length - start + 1);
+          } catch {
+          }
+        }
+      }
       if (!fresh || this.logIndex.count !== known) this.logIndex.persist();
     }
     if (existsSync(treePath)) {
@@ -935,7 +947,21 @@ function isPair(item: unknown): item is [number, number] {
 
 function persistRaw(path: string, raw: string): void {
   if (!raw) return;
-  appendFileSync(path, raw);
+  let out = raw;
+  if (existsSync(path)) {
+    const size = statSync(path).size;
+    if (size > 0) {
+      const fd = openSync(path, "r");
+      try {
+        const last = Buffer.alloc(1);
+        readSync(fd, last, 0, 1, size - 1);
+        if (last[0] !== 10 && !raw.startsWith("\n")) out = `\n${raw}`;
+      } finally {
+        closeSync(fd);
+      }
+    }
+  }
+  appendFileSync(path, out);
 }
 
 function persistLine(path: string, obj: unknown): void {

@@ -2,8 +2,13 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LogIndex, MSG_PAGE } from "../src/memory/log-index";
+import { Memory, mockCompressor } from "../src/memory/store";
 import { serve } from "../src/server";
 import { makeHub, tmpDir } from "./helpers";
+
+function memAt(dir: string): Memory {
+  return new Memory({ dir, nodeBytes: 200, viewBytes: 800, compressor: mockCompressor() });
+}
 
 function writeLog(dir: string, n: number, extra = "") {
   mkdirSync(dir, { recursive: true });
@@ -89,6 +94,54 @@ test("a second boot keeps offsets.bin when the index is already fresh", async ()
   } finally {
     again.hub.close();
   }
+});
+
+test("a crash after 100 appends rebuilds the index past the 64-line persist", async () => {
+  const dir = tmpDir("idx-crash");
+  const first = memAt(dir);
+  for (let i = 0; i < 100; i++) first.append({ kind: "user", text: `n ${i}` });
+  expect(first.log.length).toBe(100);
+  const again = memAt(dir);
+  expect(again.log.length).toBe(100);
+  expect(again.logIndex.count).toBe(100);
+  expect(again.logIndex.stale()).toBe(false);
+  const last = await again.logIndex.page({ limit: 10 });
+  expect(last.messageCount).toBe(100);
+  expect(last.messages.length).toBe(10);
+  expect(last.messages[0]?.i).toBe(90);
+  expect(last.messages.at(-1)?.i).toBe(99);
+});
+
+test("a log shrunk from 50 to 5 rebuilds instead of paging empty", async () => {
+  const dir = tmpDir("idx-shrink");
+  memAt(dir).ingest(Array.from({ length: 50 }, (_, i) => ({ kind: "user" as const, text: `n ${i}` })));
+  writeLog(dir, 5);
+  const again = memAt(dir);
+  expect(again.log.length).toBe(5);
+  expect(again.logIndex.count).toBe(5);
+  const page = await again.logIndex.page({});
+  expect(page.messageCount).toBe(5);
+  expect(page.messages.length).toBe(5);
+  expect(page.messages.map((m) => m.i)).toEqual([0, 1, 2, 3, 4]);
+});
+
+test("load keeps a last line without a newline and the next append gets a new id", () => {
+  const dir = tmpDir("idx-nl");
+  const first = memAt(dir);
+  first.append({ kind: "user", text: "a" });
+  first.append({ kind: "user", text: "b" });
+  const path = join(dir, "log.jsonl");
+  writeFileSync(path, readFileSync(path, "utf8").replace(/\n$/, ""));
+  const again = memAt(dir);
+  expect(again.log.length).toBe(2);
+  expect(again.log.map((m) => m.i)).toEqual([0, 1]);
+  const added = again.append({ kind: "user", text: "c" });
+  expect(added.i).toBe(2);
+  expect(again.log.map((m) => m.i)).toEqual([0, 1, 2]);
+  const file = readFileSync(path, "utf8");
+  expect(file.endsWith("\n")).toBe(true);
+  const ids = file.trimEnd().split("\n").map((line) => (JSON.parse(line) as { i: number }).i);
+  expect(ids).toEqual([0, 1, 2]);
 });
 
 test("ingest stringifies each message once", () => {

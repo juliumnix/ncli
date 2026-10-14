@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "../types";
 
@@ -211,6 +211,24 @@ export class LogIndex {
     return this.bytes !== st.size;
   }
 
+  private endOfLastRecord(): number {
+    if (this.offsets.length === 0) return 0;
+    const last = this.offsets[this.offsets.length - 1] ?? 0;
+    if (!existsSync(this.logPath)) return 0;
+    const size = statSync(this.logPath).size;
+    if (last >= size) return last;
+    const fd = openSync(this.logPath, "r");
+    try {
+      const want = Math.min(size - last, 8 << 20);
+      const chunk = Buffer.allocUnsafe(want);
+      const n = readSync(fd, chunk, 0, want, last);
+      const nl = chunk.subarray(0, n).indexOf(10);
+      return nl < 0 ? last : last + nl + 1;
+    } finally {
+      closeSync(fd);
+    }
+  }
+
   private recordLine(offset: number, line: string): void {
     let date = "";
     try {
@@ -241,17 +259,14 @@ export class LogIndex {
 
   private load(): void {
     const bin = join(this.dir, INDEX_FILE);
-    if (!existsSync(bin)) {
-      if (existsSync(this.logPath)) this.bytes = statSync(this.logPath).size;
-      return;
-    }
+    if (!existsSync(bin)) return;
     const buf = readFileSync(bin);
     if (buf.length < 8 || buf.readUInt32LE(0) !== MAGIC) return;
     const n = buf.readUInt32LE(4);
     if (buf.length < 8 + n * 4) return;
     this.offsets = new Array(n);
     for (let i = 0; i < n; i++) this.offsets[i] = buf.readUInt32LE(8 + i * 4);
-    this.bytes = existsSync(this.logPath) ? statSync(this.logPath).size : 0;
+    this.bytes = this.endOfLastRecord();
     const daysPath = join(this.dir, DAYS_FILE);
     if (existsSync(daysPath)) {
       try {

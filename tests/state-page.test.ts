@@ -102,6 +102,33 @@ test("GET /api/state?before= pages older messages", async () => {
   }
 });
 
+test("GET /api/state after a shrunk log serves the five remaining messages", async () => {
+  const { hub } = await makeHub();
+  hub.memory.ingest(Array.from({ length: 50 }, (_, i) => ({ kind: "user" as const, text: `n ${i}` })));
+  const lines = Array.from({ length: 5 }, (_, i) => JSON.stringify({
+    i,
+    kind: "user",
+    text: `keep ${i}`,
+    size: 8,
+    date: "2020-01-01T00:00:00.000Z",
+  }));
+  writeFileSync(join(hub.memory.dir, "log.jsonl"), `${lines.join("\n")}\n`);
+  const again = await makeHub({ dataDir: hub.cfg.dataDir });
+  again.hub.cfg.port = 0;
+  const server = serve(again.hub, again.hub.cfg, join(import.meta.dir, "../public"));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/state`);
+    const body = (await res.json()) as { messages: Array<{ i: number }>; messageCount: number };
+    expect(body.messageCount).toBe(5);
+    expect(body.messages.length).toBe(5);
+    expect(body.messages.map((m) => m.i)).toEqual([0, 1, 2, 3, 4]);
+  } finally {
+    server.stop(true);
+    again.hub.close();
+    hub.close();
+  }
+});
+
 test("/api/state rereads the log only when the index is ahead of memory", () => {
   const server = readFileSync(join(import.meta.dir, "../src/server.ts"), "utf8");
   const route = server.slice(server.indexOf('pathname === "/api/state"'), server.indexOf('pathname === "/api/message"'));
