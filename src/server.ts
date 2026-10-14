@@ -82,7 +82,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const after = url.searchParams.get("after");
         const around = url.searchParams.get("around");
         const limit = url.searchParams.get("limit");
-        return publicJson(await hub.messagesPage({)
+        return publicJson(await hub.messagesPage({
           before: before == null || before === "" ? undefined : Number(before),
           after: after == null || after === "" ? undefined : Number(after),
           around: around == null || around === "" ? undefined : Number(around),
