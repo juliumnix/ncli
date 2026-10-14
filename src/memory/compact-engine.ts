@@ -12,7 +12,7 @@ import {
 } from "./compact-choice";
 import { cachedProviderModels, pickCheapModel, type CompactModelLister } from "./compact-models";
 import { CompactProcPool, type CompactProcTiming, type CompactSpawn } from "./compact-proc";
-import { compactAsk, compactSharesChat, COMPACT_TOO_LONG_TRIES, runCliCompact, type CliCompactDeps } from "./cli-compact";
+import { compactAsk, compactSharesChat, runCliCompact, type CliCompactDeps } from "./cli-compact";
 import {
   compactSnapshot,
   cursorCompressor,
@@ -72,16 +72,12 @@ export function createCompactEngine(
     };
     const shareChat = choice.mode === "cli" && compactSharesChat(choice.provider, cfg.harness);
     const ask = compactAsk(prompt, shareChat);
-    if (opts.runner) return withTooLong(opts.runner, ask, model || choice.model);
+    if (opts.runner) return opts.runner(ask, model || choice.model);
     if (choice.mode === "sdk") {
-      return withTooLong(defaultCompactRunner(cfg), ask, model || choice.model);
+      return defaultCompactRunner(cfg)(ask, model || choice.model);
     }
     try {
-      return await withTooLong(
-        (p, m) => runCliCompact(choice.provider, cfg, p, m, { ...cliDeps, shareChat }),
-        ask,
-        model || choice.model,
-      );
+      return await runCliCompact(choice.provider, cfg, ask, model || choice.model, { ...cliDeps, shareChat });
     } catch (err) {
       if (err instanceof CompactHold) {
         const paused = err.reason === "limit" || err.reason === "budget" ? err.reason : undefined;
@@ -122,6 +118,7 @@ export function createCompactEngine(
       const cache = await cachedProviderModels(cfg.dataDir, choice.provider, cfg, {
         spawn: opts.spawn,
         list: opts.list,
+        pool,
       });
       if (cache.error) {
         last = { ...last, error: cache.error };
@@ -154,17 +151,6 @@ function pickBackend(cfg: NcliConfig, run: CompactRunner, onProgress: CompactLis
       return mockCompressor();
     }
   }
-}
-
-async function withTooLong(run: CompactRunner, prompt: string, model: string): Promise<string> {
-  let ask = prompt;
-  let last = "";
-  for (let i = 0; i < COMPACT_TOO_LONG_TRIES; i++) {
-    last = await run(ask, model);
-    if (last.trim()) return last;
-    ask = `Too long.\n${prompt}`;
-  }
-  return last;
 }
 
 function logTiming(dir: string, row: CompactProcTiming & { provider: CompactProvider }): void {

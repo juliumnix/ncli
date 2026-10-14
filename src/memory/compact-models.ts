@@ -3,7 +3,14 @@ import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import type { CompactProvider } from "./compact-choice";
 import { CompactCliError, isCliAuthMessage, isCliMissingMessage } from "./compact-deferred";
-import { bunCompactSpawn, readChildText, type CompactSpawn } from "./compact-proc";
+import {
+  bunCompactSpawn,
+  CompactProcPool,
+  isolatedCompactCwd,
+  pathOnlyEnv,
+  readChildText,
+  type CompactSpawn,
+} from "./compact-proc";
 
 export type CompactModelCache = {
   provider: CompactProvider;
@@ -14,6 +21,16 @@ export type CompactModelCache = {
 
 export const COMPACT_MODELS_CACHE = "compact-models-cache.json";
 export const COMPACT_MODELS_TTL_MS = 60 * 60 * 1000;
+export const COMPACT_MODELS_ERROR_TTL_MS = 30_000;
+export const COMPACT_MODELS_LIST_TIMEOUT_MS = 15_000;
+
+export const CODEX_COMPACT_MODELS = [
+  "gpt-5-mini",
+  "gpt-5-nano",
+  "gpt-5",
+  "o4-mini",
+  "codex-mini-latest",
+] as const;
 
 export type CompactModelLister = (
   provider: CompactProvider,
@@ -61,7 +78,8 @@ export function loadModelCache(dir: string, provider: CompactProvider, now = Dat
     const row = JSON.parse(readFileSync(path, "utf8")) as CompactModelCache;
     if (row.provider !== provider) return null;
     if (!Array.isArray(row.models)) return null;
-    if (now - row.fetchedAt > COMPACT_MODELS_TTL_MS) return null;
+    const ttl = row.error ? COMPACT_MODELS_ERROR_TTL_MS : COMPACT_MODELS_TTL_MS;
+    if (now - row.fetchedAt > ttl) return null;
     return row;
   } catch {
     return null;
@@ -79,13 +97,22 @@ export function saveModelCache(dir: string, row: CompactModelCache): void {
 export async function listProviderModels(
   provider: CompactProvider,
   cfg: NcliConfig,
-  deps: { spawn?: CompactSpawn; list?: CompactModelLister } = {},
+  deps: { spawn?: CompactSpawn; list?: CompactModelLister; pool?: CompactProcPool } = {},
 ): Promise<string[]> {
   if (deps.list) return deps.list(provider, cfg);
+  if (provider === "codex") return [...CODEX_COMPACT_MODELS];
   const spawn = deps.spawn ?? bunCompactSpawn;
   const argv = modelListArgv(provider, cfg);
+  const cwd = isolatedCompactCwd(cfg.dataDir);
+  const pool = deps.pool;
+  if (pool) await pool.acquire();
+  let pid = 0;
+  let tracked = false;
   try {
-    const child = spawn(argv, {});
+    const child = spawn(argv, pathOnlyEnv(), { cwd, timeoutMs: COMPACT_MODELS_LIST_TIMEOUT_MS });
+    pid = child.pid || pool?.allocPid() || 0;
+    pool?.track(pid, () => child.kill(), COMPACT_MODELS_LIST_TIMEOUT_MS);
+    tracked = true;
     const [stdout, stderr, code] = await Promise.all([
       readChildText(child.stdout),
       readChildText(child.stderr),
@@ -109,6 +136,9 @@ export async function listProviderModels(
     }
     if (isCliAuthMessage(msg)) throw new CompactCliError(cliAuthMessage(provider));
     throw new CompactCliError(cliMissingOrFailed(provider, msg));
+  } finally {
+    if (tracked) pool?.release(pid);
+    else pool?.releaseHeld();
   }
 }
 
@@ -116,7 +146,7 @@ export async function cachedProviderModels(
   dir: string,
   provider: CompactProvider,
   cfg: NcliConfig,
-  deps: { spawn?: CompactSpawn; list?: CompactModelLister; now?: number } = {},
+  deps: { spawn?: CompactSpawn; list?: CompactModelLister; now?: number; pool?: CompactProcPool } = {},
 ): Promise<CompactModelCache> {
   const hit = loadModelCache(dir, provider, deps.now);
   if (hit) return hit;
@@ -133,10 +163,8 @@ export async function cachedProviderModels(
   }
 }
 
-function modelListArgv(provider: CompactProvider, cfg: NcliConfig): string[] {
+export function modelListArgv(provider: Exclude<CompactProvider, "codex">, cfg: NcliConfig): string[] {
   switch (provider) {
-    case "codex":
-      return [cfg.codexBin, "models"];
     case "claude":
       return [cfg.claudeBin, "--list-models"];
     case "cursor":

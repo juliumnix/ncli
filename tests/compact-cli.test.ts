@@ -4,12 +4,17 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { createCompactEngine } from "../src/memory/compact-engine";
 import {
-  COMPACT_RULER,
+  CODEX_DISABLE_FEATURES,
   CODEX_ISOLATE_C,
   cliCompactArgv,
   compactSharesChat,
+  isolateCodexFlags,
   isolatedCompactCwd,
   parseCliCompactOutput,
+  parseMcpList,
+  rulerBar,
+  sizeRuler,
+  withTooLong,
 } from "../src/memory/cli-compact";
 import { utf8Bytes } from "../src/util";
 import { CompactCliError, ProviderLimitError } from "../src/memory/compact-deferred";
@@ -42,14 +47,21 @@ function numbered(n: number, tag: string): string {
   return Array.from({ length: n }, (_, i) => `${i + 1}. ${tag} ${i + 1}`).join("\n");
 }
 
-test("jobPrompt keeps the 512 ruler and the same compact system prompt", () => {
+test("jobPrompt keeps the same size ruler in the prompt and in validation", () => {
   const prompt = jobPrompt([{
     input: { kind: "leaf", source: "user: hello", contextLines: ["0+1|older"], nodeBytes: 32 },
   }]);
-  expect(prompt).toContain("-".repeat(COMPACT_RULER));
+  expect(sizeRuler(rulerBar(32))).toBe(32);
+  expect(prompt).toContain(rulerBar(32));
+  expect(prompt).not.toContain(rulerBar(512));
   expect(prompt).toContain("You write the memory of NCLI");
-  const isolated = cliCompactArgv("codex", loadConfig({}), "mini", "p");
+  const isolated = cliCompactArgv("codex", loadConfig({ codexBin: "codex" }), "mini", "p", { mcpNames: ["alpha", "beta"] });
   expect(isolated.slice(0, 6)).toEqual(["codex", "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only"]);
+  expect(isolated).toContain("mcp_servers.alpha.enabled=false");
+  expect(isolated).toContain("mcp_servers.beta.enabled=false");
+  expect(isolated.join("\0")).not.toContain("mcp_servers={}");
+  for (const feat of CODEX_DISABLE_FEATURES) expect(isolated).toContain(feat);
+  expect(isolated).toContain("shell_tool");
   for (const key of CODEX_ISOLATE_C) {
     expect(isolated).toContain("-c");
     expect(isolated).toContain(key);
@@ -287,6 +299,15 @@ test("cli spawn and model times are logged separately and stay under the SDK moc
   const cfg = loadConfig({ dataDir: dir, compactBackend: "cursor", compactSkipTokens: 1, compactTimeoutMs: 0, compactBatch: 8, compactDebounceMs: 1 });
   const engine = createCompactEngine(cfg, {
     spawn: (argv, _env) => {
+      if (argv[1] === "mcp") {
+        return {
+          pid: 41,
+          stdout: new Response("[]").body,
+          stderr: new Response("").body,
+          exited: Promise.resolve(0),
+          kill: () => undefined,
+        };
+      }
       const prompt = argv.at(-1) ?? "";
       const n = (prompt.match(/### /g) ?? []).length || 1;
       const body = numbered(n, "ok");
@@ -385,6 +406,15 @@ test("SDK and CLI compact the same stretch under the 512 ruler and call no tool"
     }),
     {
       spawn: (argv, env, opts) => {
+        if (argv[1] === "mcp") {
+          return {
+            pid: 2,
+            stdout: new Response("[]").body,
+            stderr: new Response("").body,
+            exited: Promise.resolve(0),
+            kill: () => undefined,
+          };
+        }
         cliArgv.push(argv);
         expect(opts?.cwd).toBe(isolatedCompactCwd(cliDir));
         expect(env.CODEX_HOME).toBe(process.env.CODEX_HOME);
@@ -409,8 +439,10 @@ test("SDK and CLI compact the same stretch under the 512 ruler and call no tool"
   expect(utf8Bytes(sdkText)).toBeLessThanOrEqual(512);
   expect(utf8Bytes(cliText)).toBeLessThanOrEqual(512);
   expect(sdkText).toBe(cliText);
-  expect(sdkPrompts[0]).toContain("-".repeat(COMPACT_RULER));
-  expect(cliPrompts[0]).toContain("-".repeat(COMPACT_RULER));
+  expect(sdkPrompts[0]).toContain(rulerBar(512));
+  expect(cliPrompts[0]).toContain(rulerBar(512));
+  expect(sizeRuler(sdkText)).toBeLessThanOrEqual(512);
+  expect(sizeRuler(rulerBar(stretch.nodeBytes))).toBe(stretch.nodeBytes);
   expect(sdkPrompts[0]).toContain("You write the memory of NCLI");
   expect(cliPrompts[0]).toContain("You write the memory of NCLI");
   expect(tools).toBe(0);
@@ -450,4 +482,151 @@ test("switching compactador does not rewrite an existing node", async () => {
   expect(after?.text).toBe(before?.text);
   expect(after?.agent).toBe(before?.agent);
   mem.paused = true;
+});
+
+test("a fake Codex config with two MCP servers starts the child with zero MCP and zero tools", async () => {
+  const dir = tmpDir("mcp-off");
+  const log = join(dir, "exec-argv.json");
+  const bin = join(dir, "codex");
+  await Bun.write(bin, `#!/usr/bin/env bun
+import { writeFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+const log = process.env.NCLI_FAKE_CODEX_LOG;
+if (argv[0] === "mcp" && argv[1] === "list") {
+  process.stdout.write(JSON.stringify([
+    { name: "alpha", enabled: true },
+    { name: "beta", enabled: true },
+  ]));
+  process.exit(0);
+}
+if (argv[0] === "exec") {
+  if (log) writeFileSync(log, JSON.stringify(argv));
+  const enabledMcp = argv.some((a) => /^mcp_servers\\.[^=]+\\.enabled=true$/.test(a));
+  const disabled = ["alpha", "beta"].every((name) => argv.includes(\`mcp_servers.\${name}.enabled=false\`));
+  const toolsOff = argv.includes("shell_tool") && argv.includes("--disable");
+  const wipe = argv.includes("mcp_servers={}");
+  if (enabledMcp || !disabled || !toolsOff || wipe) process.exit(3);
+  process.stdout.write('{"type":"agent_message","text":"1. isolated ok"}\\n');
+  process.exit(0);
+}
+process.exit(2);
+`);
+  const chmod = await Bun.spawn(["chmod", "+x", bin], { stdout: "ignore", stderr: "ignore" }).exited;
+  expect(chmod).toBe(0);
+  const engine = createCompactEngine(
+    loadConfig({
+      dataDir: dir,
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 8000,
+      compactDebounceMs: 1,
+      compactBatch: 1,
+      harness: "cursor",
+      codexBin: bin,
+    }),
+    {
+      spawn: (argv, env, opts) => {
+        const child = Bun.spawn(argv, {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...env, NCLI_FAKE_CODEX_LOG: log },
+          cwd: opts?.cwd,
+        });
+        return {
+          pid: child.pid,
+          stdout: child.stdout,
+          stderr: child.stderr,
+          exited: child.exited,
+          kill: () => child.kill(),
+        };
+      },
+    },
+  );
+  engine.setChoice({ mode: "cli", provider: "codex", model: "gpt-5-mini" });
+  const out = await engine.compress({
+    kind: "leaf",
+    source: "user: FACT_OFF",
+    contextLines: [],
+    nodeBytes: 80,
+  });
+  const text = typeof out === "string" ? out : out.text;
+  expect(text).toContain("isolated ok");
+  const argv = JSON.parse(await Bun.file(log).text()) as string[];
+  expect(parseMcpList(JSON.stringify([{ name: "alpha" }, { name: "beta" }]))).toEqual(["alpha", "beta"]);
+  expect(argv).toContain("mcp_servers.alpha.enabled=false");
+  expect(argv).toContain("mcp_servers.beta.enabled=false");
+  expect(argv).toContain("shell_tool");
+  expect(argv).toContain("--disable");
+  expect(argv.join("\0")).not.toContain("mcp_servers={}");
+  expect(argv.some((a) => a.includes("mcp_servers.ncli.url") || a === "--mcp-config")).toBe(false);
+  for (const feat of ["shell_tool", "unified_exec", "apps", "browser_use"]) {
+    expect(isolateCodexFlags(["alpha", "beta"])).toContain(feat);
+  }
+});
+
+test("empty output is not Too long and oversize retries at most five times", async () => {
+  let emptyCalls = 0;
+  const empty = await withTooLong(
+    async () => {
+      emptyCalls += 1;
+      return "";
+    },
+    "prompt",
+    "mini",
+    () => true,
+  );
+  expect(empty).toBe("");
+  expect(emptyCalls).toBe(1);
+
+  let overCalls = 0;
+  const over = await withTooLong(
+    async (ask) => {
+      overCalls += 1;
+      return ask.startsWith("Too long.") ? "1. short" : "1. " + "x".repeat(80);
+    },
+    "prompt",
+    "mini",
+    (reply) => sizeRuler(reply) > 20,
+  );
+  expect(over).toBe("1. short");
+  expect(overCalls).toBe(2);
+
+  let stuck = 0;
+  const last = await withTooLong(
+    async () => {
+      stuck += 1;
+      return "1. " + "y".repeat(80);
+    },
+    "prompt",
+    "mini",
+    (reply) => sizeRuler(reply) > 20,
+  );
+  expect(last.startsWith("1. ")).toBe(true);
+  expect(stuck).toBe(5);
+
+  let engineCalls = 0;
+  const dir = tmpDir("one-layer");
+  const engine = createCompactEngine(
+    loadConfig({
+      dataDir: dir,
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 0,
+      compactDebounceMs: 1,
+      compactBatch: 1,
+    }),
+    {
+      runner: async () => {
+        engineCalls += 1;
+        return "1. " + "z".repeat(200);
+      },
+    },
+  );
+  await expect(engine.compress({
+    kind: "leaf",
+    source: LONG,
+    contextLines: [],
+    nodeBytes: 40,
+  })).rejects.toBeDefined();
+  expect(engineCalls).toBe(5);
 });

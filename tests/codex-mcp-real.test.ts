@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { bootNcli, type Booted } from "../src/boot";
 import { loadConfig } from "../src/config";
 import { NCLI_TOOLS } from "../src/mcp/tools";
+import { CODEX_COMPACT_MODELS, listProviderModels } from "../src/memory/compact-models";
+import { parseMcpList } from "../src/memory/cli-compact";
 import { initTempRepo } from "../src/sparks/worktree";
 
 const CATALOG = NCLI_TOOLS.map((tool) => tool.name).sort();
@@ -52,6 +54,34 @@ registerCatalog("codex 0.160.1 re-enables a disabled ncli and keeps servers adde
     expect(namesOf(second)).toEqual(["ncli", "other", "third"]);
     expect(toolNames(second, "ncli")).toEqual(CATALOG);
   });
+});
+
+registerCatalog("codex 0.160.1 has no models command and compact uses a fixed list", async (bin) => {
+  const help = spawnSync(bin, ["--help"], { encoding: "utf8", timeout: 8000 });
+  const text = `${help.stdout ?? ""}\n${help.stderr ?? ""}`;
+  expect(text).toMatch(/^\s+exec\b/m);
+  expect(text).not.toMatch(/^\s+models\b/m);
+  let spawned = 0;
+  const models = await listProviderModels("codex", loadConfig({ codexBin: bin }), {
+    spawn: () => {
+      spawned += 1;
+      throw new Error("codex 0.160.1 must not spawn a models command");
+    },
+  });
+  expect(spawned).toBe(0);
+  expect(models).toEqual([...CODEX_COMPACT_MODELS]);
+  const home = mkdtempSync(join(tmpdir(), "codex-mcp-list-"));
+  writeFileSync(
+    join(home, "config.toml"),
+    `[mcp_servers.alpha]\ncommand = "true"\n[mcp_servers.beta]\ncommand = "true"\n`,
+  );
+  const listed = spawnSync(bin, ["mcp", "list", "--json"], {
+    encoding: "utf8",
+    timeout: 8000,
+    env: { PATH: process.env.PATH ?? "", LANG: "C", HOME: home, CODEX_HOME: home },
+  });
+  expect(parseMcpList(listed.stdout ?? "")).toEqual(["alpha", "beta"]);
+  expect(parseMcpList(`${listed.stdout ?? ""}\n${listed.stderr ?? ""}`)).toEqual(["alpha", "beta"]);
 });
 
 registerCatalog("codex 0.160.1 lists zoom, recall, and every ncli tool for spark:<id>", async (bin) => {

@@ -9,7 +9,7 @@ import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
 import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
 import { COMPACT_PROMPT } from "./compact";
 import { CompactBudgetPause, CompactDeferred, CompactHold, isProviderLimitMessage, ProviderLimitError } from "./compact-deferred";
-import { COMPACT_RULER, COMPACT_TOO_LONG_TRIES } from "./cli-compact";
+import { rulerBar, sizeRuler, withTooLong } from "./cli-compact";
 import type { CompactInput, Compressor } from "./store";
 
 export { CompactBudgetPause, CompactDeferred, CompactHold, ProviderLimitError };
@@ -117,7 +117,7 @@ export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
   const chat = jobs[0]?.input.contextLines?.join("\n") ?? "";
   const body = jobs
     .map((j, i) => {
-      const ruler = "-".repeat(COMPACT_RULER);
+      const ruler = rulerBar(j.input.nodeBytes);
       const step =
         j.input.kind === "leaf"
           ? `Compress:\n<input>\n${j.input.source}\n</input>`
@@ -198,19 +198,14 @@ async function runBatch(
   const tokensIn = estimateTokens(prompt);
   onProgress?.(compactSnapshot(cfg, true, jobs.length));
   try {
-    let reply = "";
-    let lines: string[] = [];
-    let ask = prompt;
-    for (let tryN = 0; tryN < COMPACT_TOO_LONG_TRIES; tryN++) {
-      reply = await run(ask, cfg.compactModel);
-      lines = parseNumbered(reply, jobs.length);
-      const over = jobs.some((j, i) => {
-        const line = flattenLine(lines[i] ?? "");
-        return !line || utf8Bytes(line) > j.input.nodeBytes;
+    const reply = await withTooLong(run, prompt, cfg.compactModel, (text) => {
+      const numbered = parseNumbered(text, jobs.length);
+      return jobs.some((j, i) => {
+        const line = flattenLine(numbered[i] ?? "");
+        return Boolean(line) && sizeRuler(line) > j.input.nodeBytes;
       });
-      if (!over) break;
-      ask = `Too long.\n${prompt}`;
-    }
+    });
+    const lines = parseNumbered(reply, jobs.length);
     const tokensOut = estimateTokens(reply);
     bumpBudget(cfg, tokensIn + tokensOut);
     logCall(cfg.dataDir, {
@@ -225,7 +220,7 @@ async function runBatch(
     jobs.forEach((j, i) => {
       const raw = lines[i];
       const line = raw ? flattenLine(raw) : "";
-      if (!line || utf8Bytes(line) > j.input.nodeBytes) {
+      if (!line || sizeRuler(line) > j.input.nodeBytes) {
         j.reject(new CompactDeferred());
         return;
       }

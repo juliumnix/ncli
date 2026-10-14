@@ -1,12 +1,10 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import { MASTER, VIEW_DOC } from "./assemble";
 import { codexMcpFlags } from "../mcp/inject";
 import { loadMcpRegistry, resolveServers, spawnVars } from "../mcp/registry";
 import { skillPrompt } from "../skills/catalog";
-import { flattenLine } from "../util";
+import { flattenLine, utf8Bytes } from "../util";
 import type { CompactProvider } from "./compact-choice";
 import {
   CompactCliError,
@@ -19,14 +17,22 @@ import { cliAuthMessage, cliMissingMessage } from "./compact-models";
 import {
   bunCompactSpawn,
   CompactProcPool,
+  COMPACT_CHILD_TIMEOUT_MS,
+  isolatedCompactCwd,
   readChildText,
   type CompactChild,
   type CompactProcTiming,
   type CompactSpawn,
 } from "./compact-proc";
 
-export const COMPACT_RULER = 512;
+export { isolatedCompactCwd };
+
 export const COMPACT_TOO_LONG_TRIES = 5;
+export const sizeRuler = utf8Bytes;
+
+export function rulerBar(limit: number): string {
+  return "-".repeat(Math.max(0, limit));
+}
 
 export type CliCompactDeps = {
   spawn?: CompactSpawn;
@@ -34,20 +40,38 @@ export type CliCompactDeps = {
   env?: Record<string, string | undefined>;
   onTiming?: (row: CompactProcTiming & { provider: CompactProvider }) => void;
   shareChat?: boolean;
+  mcpNames?: string[];
+  timeoutMs?: number;
 };
 
 export const CODEX_ISOLATE_C = [
-  "mcp_servers={}",
   "project_doc_max_bytes=0",
   'instructions=""',
   'developer_instructions=""',
 ] as const;
 
-export function isolatedCompactCwd(dataDir: string): string {
-  const dir = join(dataDir, "compact-empty");
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
+export const CODEX_DISABLE_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "unified_exec_tty",
+  "apps",
+  "browser_use",
+  "browser_use_external",
+  "browser_use_full_cdp_access",
+  "computer_use",
+  "image_generation",
+  "sleep_tool",
+  "view_image",
+  "skill_search",
+  "plugins",
+  "web_search_request",
+  "web_search_cached",
+  "standalone_web_search",
+  "in_app_browser",
+  "in_app_local_automation",
+  "multi_agent",
+  "hooks",
+] as const;
 
 export function compactSharesChat(provider: CompactProvider, harness: string): boolean {
   return harness === provider;
@@ -61,12 +85,68 @@ export function compactAsk(prompt: string, shareChat: boolean): string {
   return shareChat ? `${chatSystemPrompt()}\n\n${prompt}` : prompt;
 }
 
+export function mcpListArgv(bin: string): string[] {
+  return [bin, "mcp", "list", "--json"];
+}
+
+export function parseMcpList(stdout: string): string[] {
+  const json = parseLeadingJson(stdout);
+  return json === undefined ? [] : mcpNamesFromUnknown(json);
+}
+
+function parseLeadingJson(text: string): unknown {
+  const start = text.search(/[\[{]/);
+  if (start < 0) return undefined;
+  const slice = text.slice(start);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    for (let i = slice.length; i > 1; i--) {
+      const ch = slice[i - 1];
+      if (ch !== "]" && ch !== "}") continue;
+      try {
+        return JSON.parse(slice.slice(0, i));
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+}
+
+export function isolateCodexFlags(mcpNames: string[]): string[] {
+  const flags = ["--skip-git-repo-check", "--sandbox", "read-only"];
+  for (const name of mcpNames) {
+    if (!name) continue;
+    flags.push("-c", `mcp_servers.${name}.enabled=false`);
+  }
+  for (const feat of CODEX_DISABLE_FEATURES) flags.push("--disable", feat);
+  for (const key of CODEX_ISOLATE_C) flags.push("-c", key);
+  return flags;
+}
+
+export async function withTooLong(
+  run: (prompt: string, model: string) => Promise<string>,
+  prompt: string,
+  model: string,
+  tooLong: (reply: string) => boolean,
+): Promise<string> {
+  let ask = prompt;
+  let last = "";
+  for (let i = 0; i < COMPACT_TOO_LONG_TRIES; i++) {
+    last = await run(ask, model);
+    if (!last.trim() || !tooLong(last)) return last;
+    ask = `Too long.\n${prompt}`;
+  }
+  return last;
+}
+
 export function cliCompactArgv(
   provider: CompactProvider,
   cfg: NcliConfig,
   model: string,
   prompt: string,
-  opts: { shareChat?: boolean } = {},
+  opts: { shareChat?: boolean; mcpNames?: string[] } = {},
 ): string[] {
   switch (provider) {
     case "codex": {
@@ -74,8 +154,7 @@ export function cliCompactArgv(
       if (opts.shareChat) {
         args.push(...codexMcpFlags(resolveServers(loadMcpRegistry(cfg.ncliRoot), spawnVars(cfg, "compact"))));
       } else {
-        args.push("--skip-git-repo-check", "--sandbox", "read-only");
-        for (const key of CODEX_ISOLATE_C) args.push("-c", key);
+        args.push(...isolateCodexFlags(opts.mcpNames ?? []));
       }
       if (model) args.push("--model", model);
       args.push(prompt);
@@ -117,6 +196,28 @@ export function parseCliCompactOutput(provider: CompactProvider, stdout: string)
   }
 }
 
+export async function listCodexMcpNames(
+  bin: string,
+  spawn: CompactSpawn,
+  env: Record<string, string>,
+  opts: { cwd?: string; timeoutMs?: number } = {},
+): Promise<string[]> {
+  const child = spawn(mcpListArgv(bin), env, {
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs ?? 15_000,
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    readChildText(child.stdout),
+    readChildText(child.stderr),
+    child.exited,
+  ]);
+  const names = parseMcpList(stdout);
+  if (code !== 0 && !names.length) {
+    throw new CompactCliError(`Codex CLI falhou: mcp list ${stderr.trim() || `exit ${code}`}`);
+  }
+  return names;
+}
+
 export async function runCliCompact(
   provider: CompactProvider,
   cfg: NcliConfig,
@@ -127,20 +228,25 @@ export async function runCliCompact(
   const pool = deps.pool ?? new CompactProcPool();
   const spawn = deps.spawn ?? bunCompactSpawn;
   const env = childEnv(deps.env ?? process.env);
-  await pool.acquire();
   const shareChat = Boolean(deps.shareChat);
-  const argv = cliCompactArgv(provider, cfg, model, prompt, { shareChat });
   const cwd = shareChat ? undefined : isolatedCompactCwd(cfg.dataDir);
+  const timeoutMs = deps.timeoutMs ?? cfg.compactTimeoutMs ?? COMPACT_CHILD_TIMEOUT_MS;
+  let mcpNames = deps.mcpNames;
+  if (provider === "codex" && !shareChat && !mcpNames) {
+    mcpNames = await listCodexMcpNames(cfg.codexBin, spawn, env, { cwd, timeoutMs: 15_000 });
+  }
+  await pool.acquire();
+  const argv = cliCompactArgv(provider, cfg, model, prompt, { shareChat, mcpNames });
   const t0 = Date.now();
   let child: CompactChild;
   try {
-    child = spawn(argv, env, cwd ? { cwd } : undefined);
+    child = spawn(argv, env, cwd ? { cwd, timeoutMs } : { timeoutMs });
   } catch (err) {
     throw classifyCliError(provider, cfg, err);
   }
   const spawnMs = Date.now() - t0;
   const pid = child.pid || pool.allocPid();
-  pool.track(pid, () => child.kill());
+  pool.track(pid, () => child.kill(), timeoutMs);
   try {
     const [stdout, stderr, code] = await Promise.all([
       readChildText(child.stdout),
@@ -236,4 +342,36 @@ function pickText(rec: Record<string, unknown>): string {
     if (typeof v === "string" && v.trim()) return v.trim();
   }
   return "";
+}
+
+function mcpNamesFromUnknown(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return uniqueNames(value.map(mcpNameOf).filter(Boolean));
+  }
+  if (value && typeof value === "object") {
+    const rec = value as { servers?: unknown; mcp_servers?: unknown };
+    if (Array.isArray(rec.servers)) return mcpNamesFromUnknown(rec.servers);
+    if (Array.isArray(rec.mcp_servers)) return mcpNamesFromUnknown(rec.mcp_servers);
+  }
+  return [];
+}
+
+function mcpNameOf(item: unknown): string {
+  if (typeof item === "string") return item.trim();
+  if (item && typeof item === "object") {
+    const rec = item as { name?: unknown };
+    return typeof rec.name === "string" ? rec.name.trim() : "";
+  }
+  return "";
+}
+
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
