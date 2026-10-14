@@ -214,11 +214,31 @@ export class Memory {
   }
 
   viewBytesUsed(): number {
-    const facts = factsOf(this.log);
-    return this.view.reduce((s, p) => {
-      const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
-      return s + p.size + (header ? utf8Bytes(`${header}\n`) : 0);
-    }, 0);
+    const facts = this.factsCached();
+    return this.view.reduce((s, p) => s + this.partBytes(p, facts), 0);
+  }
+
+  private partBytes(p: ViewPart, facts: Map<number, Successor>): number {
+    const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
+    return p.size + (header ? utf8Bytes(`${header}\n`) : 0);
+  }
+
+  private factsMemo: { seen: number; index: Map<number, Successor> } = { seen: 0, index: new Map() };
+
+  /** factsOf(this.log) extended incrementally: the log is append-only, so only new messages are scanned. */
+  private factsCached(): Map<number, Successor> {
+    const memo = this.factsMemo;
+    if (memo.seen > this.log.length) memo.seen = 0, memo.index = new Map();
+    for (; memo.seen < this.log.length; memo.seen++) {
+      const msg = this.log[memo.seen];
+      if (!msg?.supersedes?.length) continue;
+      const by = msg.successor ?? msg.i;
+      const reason = msg.reason ?? "";
+      for (const id of msg.supersedes) {
+        if (Number.isInteger(id) && id >= 0) memo.index.set(id, { by, reason });
+      }
+    }
+    return memo.index;
   }
 
   allBuilt(): boolean {
@@ -705,32 +725,30 @@ export class Memory {
 
   fit(): void {
     this.refreshViewParts();
-    while (this.viewBytesUsed() > this.viewLow) {
-      let bestAt = -1;
-      let bestDue = Number.NEGATIVE_INFINITY;
-      let bestBuilt = false;
-      for (let k = 0; k < this.view.length - 1; k++) {
-        const a = this.view[k];
-        const b = this.view[k + 1];
-        if (a.l !== b.l || a.i % 2 !== 0 || b.i !== a.i + 1) continue;
-        const built = Boolean(this.nodeOf(a.l + 1, Math.floor(a.i / 2)));
-        const due = pairDue(this.T, a.l, a.i);
-        if (built !== bestBuilt) {
-          if (built || bestAt < 0) {
-            bestBuilt = built;
-            bestDue = due;
-            bestAt = k;
-          }
-          continue;
-        }
-        if (due > bestDue) {
-          bestDue = due;
-          bestAt = k;
-        }
-      }
-      if (bestAt < 0) break;
-      const a = this.view[bestAt];
-      this.view.splice(bestAt, 2, this.partFromLevel(a.l + 1, Math.floor(a.i / 2)));
+    const facts = this.factsCached();
+    let bytes = this.viewBytesUsed();
+    const heap = new PairHeap();
+    const T = this.T;
+    const consider = (left: ViewPart | undefined, right: ViewPart | undefined) => {
+      if (!left || !right || left.l !== right.l || left.i % 2 !== 0 || right.i !== left.i + 1) return;
+      const built = Boolean(this.nodeOf(left.l + 1, left.i / 2));
+      heap.push({ left, right, built, due: pairDue(T, left.l, left.i), start: left.start });
+    };
+    for (let k = 0; k < this.view.length - 1; k++) consider(this.view[k], this.view[k + 1]);
+    const dead = new Set<ViewPart>();
+    while (bytes > this.viewLow) {
+      let pick = heap.pop();
+      while (pick && (dead.has(pick.left) || dead.has(pick.right))) pick = heap.pop();
+      if (!pick) break;
+      const { left: a, right: b } = pick;
+      const at = this.view.indexOf(a);
+      const merged = this.partFromLevel(a.l + 1, a.i / 2);
+      bytes += this.partBytes(merged, facts) - this.partBytes(a, facts) - this.partBytes(b, facts);
+      this.view.splice(at, 2, merged);
+      dead.add(a);
+      dead.add(b);
+      consider(this.view[at - 1], merged);
+      consider(merged, this.view[at + 1]);
       this.notify();
     }
     this.saveView();
@@ -740,9 +758,16 @@ export class Memory {
   rebuildView(): void {
     this.muteChange = true;
     this.view = [];
+    const facts = this.factsCached();
+    let bytes = 0;
     for (let i = 0; i < this.T; i++) {
-      this.view.push(this.partFromLevel(0, i));
-      if (this.viewBytesUsed() > this.viewHigh) this.fit();
+      const part = this.partFromLevel(0, i);
+      this.view.push(part);
+      bytes += this.partBytes(part, facts);
+      if (bytes > this.viewHigh) {
+        this.fit();
+        bytes = this.viewBytesUsed();
+      }
     }
     this.muteChange = false;
     this.saveView();
@@ -916,4 +941,51 @@ export function mockCompressor(): Compressor {
 
 export function writeSnapshot(mem: Memory): void {
   writeFileSync(join(mem.dir, "view.txt"), mem.renderView(), "utf8");
+}
+
+type PairCandidate = { left: ViewPart; right: ViewPart; built: boolean; due: number; start: number };
+
+/** Max-heap with the same order fit() always used: built pairs first, then highest due, then leftmost. */
+class PairHeap {
+  private items: PairCandidate[] = [];
+
+  private static before(x: PairCandidate, y: PairCandidate): boolean {
+    if (x.built !== y.built) return x.built;
+    if (x.due !== y.due) return x.due > y.due;
+    return x.start < y.start;
+  }
+
+  push(item: PairCandidate): void {
+    const h = this.items;
+    h.push(item);
+    let k = h.length - 1;
+    while (k > 0) {
+      const up = (k - 1) >> 1;
+      if (!PairHeap.before(h[k]!, h[up]!)) break;
+      [h[k], h[up]] = [h[up]!, h[k]!];
+      k = up;
+    }
+  }
+
+  pop(): PairCandidate | undefined {
+    const h = this.items;
+    if (!h.length) return undefined;
+    const top = h[0];
+    const last = h.pop()!;
+    if (h.length) {
+      h[0] = last;
+      let k = 0;
+      for (;;) {
+        const l = 2 * k + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < h.length && PairHeap.before(h[l]!, h[m]!)) m = l;
+        if (r < h.length && PairHeap.before(h[r]!, h[m]!)) m = r;
+        if (m === k) break;
+        [h[k], h[m]] = [h[m]!, h[k]!];
+        k = m;
+      }
+    }
+    return top;
+  }
 }
