@@ -101,13 +101,9 @@ export class SparkManager {
     return [...this.runtimes.values()].map((r) => r.spark);
   }
 
+  /** Includes closed and merged sparks so shutdown flushes late appends. */
   sparkMemories(): Memory[] {
-    const memories: Memory[] = [];
-    for (const rt of this.runtimes.values()) {
-      if (!OPEN_STATUS.has(rt.spark.status)) continue;
-      memories.push(rt.memory);
-    }
-    return memories;
+    return [...this.runtimes.values()].map((rt) => rt.memory);
   }
 
   setHarness(harness: Harness): void {
