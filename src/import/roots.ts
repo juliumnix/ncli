@@ -26,3 +26,14 @@ export function rootFor(source: ImportSource, roots: ImportRoots): string {
     }
   }
 }
+
+export function displayImportRoot(root: string, home = homedir()): string {
+  if (root === home) return "~";
+  const sep = root.startsWith(`${home}/`) ? "/" : root.startsWith(`${home}\\`) ? "\\" : "";
+  if (!sep) return root;
+  return `~${sep}${root.slice(home.length + 1)}`;
+}
+
+export function publicImportPreview<T extends { root: string }>(preview: T, home = homedir()): T {
+  return { ...preview, root: displayImportRoot(preview.root, home) };
+}

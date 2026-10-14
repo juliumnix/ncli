@@ -8,6 +8,7 @@ import { handleMcpHttp } from "./mcp/http";
 import { sanitizeViewHtml } from "./util";
 import { liveOrigin } from "./live/origin";
 import { publicJson, redactValue } from "./redact";
+import { publicImportPreview } from "./import/roots";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -48,7 +49,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(wire({ type: "queue", items: hub.queue.list() }));
             c.enqueue(wire({ type: "usage", usage: hub.usage.snapshot() }));
             if (hub.lastImport) {
-              c.enqueue(wire({ type: "import", preview: hub.lastImport, offers: hub.importOffers }));
+              c.enqueue(wire({ type: "import", preview: publicImportPreview(hub.lastImport), offers: hub.importOffers }));
             }
           },
           cancel() {

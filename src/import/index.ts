@@ -18,7 +18,7 @@ export {
   saveCheckpoint,
 } from "./checkpoint";
 export { isImportSource, parseImportArgv } from "./args";
-export { defaultImportRoots, rootFor } from "./roots";
+export { defaultImportRoots, displayImportRoot, publicImportPreview, rootFor } from "./roots";
 export { listSessionFiles, parseSessionFile, parseSessionLines, parseSessionStream, textOf } from "./parse";
 export { runImportJob } from "./job";
 export { IMPORT_BATCH_BYTES, IMPORT_BATCH_LINES, IMPORT_YIELD_MS } from "./protocol";
