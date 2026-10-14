@@ -3,6 +3,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Booted } from "../src/boot";
 import { registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
+import { loadCompactQueue } from "../src/memory/compact-queue";
 import { Memory } from "../src/memory/store";
 import { installChildShutdown, resetShutdownForTest, runShutdown, setHarnessKiller } from "../src/shutdown";
 import { tmpDir } from "./helpers";
@@ -178,4 +179,70 @@ test("one memory flushTree throw still writes the others' tree.jsonl and view.js
     const view = JSON.parse(readFileSync(viewPath, "utf8")) as { parts: Array<{ l: number; i: number }> };
     expect(view.parts.length).toBeGreaterThan(0);
   }
+});
+
+test("SIGTERM mid hung compact writes the killed job to compact-queue.json and the next boot redoes it", async () => {
+  const dir = join(tmpDir("hung-compact"), "mem");
+  const LONG = "marcador-requeue FACT_KILL_IN_FLIGHT_MUST_RETURN applies. ".repeat(8);
+  let rejectHang!: (err: Error) => void;
+  const hung = new Promise<never>((_, reject) => {
+    rejectHang = reject;
+  });
+  const mem = new Memory({
+    dir,
+    nodeBytes: 40,
+    viewBytes: 4000,
+    compactJobs: 1,
+    pumpBatch: 1,
+    compressTimeoutMs: 0,
+    compressor: async () => hung,
+  });
+  mem.append({ kind: "user", text: LONG });
+  const deadline = Date.now() + 3000;
+  while (mem["busy"].size === 0 && Date.now() < deadline) await Bun.sleep(5);
+  const inFlight = [...mem["busy"]] as string[];
+  expect(inFlight.length).toBeGreaterThan(0);
+
+  registerBootShutdown(fakeBooted(mem));
+  const others = process.listeners("SIGTERM");
+  process.removeAllListeners("SIGTERM");
+  const exited = new Promise<number>((resolve) => {
+    const stop = installChildShutdown({
+      exit: (code) => {
+        stop();
+        resolve(code);
+      },
+    });
+  });
+  process.kill(process.pid, "SIGTERM");
+  expect(await exited).toBe(143);
+  for (const l of others) process.on("SIGTERM", l as () => void);
+  rejectHang(new Error("killed"));
+
+  const jobs = loadCompactQueue(dir);
+  expect(jobs === null ? 0 : jobs.length).toBeGreaterThan(0);
+  for (const key of inFlight) {
+    const [l, i] = key.split(":").map(Number);
+    expect(jobs!.some((job) => job.l === l && job.i === i)).toBe(true);
+  }
+
+  let redone = 0;
+  const again = new Memory({
+    dir,
+    nodeBytes: 40,
+    viewBytes: 4000,
+    compactJobs: 1,
+    pumpBatch: 1,
+    compressor: async () => {
+      redone += 1;
+      return { text: "REDO_OK", compactor: "cli" as const, agent: "codex", model: "mini" };
+    },
+  });
+  await again.pump();
+  expect(redone).toBeGreaterThan(0);
+  for (const key of inFlight) {
+    const [l, i] = key.split(":").map(Number);
+    expect(again.nodeOf(l, i)?.compactor).toBe("cli");
+  }
+  again.paused = true;
 });
