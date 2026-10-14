@@ -106,11 +106,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             debug: { ...snap.debug, lines: [] },
           });
         }
-<<<<<<< HEAD
-        return publicJson(snap);
-=======
-        return Response.json({ ...snap, debug: { ...snap.debug, lines: [] } });
->>>>>>> 83102aa (perf(state): boot the log index and page the last window)
+        return publicJson({ ...snap, debug: { ...snap.debug, lines: [] } });
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };
