@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "../types";
 
@@ -205,18 +205,10 @@ export class LogIndex {
     if (this.offsets.length === 0) return 0;
     const last = this.offsets[this.offsets.length - 1] ?? 0;
     if (!existsSync(this.logPath)) return 0;
-    const size = statSync(this.logPath).size;
-    if (last >= size) return last;
-    const fd = openSync(this.logPath, "r");
-    try {
-      const want = Math.min(size - last, 8 << 20);
-      const chunk = Buffer.allocUnsafe(want);
-      const n = readSync(fd, chunk, 0, want, last);
-      const nl = chunk.subarray(0, n).indexOf(10);
-      return nl < 0 ? last : last + nl + 1;
-    } finally {
-      closeSync(fd);
-    }
+    const buf = readFileSync(this.logPath);
+    if (last >= buf.length) return last;
+    const nl = buf.subarray(last).indexOf(10);
+    return nl < 0 ? last : last + nl + 1;
   }
 
   private recordLine(offset: number, line: string): void {
