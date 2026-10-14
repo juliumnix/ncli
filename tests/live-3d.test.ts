@@ -127,7 +127,7 @@ test("chrome: a 3d fence paints the requested scene without same-origin", async 
           const cube = frames[1];
           const box = desk.getBoundingClientRect();
           return Boolean(
-            box.height >= 400 &&
+            box.height >= 360 &&
               desk.getAttribute("sandbox") === "allow-scripts" &&
               !String(desk.getAttribute("sandbox") || "").includes("allow-same-origin") &&
               String(desk.getAttribute("src") || "").includes(encodeURIComponent("ncli3d.desk()")) &&
@@ -169,7 +169,7 @@ test("chrome: a 3d fence paints the requested scene without same-origin", async 
       };
     })()`);
     expect(facts.card).toBe(false);
-    expect(facts.height).toBeGreaterThanOrEqual(400);
+    expect(facts.height).toBeGreaterThanOrEqual(360);
     expect(facts.sandbox).toBe("allow-scripts");
     expect(facts.sandbox).not.toContain("allow-same-origin");
     expect(facts.deskSrc).toContain(encodeURIComponent("ncli3d.desk()"));

@@ -36,7 +36,7 @@ function nextLiveFrameName(kind: LiveKind): string {
 export function iframeTag(block: LiveBlock, id?: string): string {
   if (block.kind === "3d") {
     const src = ncli3dSrc(block.source);
-    return `<iframe class="live-frame live-3d" name="${nextLiveFrameName(block.kind)}" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe>`;
+    return `<div class="live-wrap in"><iframe class="live-frame live-3d" name="${nextLiveFrameName(block.kind)}" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
   }
   if (block.kind === "url") {
     const href = safeUrl(block.source);
@@ -51,7 +51,7 @@ export function iframeTag(block: LiveBlock, id?: string): string {
   if (block.kind === "ui") {
     return `<div class="ui-card live-wrap in" data-ui-key="${uiKey(block.source)}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${frame}</div>`;
   }
-  return frame;
+  return `<div class="live-wrap in">${frame}</div>`;
 }
 
 export function safeUrl(raw: string): string | null {
@@ -85,24 +85,25 @@ export function mermaidSvg(source: string): string {
     if (node) nodes.set(node[1], node[2]);
   }
   const ids = [...nodes.keys()];
-  const w = Math.max(280, ids.length * 120);
+  const pad = 16;
+  const w = Math.max(280, ids.length * 120) + pad * 2;
   const boxes = ids
     .map((id, i) => {
-      const x = 20 + i * 120;
+      const x = pad + i * 120;
       const label = escapeHtml(nodes.get(id) ?? id);
-      return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="#151518" stroke="#2b2b31"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif" fill="#eeeef0">${label}</text>`;
+      return `<rect x="${x}" y="${pad + 12}" width="100" height="40" rx="8" fill="#151518" stroke="#2b2b31"/><text x="${x + 50}" y="${pad + 37}" text-anchor="middle" font-size="12" font-family="sans-serif" fill="#eeeef0">${label}</text>`;
     })
     .join("");
   const arrows = edges
     .map(([a, b]) => {
       const i = ids.indexOf(a);
       const j = ids.indexOf(b);
-      const x1 = 20 + i * 120 + 100;
-      const x2 = 20 + j * 120;
-      return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="#6ea4ff" marker-end="url(#ncli-arrow)"/>`;
+      const x1 = pad + i * 120 + 100;
+      const x2 = pad + j * 120;
+      return `<line x1="${x1}" y1="${pad + 32}" x2="${x2}" y2="${pad + 32}" stroke="#6ea4ff" marker-end="url(#ncli-arrow)"/>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6ea4ff"/></marker></defs>${arrows}${boxes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${80 + pad * 2}" width="100%" height="${80 + pad * 2}"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6ea4ff"/></marker></defs>${arrows}${boxes}</svg>`;
 }
 
 export function jsxLite(source: string): string {

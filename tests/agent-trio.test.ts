@@ -9,10 +9,14 @@ import { makeHub, shotsDir, waitUntil } from "./helpers";
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const indexHtml = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 
-test("client trio stays in lockstep with CliPresence", () => {
-  expect(indexHtml).toContain('id="agentTrio"');
+test("header switcher is one pill and the trio lives in the menu", () => {
+  expect(indexHtml).not.toContain("agentTrio");
+  expect(indexHtml).not.toContain("trio-seat");
   expect(appJs).toContain("function agentTrio");
-  expect(appJs).toContain("function renderAgentTrio");
+  expect(appJs).not.toContain("function renderAgentTrio");
+  expect(appJs).toContain('<span class="model">');
+  expect(appJs).toContain('<i class="dot');
+  expect(appJs).toContain('data-seat="${id}"');
   expect(appJs).toContain('["claude", "codex", "cursor"]');
   expect(appJs).toContain("main: seat === main && present");
   expect(agentTrio({ claude: true, codex: true, cursor: false }, "claude").filter((r) => r.present).map((r) => r.seat)).toEqual([
@@ -21,7 +25,7 @@ test("client trio stays in lockstep with CliPresence", () => {
   ]);
 });
 
-test("chrome: empty session shows the three-agent trio", async () => {
+test("chrome: header has one agent avatar and the menu lists three seats", async () => {
   if (!chromePath()) throw new Error("chrome not found");
   const { hub } = await makeHub();
   hub.cfg.port = 19500 + Math.floor(Math.random() * 400);
@@ -32,43 +36,39 @@ test("chrome: empty session shows the three-agent trio", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver!.session.evaluate(`Boolean(document.querySelector(".welcome") && document.querySelectorAll(".trio-seat").length === 3)`),
+      () => driver!.session.evaluate(`Boolean(document.getElementById("switchBtn") && document.querySelector(".welcome"))`),
       8000,
-      "agent trio",
+      "header switcher",
+    );
+    await driver.session.evaluate(`document.getElementById("switchBtn")?.click()`);
+    await waitUntil(
+      () => driver!.session.evaluate(`Boolean(document.querySelector(".switch-menu.open") && document.querySelectorAll(".switch-opt[data-seat]").length === 3)`),
+      4000,
+      "switch menu",
     );
     const facts = await driver.session.evaluate<{
+      headerAvatars: number;
       seats: string[];
-      main: string;
-      switcher: boolean;
-      clash: number;
-      claude: string;
-    }>(`(() => {
-      const seats = [...document.querySelectorAll(".trio-seat")].map((el) => el.getAttribute("data-seat") || "");
-      const main = document.querySelector(".trio-seat.on")?.getAttribute("data-seat") || "";
-      const claude = document.querySelector('[data-seat="claude"]');
-      return {
-        seats,
-        main,
-        switcher: Boolean(document.getElementById("switchBtn")),
-        clash: document.querySelectorAll(".trio-seat.on.off").length,
-        claude: claude ? claude.className : "",
-      };
-    })()`);
+      trio: number;
+    }>(`(() => ({
+      headerAvatars: document.querySelectorAll("#switchBtn .av").length,
+      seats: [...document.querySelectorAll(".switch-opt[data-seat]")].map((el) => el.getAttribute("data-seat") || ""),
+      trio: document.querySelectorAll(".trio-seat, #agentTrio").length,
+    }))()`);
+    expect(facts.headerAvatars).toBe(1);
     expect(facts.seats).toEqual(["claude", "codex", "cursor"]);
-    expect(facts.clash).toBe(0);
-    expect(facts.switcher).toBe(true);
-    if (facts.claude.includes("off")) expect(facts.main).toBe("");
-    else expect(facts.main).toBe("claude");
+    expect(facts.trio).toBe(0);
     const dir = shotsDir();
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "agent-trio.png"), await driver.session.screenshot());
   } finally {
     driver?.close();
     booted.stop();
+    hub.close();
   }
 }, 30000);
 
-test("chrome: missing main CLI is off, never on+off", async () => {
+test("chrome: missing main CLI is off in the menu, never on+off", async () => {
   if (!chromePath()) throw new Error("chrome not found");
   const { hub } = await makeHub();
   hub.cfg.claudeBin = "/no/such/ncli-claude";
@@ -80,15 +80,21 @@ test("chrome: missing main CLI is off, never on+off", async () => {
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver!.session.evaluate(`document.querySelectorAll(".trio-seat").length === 3`),
+      () => driver!.session.evaluate(`Boolean(document.getElementById("switchBtn"))`),
       8000,
-      "agent trio",
+      "header switcher",
+    );
+    await driver.session.evaluate(`document.getElementById("switchBtn")?.click()`);
+    await waitUntil(
+      () => driver!.session.evaluate(`document.querySelectorAll(".switch-opt[data-seat]").length === 3`),
+      4000,
+      "switch menu",
     );
     const facts = await driver.session.evaluate<{ claude: string; clash: number }>(`(() => {
-      const claude = document.querySelector('[data-seat="claude"]');
+      const claude = document.querySelector('.switch-opt[data-seat="claude"]');
       return {
         claude: claude ? claude.className : "",
-        clash: document.querySelectorAll(".trio-seat.on.off").length,
+        clash: document.querySelectorAll(".switch-opt.on.off").length,
       };
     })()`);
     expect(facts.claude).toContain("off");
@@ -97,5 +103,6 @@ test("chrome: missing main CLI is off, never on+off", async () => {
   } finally {
     driver?.close();
     booted.stop();
+    hub.close();
   }
 }, 30000);
