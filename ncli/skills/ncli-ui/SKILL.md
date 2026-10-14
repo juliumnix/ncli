@@ -1,39 +1,58 @@
 ---
 name: ncli-ui
-description: Reply with an interactive in-chat mini-app (tabs, charts, tables). Use when the user asks to show, compare, or visualize something in the thread.
+description: Reply with an interactive in-chat mini-app or a 3D architecture scene. Use when the user asks to show, compare, visualize, or draw a flow in the thread.
 ---
 
 # ncli-ui
 
-The user asks in plain language ("mostra como card", "um gráfico disso", "documenta em abas", "mostra em 3D"). You reply with a self-contained mini-app or scene. Do not ask them to pick a fence.
+Claude, Codex, and Cursor use the same fences. Do not ask the user to pick one. Do not invent a fourth kind. Do not nest a fence inside another fence.
 
-## Contract
+## Exact fences (copy the fences, never the sample bodies)
 
-A fenced block in the reply, or MCP `ncli.render({kind:"ui", source})` and then repeat the returned fence:
+Diagram (flowchart, mermaid, boxes and arrows):
+
+````
+```ncli mermaid
+flowchart TD
+  <id>[<label from the user's topic>] --> <id2>[<label from the user's topic>]
+```
+````
+
+Card (tabs, metrics, table, chart):
 
 ````
 ```ncli ui
-<div class="tabs">…</div>
+<div class="tabs">…markup for this request…</div>
 ```
 ````
 
-`kind=ui` for cards. `kind=3d` for an in-chat three.js scene. Do not use `html` / `react` for these. The host injects NCLI dark tokens, `ncliChart`, `ncliUi.send`, and `ncli3d`. No CDN. No `fetch`. No cookies.
+3D architecture or flow (nodes, arrows, layers — not furniture):
 
 ````
 ```ncli 3d
-ncli3d.desk()
+ncli3d.graph({
+  nodes: [{id:"a",label:"<name from the request>"},{id:"b",label:"<name from the request>"}],
+  edges: [["a","b"]],
+  layers: [["a"],["b"]]
+})
 ```
 ````
 
-The fence source is the scene. `ncli3d.desk()` draws a wood top, metal frame, and clamp. `ncli3d.box()` draws a red cube. Scripts load from this hub (`/vendor/three.global.js`, `/ncli3d.js`) as classic scripts.
+The bodies above are format templates. Every `label` / tab / metric must come from the user's topic. If you paste a sample body unchanged, you failed the skill.
 
-HTML, react, and 3d stay on `sandbox="allow-scripts"` without `allow-same-origin`, `allow-forms`, or `allow-top-navigation`. They load from the live origin, not the hub. CSP is `default-src 'none'` plus `form-action 'none'` and `navigate-to 'none'`. 3d scripts are `'self' blob:` (vendored three.js). Network is off. Images are `data:` only. Fence scripts run inside `ncliFakes`. `url` waits for a click before loading.
+`kind=ui` only for cards. `kind=mermaid` only for diagrams. `kind=3d` only for `ncli3d.graph`. Do not use `html` / `react` / ` ```mermaid ` / ` ```ncli ui ` wrapping mermaid.
+
+## Host rules
+
+The host injects NCLI dark tokens, `ncliChart`, `ncliUi.send`, and `ncli3d`. No CDN. No `fetch`. No cookies. The iframe is sandboxed (`allow-scripts`, no `allow-same-origin`) with `default-src 'none'`. Images are `data:` only.
+
+`ncli3d.graph({nodes, edges, layers})` draws labeled blocks, arrows, and layers. Labels are the real names from the request (services, seats, files). Do not call the furniture helpers unless the user asked for a desk or a cube.
 
 ## When
 
-Tabs for a short doc. Metric cards for a few numbers. A table with `.badge.ok|warn|bad` for status. `ncliChart(el, {type:"line"|"bar", labels, values})` for a series (hover tooltip, click to focus). `.gallery .ph` for mockup slots. `input type="range"` for a scrubber. Client-side only — tabs and sliders must not call the agent.
+Tabs for a short doc. Metric cards for a few numbers. A table with `.badge.ok|warn|bad`. `ncliChart(el, {type:"line"|"bar", labels, values})` for a series. `.gallery .ph` is an empty slot — do not use it as the whole card. Client-side only.
 
-`ncliUi.send("texto")` only when you put an explicit action in the card ("pedir o plano B"). That text lands as a normal user message.
+`ncliUi.send("texto")` only for an explicit action on the card.
 
 ## Markup the host already styles
 
@@ -44,5 +63,5 @@ Keep the source small. Put scripts after the markup so `ncliChart` exists. Do no
 ## Check
 
 ```bash
-bun test tests/ncli-ui.test.ts tests/live.test.ts tests/live-3d.test.ts
+bun test tests/ncli-ui.test.ts tests/live.test.ts tests/live-3d.test.ts tests/ncli-ui-card.test.ts
 ```

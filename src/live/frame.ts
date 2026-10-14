@@ -1,9 +1,25 @@
 import { escapeHtml } from "../util";
-import type { LiveBlock, LiveKind } from "./parse";
+import type { LiveBlock, LiveKind, LiveRender } from "./parse";
 import { ncli3dSrc } from "./3d-frame";
 import { compartmentHtml } from "./compartment";
 import { liveDocUrl } from "./origin";
+import { liveErrorHtml } from "./shimmer";
 import { liveDocCss, uiKey, wrapUiSource } from "./ui-frame";
+
+export function renderLive(block: LiveBlock): LiveRender {
+  if (block.kind !== "url" && !String(block.source ?? "").trim()) {
+    return {
+      ok: false,
+      kind: block.kind,
+      source: block.source,
+      error: "fonte vazia — o fence fechou cedo ou o kind está errado",
+    };
+  }
+  if (block.kind === "mermaid" && mermaidNodes(block.source).size === 0) {
+    return { ok: false, kind: block.kind, source: block.source, error: "diagrama sem nós" };
+  }
+  return { ok: true, kind: block.kind, html: frameHtml(block) };
+}
 
 export function frameHtml(block: LiveBlock): string {
   switch (block.kind) {
@@ -34,6 +50,8 @@ function nextLiveFrameName(kind: LiveKind): string {
 }
 
 export function iframeTag(block: LiveBlock, id?: string): string {
+  const rendered = renderLive(block);
+  if (!rendered.ok) return liveErrorHtml(rendered.kind as LiveKind, rendered.source, rendered.error);
   if (block.kind === "3d") {
     const src = ncli3dSrc(block.source);
     return `<div class="live-wrap in"><iframe class="live-frame live-3d" name="${nextLiveFrameName(block.kind)}" title="live 3d"${id ? ` data-live="${id}"` : ""} sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
@@ -68,22 +86,36 @@ function doc(body: string): string {
   return compartmentHtml(body, `<style>${liveDocCss()}</style>`);
 }
 
-export function mermaidSvg(source: string): string {
+export function mermaidNodes(source: string): Map<string, string> {
+  const nodes = new Map<string, string>();
+  for (const [a, b] of mermaidEdges(source).nodes) nodes.set(a, b);
+  return nodes;
+}
+
+function mermaidEdges(source: string): { nodes: Map<string, string>; edges: Array<[string, string]> } {
   const nodes = new Map<string, string>();
   const edges: Array<[string, string]> = [];
+  const skip = /^(graph|flowchart|subgraph|end|classDef|class|style|click|%%)/i;
   for (const raw of source.split("\n")) {
     const line = raw.trim();
-    if (!line || /^graph\b|^flowchart\b/i.test(line)) continue;
-    const edge = line.match(/^(\w+)(?:\[([^\]]+)\])?\s*-->\s*(\w+)(?:\[([^\]]+)\])?/);
+    if (!line || skip.test(line)) continue;
+    const edge = line.match(
+      /^(\w+)(?:\[([^\]]+)\])?\s*(?:-->|---|-.->|==>)\s*(?:\|[^|]+\|\s*)?(\w+)(?:\[([^\]]+)\])?/,
+    );
     if (edge) {
-      nodes.set(edge[1], edge[2] ?? nodes.get(edge[1]) ?? edge[1]);
-      nodes.set(edge[3], edge[4] ?? nodes.get(edge[3]) ?? edge[3]);
-      edges.push([edge[1], edge[3]]);
+      nodes.set(edge[1]!, edge[2] ?? nodes.get(edge[1]!) ?? edge[1]!);
+      nodes.set(edge[3]!, edge[4] ?? nodes.get(edge[3]!) ?? edge[3]!);
+      edges.push([edge[1]!, edge[3]!]);
       continue;
     }
     const node = line.match(/^(\w+)\[([^\]]+)\]/);
-    if (node) nodes.set(node[1], node[2]);
+    if (node) nodes.set(node[1]!, node[2]!);
   }
+  return { nodes, edges };
+}
+
+export function mermaidSvg(source: string): string {
+  const { nodes, edges } = mermaidEdges(source);
   const ids = [...nodes.keys()];
   const pad = 16;
   const w = Math.max(280, ids.length * 120) + pad * 2;

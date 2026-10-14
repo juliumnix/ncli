@@ -8,12 +8,23 @@ export type LiveOrigin = {
   stop: () => void;
 };
 
-const SHELL = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${LIVE_DOC_CSP}"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style></head><body><script>
-function ncliWrite(html){if(!html)return;document.open();document.write(html);document.close()}
-try{ncliWrite(decodeURIComponent(String(location.hash||"").replace(/^#/,"")))}catch(e){}
+const SHELL = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${LIVE_DOC_CSP}"><meta name="color-scheme" content="dark"><style>html,body{margin:0;width:100%;height:100%;background:#0f0f11;color:#eeeef0;color-scheme:dark}</style></head><body><script>
+function ncliFail(err){
+  var msg=String(err&&err.message||err||"shell vazio");
+  document.documentElement.style.colorScheme="dark";
+  document.body.style.background="#0f0f11";
+  document.body.innerHTML='<div style="padding:12px;color:#f2777a;font:12px/1.4 ui-sans-serif,system-ui">não deu para renderizar<div style="color:#a8a8b3;margin-top:6px;white-space:pre-wrap">'+msg.replace(/[<>&]/g,function(c){return c==="<"?"&lt;":c===">"?"&gt;":"&amp;"})+"</div></div>";
+  try{parent.postMessage({type:"ncli-live",op:"error",message:msg,name:String(window.name||"")},"*")}catch(e2){}
+}
+function ncliWrite(html){if(!html){ncliFail("hash vazio");return}document.open();document.write(html);document.close()}
+try{
+  var raw=decodeURIComponent(String(location.hash||"").replace(/^#/,""));
+  if(!raw.trim()) ncliFail("hash vazio");
+  else ncliWrite(raw);
+}catch(e){ncliFail(e)}
 addEventListener("message",function(e){
   if(!e.data||e.data.type!=="ncli-live-doc"||typeof e.data.html!=="string")return;
-  ncliWrite(e.data.html);
+  try{ncliWrite(e.data.html)}catch(err){ncliFail(err)}
 });
 </script></body></html>`;
 

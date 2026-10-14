@@ -71,6 +71,8 @@ test("client parser and kit stay in lockstep with the 3d kind", () => {
   expect(kit).toContain("ev.source !== parent");
   expect(kit).toContain("function desk");
   expect(kit).toContain("function box");
+  expect(kit).toContain("function graph");
+  expect(kit).toContain("showError");
   expect(kit).toContain("mesa inteira");
   expect(kit).toContain("Ctrl+scroll");
   expect(kit).toContain('op: "wheel"');
