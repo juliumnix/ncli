@@ -4,7 +4,7 @@ import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
 import { LogIndex } from "./log-index";
 import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
-import { factsOf, supersededHeader, type Successor } from "./facts";
+import { supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
 
 export interface MemoryOptions {
@@ -100,7 +100,28 @@ export class Memory {
   }
 
   get T(): number {
-    return this.log.length;
+    const last = this.log.at(-1)?.i;
+    const fromMem = last == null ? 0 : last + 1;
+    return Math.max(this.logIndex.count, fromMem);
+  }
+
+  get facts(): Map<number, Successor> {
+    return this.logIndex.facts;
+  }
+
+  factsCached(): Map<number, Successor> {
+    return this.facts;
+  }
+
+  at(id: number): Message | undefined {
+    if (!Number.isInteger(id) || id < 0 || id >= this.T) return undefined;
+    if (this.log.length && this.log[0]!.i === 0 && id < this.log.length && this.log[id]?.i === id) {
+      return this.log[id];
+    }
+    for (let k = this.log.length - 1; k >= 0; k--) {
+      if (this.log[k]!.i === id) return this.log[k];
+    }
+    return this.logIndex.readAtSync(id);
   }
 
   async ensureIndex(): Promise<void> {
@@ -212,6 +233,7 @@ export class Memory {
       recall: partial.recall,
     };
     this.log.push(msg);
+    this.logIndex.noteFact(msg);
     if (persist) {
       const raw = `${JSON.stringify(msg)}\n`;
       const start = this.logIndex.size;
@@ -225,13 +247,13 @@ export class Memory {
   }
 
   renderView(): string {
-    const facts = factsOf(this.log);
+    const facts = this.factsCached();
     const lines = this.view.map((p) => this.renderPart(p, facts));
     return `<chat>\n${lines.join("\n")}\n</chat>`;
   }
 
   viewLines(): string[] {
-    const facts = factsOf(this.log);
+    const facts = this.factsCached();
     return this.view.map((p) => this.renderPart(p, facts));
   }
 
@@ -249,24 +271,6 @@ export class Memory {
   private partBytes(p: ViewPart, facts: Map<number, Successor>): number {
     const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
     return p.size + (header ? utf8Bytes(`${header}\n`) : 0);
-  }
-
-  private factsMemo: { seen: number; index: Map<number, Successor> } = { seen: 0, index: new Map() };
-
-  /** factsOf(this.log) extended incrementally: the log is append-only, so only new messages are scanned. */
-  private factsCached(): Map<number, Successor> {
-    const memo = this.factsMemo;
-    if (memo.seen > this.log.length) memo.seen = 0, memo.index = new Map();
-    for (; memo.seen < this.log.length; memo.seen++) {
-      const msg = this.log[memo.seen];
-      if (!msg?.supersedes?.length) continue;
-      const by = msg.successor ?? msg.i;
-      const reason = msg.reason ?? "";
-      for (const id of msg.supersedes) {
-        if (Number.isInteger(id) && id >= 0) memo.index.set(id, { by, reason });
-      }
-    }
-    return memo.index;
   }
 
   allBuilt(): boolean {
@@ -359,9 +363,9 @@ export class Memory {
       return { ok: false, error: `No line ${id}+${n}.` };
     }
     if (n === 1) {
-      const m = this.log[id];
+      const m = this.at(id);
       if (!m) return { ok: false, error: `No line ${id}+${n}.` };
-      const header = supersededHeader(factsOf(this.log), id);
+      const header = supersededHeader(this.factsCached(), id);
       const line = `${id}+0|${m.kind}: ${m.text}`;
       return { ok: true, lines: header ? [header, line] : [line] };
     }
@@ -380,7 +384,7 @@ export class Memory {
   }
 
   dateOf(id: number): string {
-    const m = this.log[id];
+    const m = this.at(id);
     if (!m) return `No message ${id}.`;
     return m.date;
   }
@@ -392,15 +396,12 @@ export class Memory {
     } catch {
       return [`bad regex: ${re}`];
     }
-    const facts = factsOf(this.log);
-    return this.log
-      .filter((m) => pat.test(`#${m.i} ${m.kind} ${m.text}`))
-      .slice(-40)
-      .flatMap((m) => {
-        const header = supersededHeader(facts, m.i);
-        const line = `#${m.i} ${m.kind}: ${m.text}`;
-        return header ? [header, line] : [line];
-      });
+    const facts = this.factsCached();
+    return this.recallHits(pat).flatMap((m) => {
+      const header = supersededHeader(facts, m.i);
+      const line = `#${m.i} ${m.kind}: ${m.text}`;
+      return header ? [header, line] : [line];
+    });
   }
 
   debug(): { lines: string[]; bytes: number; budget: number; levels: string[]; T: number } {
@@ -544,7 +545,8 @@ export class Memory {
 
   private cutSource(l: number, i: number): string {
     if (l === 0) {
-      const m = this.log[i];
+      const m = this.at(i);
+      if (!m) return "";
       return keepRecent(flattenLine(`${m.kind}: ${m.text}`), this.nodeBytes);
     }
     const left = this.nodeOf(l - 1, 2 * i)?.text ?? "";
@@ -623,7 +625,7 @@ export class Memory {
   private compactInput(l: number, i: number): CompactInput | undefined {
     const nodeBytes = this.nodeBytes;
     if (l === 0) {
-      const m = this.log[i];
+      const m = this.at(i);
       if (!m) return undefined;
       const source = `${m.kind}: ${m.text}`;
       return { kind: "leaf", contextLines: this.contextBefore(i), source, nodeBytes };
@@ -848,6 +850,7 @@ export class Memory {
         if (size > 0 && this.logIndex.size > size) appendFileSync(logPath, "\n");
       }
       if (this.logIndex.count <= 2000) this.parseLog(logPath);
+      this.logIndex.fillFacts();
       if (!fresh || this.logIndex.count !== known) this.logIndex.persist();
     }
     if (existsSync(treePath)) {
@@ -911,8 +914,51 @@ export class Memory {
   }
 
   private seedReady(): void {
-    for (let i = 0; i < this.T; i++) this.enqueue(0, i);
+    for (const m of this.log) this.enqueue(0, m.i);
     for (const node of this.nodes.values()) this.enqueue(node.l + 1, Math.floor(node.i / 2));
+  }
+
+  private recallHits(pat: RegExp): Message[] {
+    if (this.log.length === this.T) {
+      return this.log.filter((m) => pat.test(`#${m.i} ${m.kind} ${m.text}`)).slice(-40);
+    }
+    const src = pat.source;
+    const literal = !/[\\^$*+?()[\]{}|.]/.test(src) ? src.toLowerCase() : null;
+    const hits: Message[] = [];
+    const text = this.logIndex.rawText();
+    let i = 0;
+    let from = 0;
+    for (let c = 0; c < text.length; c++) {
+      if (text.charCodeAt(c) !== 10) continue;
+      const line = text.slice(from, c);
+      from = c + 1;
+      const hit = this.matchRecallLine(line, i, pat, literal);
+      i += 1;
+      if (!hit) continue;
+      hits.push(hit);
+      if (hits.length > 40) hits.shift();
+    }
+    if (from < text.length) {
+      const hit = this.matchRecallLine(text.slice(from), i, pat, literal);
+      if (hit) {
+        hits.push(hit);
+        if (hits.length > 40) hits.shift();
+      }
+    }
+    return hits;
+  }
+
+  private matchRecallLine(line: string, i: number, pat: RegExp, literal: string | null): Message | undefined {
+    if (!line.trim()) return undefined;
+    if (literal && !line.toLowerCase().includes(literal)) return undefined;
+    try {
+      const m = JSON.parse(line) as Message;
+      if (typeof m.i !== "number") m.i = i;
+      if (!pat.test(`#${m.i} ${m.kind} ${m.text}`)) return undefined;
+      return m;
+    } catch {
+      return undefined;
+    }
   }
 
   private saveView(): void {

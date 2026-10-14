@@ -9,7 +9,7 @@ import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
-import { factsOf, parseIds, wouldCycle } from "./memory/facts";
+import { parseIds, wouldCycle } from "./memory/facts";
 import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
@@ -822,7 +822,13 @@ export class Hub {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
         const seat = seatFromId(this.harness.id);
-        const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
+        const citations = verifyCitations(
+          talk,
+          this.recalls,
+          (id) => this.memory.at(id),
+          this.spaces.currentId,
+          this.memory.facts,
+        );
         const msg = this.memory.append({
           kind: "talk",
           text: migrating ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
@@ -949,14 +955,14 @@ export class Hub {
         const reason = String(args.reason ?? "").trim();
         const neu = args.new === undefined || args.new === "" ? undefined : Number(args.new);
         if (!old.length || !reason) return "supersede needs old and reason.";
-        if (old.some((id) => !mem.log[id])) return "no message to replace.";
-        if (neu !== undefined && (!Number.isInteger(neu) || neu < 0 || !mem.log[neu])) {
+        if (old.some((id) => !mem.at(id))) return "no message to replace.";
+        if (neu !== undefined && (!Number.isInteger(neu) || neu < 0 || !mem.at(neu))) {
           return "no successor message.";
         }
         if (neu !== undefined && old.some((id) => neu <= id)) {
           return "successor must be after the replaced message.";
         }
-        if (neu !== undefined && wouldCycle(factsOf(mem.log), old, neu)) {
+        if (neu !== undefined && wouldCycle(mem.facts, old, neu)) {
           return "supersede cycle.";
         }
         const note = mem.append({

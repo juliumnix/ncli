@@ -35,8 +35,8 @@ export function contextSummary(text: string, n: number, userName: string): strin
 
 export function contextRows(mem: Memory, userName: string): ContextRow[] {
   return mem.view.map((p) => {
-    const first = mem.log[p.start];
-    const last = mem.log[Math.min(p.start + p.n - 1, mem.T - 1)] ?? first;
+    const first = mem.at(p.start);
+    const last = mem.at(Math.min(p.start + p.n - 1, mem.T - 1)) ?? first;
     const kind = p.n === 1 ? first?.kind : undefined;
     const seat = p.n === 1 ? first?.seat : undefined;
     const text = p.n === 1 && first && !p.built ? `${first.kind}: ${first.text}` : p.text;

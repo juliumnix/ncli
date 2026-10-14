@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "../types";
+import { applyFact, FACTS_FILE, parseFactsDump, type Successor } from "./facts";
 
 export const MSG_PAGE = 100;
 export const MSG_PAGE_MAX = 200;
@@ -44,9 +45,13 @@ export function msgLimit(limit?: number): number {
 
 export class LogIndex {
   readonly dir: string;
+  readonly facts = new Map<number, Successor>();
   private offsets: number[] = [];
   private days: DayTick[] = [];
   private bytes = 0;
+  private factsAt = 0;
+  private map: Uint8Array | null = null;
+  private mapBytes = 0;
 
   constructor(dir: string) {
     this.dir = dir;
@@ -69,6 +74,10 @@ export class LogIndex {
     this.offsets = [];
     this.days = [];
     this.bytes = 0;
+    this.facts.clear();
+    this.factsAt = 0;
+    this.map = null;
+    this.mapBytes = 0;
   }
 
   push(offset: number, date: string, byteLen: number): void {
@@ -90,6 +99,42 @@ export class LogIndex {
     writeFileSync(`${bin}.tmp`, buf);
     renameSync(`${bin}.tmp`, bin);
     writeFileSync(join(this.dir, DAYS_FILE), JSON.stringify(this.days));
+    this.persistFacts();
+  }
+
+  noteFact(msg: Message): void {
+    applyFact(this.facts, msg);
+    if (typeof msg.i === "number") this.factsAt = Math.max(this.factsAt, msg.i + 1);
+    if (msg.supersedes?.length) this.persistFacts();
+  }
+
+  readAtSync(id: number): Message | undefined {
+    const line = this.lineAtSync(id);
+    if (!line) return undefined;
+    try {
+      return JSON.parse(line) as Message;
+    } catch {
+      return undefined;
+    }
+  }
+
+  lineAtSync(id: number): string {
+    if (id < 0 || id >= this.offsets.length) return "";
+    const map = this.mapped();
+    if (!map) return "";
+    const from = this.offsets[id] ?? 0;
+    const to = id + 1 < this.offsets.length ? this.offsets[id + 1] ?? this.bytes : this.bytes;
+    const end = Math.min(Math.max(from, to), map.byteLength);
+    const start = Math.min(from, end);
+    let line = Buffer.from(map.subarray(start, end)).toString("utf8");
+    if (line.endsWith("\n")) line = line.slice(0, -1);
+    return line;
+  }
+
+  rawText(): string {
+    const map = this.mapped();
+    if (!map) return "";
+    return new TextDecoder().decode(map);
   }
 
   rebuildSync(): void {
@@ -206,12 +251,55 @@ export class LogIndex {
   private recordLine(offset: number, line: string): void {
     let date = "";
     try {
-      const msg = JSON.parse(line) as { date?: string };
+      const msg = JSON.parse(line) as Message;
       date = String(msg.date ?? "");
+      this.push(offset, date, Buffer.byteLength(`${line}\n`));
+      applyFact(this.facts, msg);
+      this.factsAt = this.count;
+      return;
     } catch {
       date = "";
     }
     this.push(offset, date, Buffer.byteLength(`${line}\n`));
+    this.factsAt = this.count;
+  }
+
+  private persistFacts(): void {
+    const path = join(this.dir, FACTS_FILE);
+    writeFileSync(`${path}.tmp`, JSON.stringify({ at: this.factsAt, entries: [...this.facts] }));
+    renameSync(`${path}.tmp`, path);
+  }
+
+  private loadFacts(): void {
+    const path = join(this.dir, FACTS_FILE);
+    if (!existsSync(path)) return;
+    const dump = parseFactsDump(readFileSync(path, "utf8"));
+    if (!dump) return;
+    this.facts.clear();
+    for (const [id, hit] of dump.entries) {
+      if (typeof id !== "number" || !hit || typeof hit.by !== "number") continue;
+      this.facts.set(id, { by: hit.by, reason: String(hit.reason ?? "") });
+    }
+    this.factsAt = dump.at;
+  }
+
+  fillFacts(): void {
+    if (this.factsAt >= this.count) return;
+    for (let i = this.factsAt; i < this.count; i++) {
+      const msg = this.readAtSync(i);
+      if (msg) applyFact(this.facts, msg);
+    }
+    this.factsAt = this.count;
+    this.persistFacts();
+  }
+
+  private mapped(): Uint8Array | null {
+    if (!existsSync(this.logPath)) return null;
+    const size = statSync(this.logPath).size;
+    if (this.map && this.mapBytes >= size) return this.map;
+    this.map = Bun.mmap(this.logPath);
+    this.mapBytes = this.map.byteLength;
+    return this.map;
   }
 
   private async readRange(start: number, end: number): Promise<Message[]> {
@@ -259,6 +347,7 @@ export class LogIndex {
         this.days = [];
       }
     }
+    this.loadFacts();
   }
 }
 
