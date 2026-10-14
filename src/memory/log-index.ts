@@ -9,6 +9,7 @@ export const DAYS_FILE = "log.days.json";
 export const LOG_FILE = "log.jsonl";
 
 const MAGIC = 0x4e494458;
+const HEADER = 12;
 
 export type MessageSlice = {
   messages: Message[];
@@ -80,10 +81,11 @@ export class LogIndex {
   }
 
   persist(): void {
-    const buf = Buffer.alloc(8 + this.offsets.length * 4);
+    const buf = Buffer.alloc(HEADER + this.offsets.length * 4);
     buf.writeUInt32LE(MAGIC, 0);
     buf.writeUInt32LE(this.offsets.length, 4);
-    for (let i = 0; i < this.offsets.length; i++) buf.writeUInt32LE(this.offsets[i] ?? 0, 8 + i * 4);
+    buf.writeUInt32LE(this.bytes, 8);
+    for (let i = 0; i < this.offsets.length; i++) buf.writeUInt32LE(this.offsets[i] ?? 0, HEADER + i * 4);
     const bin = join(this.dir, INDEX_FILE);
     writeFileSync(`${bin}.tmp`, buf);
     renameSync(`${bin}.tmp`, bin);
@@ -201,16 +203,6 @@ export class LogIndex {
     return this.bytes !== st.size;
   }
 
-  private endOfLastRecord(): number {
-    if (this.offsets.length === 0) return 0;
-    const last = this.offsets[this.offsets.length - 1] ?? 0;
-    if (!existsSync(this.logPath)) return 0;
-    const buf = readFileSync(this.logPath);
-    if (last >= buf.length) return last;
-    const nl = buf.subarray(last).indexOf(10);
-    return nl < 0 ? last : last + nl + 1;
-  }
-
   private recordLine(offset: number, line: string): void {
     let date = "";
     try {
@@ -245,10 +237,19 @@ export class LogIndex {
     const buf = readFileSync(bin);
     if (buf.length < 8 || buf.readUInt32LE(0) !== MAGIC) return;
     const n = buf.readUInt32LE(4);
-    if (buf.length < 8 + n * 4) return;
-    this.offsets = new Array(n);
-    for (let i = 0; i < n; i++) this.offsets[i] = buf.readUInt32LE(8 + i * 4);
-    this.bytes = this.endOfLastRecord();
+    const withBytes = HEADER + n * 4;
+    const without = 8 + n * 4;
+    if (buf.length >= withBytes) {
+      this.bytes = buf.readUInt32LE(8);
+      this.offsets = new Array(n);
+      for (let i = 0; i < n; i++) this.offsets[i] = buf.readUInt32LE(HEADER + i * 4);
+    } else if (buf.length >= without) {
+      this.bytes = 0;
+      this.offsets = new Array(n);
+      for (let i = 0; i < n; i++) this.offsets[i] = buf.readUInt32LE(8 + i * 4);
+    } else {
+      return;
+    }
     const daysPath = join(this.dir, DAYS_FILE);
     if (existsSync(daysPath)) {
       try {

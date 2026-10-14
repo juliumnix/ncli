@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
+import { LogIndex } from "../src/memory/log-index";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, shotsDir, waitUntil } from "./helpers";
+import { makeHub, shotsDir, tmpDir, waitUntil } from "./helpers";
 
 function p95(values: number[]): number {
   if (!values.length) return Number.POSITIVE_INFINITY;
@@ -29,9 +30,14 @@ function writeLife(dir: string, n = 100_000) {
 
 test("chrome: 100k virtual list opens, jumps to first, and stays at 60fps", async () => {
   if (!chromePath()) throw new Error("chrome not found");
-  const { hub } = await makeHub();
-  writeLife(hub.memory.dir, 100_000);
-  await hub.memory.logIndex.rebuild();
+  const dataDir = tmpDir("virt-100k");
+  const main = join(dataDir, "main");
+  writeLife(main, 100_000);
+  const idx = new LogIndex(main);
+  idx.rebuildSync();
+  const { hub } = await makeHub({ dataDir });
+  expect(hub.memory.log.length).toBe(0);
+  expect(hub.memory.logIndex.count).toBe(100_000);
   hub.cfg.port = 0;
   const booted = await bootNcli({ cfg: hub.cfg, hub, root: join(import.meta.dir, "..") });
   const driver = await launchChrome(23000 + (Date.now() % 10000), [

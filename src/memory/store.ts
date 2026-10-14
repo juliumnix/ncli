@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
@@ -812,37 +812,42 @@ export class Memory {
     for (const w of [...this.waiters]) w();
   }
 
+  private parseLog(logPath: string): void {
+    const buf = readFileSync(logPath);
+    let start = 0;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] !== 10) continue;
+      if (i > start) {
+        try {
+          this.log.push(JSON.parse(buf.toString("utf8", start, i)) as Message);
+        } catch {
+        }
+      }
+      start = i + 1;
+    }
+    if (start < buf.length) {
+      const tail = buf.toString("utf8", start, buf.length);
+      if (tail.trim()) {
+        try {
+          this.log.push(JSON.parse(tail) as Message);
+        } catch {
+        }
+      }
+    }
+  }
+
   private load(): void {
     const logPath = join(this.dir, "log.jsonl");
     const treePath = join(this.dir, "tree.jsonl");
     if (existsSync(logPath)) {
-      ensureLogNewline(logPath);
       const known = this.logIndex.count;
       const fresh = known > 0 && !this.logIndex.stale();
-      if (!fresh) this.logIndex.rebuildSync();
-      if (this.logIndex.count <= 2000) {
-        const buf = readFileSync(logPath);
-        let start = 0;
-        for (let i = 0; i < buf.length; i++) {
-          if (buf[i] !== 10) continue;
-          if (i > start) {
-            try {
-              this.log.push(JSON.parse(buf.toString("utf8", start, i)) as Message);
-            } catch {
-            }
-          }
-          start = i + 1;
-        }
-        if (start < buf.length) {
-          const tail = buf.toString("utf8", start, buf.length);
-          if (tail.trim()) {
-            try {
-              this.log.push(JSON.parse(tail) as Message);
-            } catch {
-            }
-          }
-        }
+      if (!fresh) {
+        this.logIndex.rebuildSync();
+        const size = statSync(logPath).size;
+        if (size > 0 && this.logIndex.size > size) appendFileSync(logPath, "\n");
       }
+      if (this.logIndex.count <= 2000) this.parseLog(logPath);
       if (!fresh || this.logIndex.count !== known) this.logIndex.persist();
     }
     if (existsSync(treePath)) {
@@ -952,12 +957,6 @@ function parseSavedView(raw: string): SavedPart[] | null {
 
 function isPair(item: unknown): item is [number, number] {
   return Array.isArray(item) && item.length >= 2 && typeof item[0] === "number" && typeof item[1] === "number";
-}
-
-function ensureLogNewline(path: string): void {
-  if (!existsSync(path)) return;
-  const buf = readFileSync(path);
-  if (buf.length && buf[buf.length - 1] !== 10) appendFileSync(path, "\n");
 }
 
 function persistRaw(path: string, raw: string): void {

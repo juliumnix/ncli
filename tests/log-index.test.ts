@@ -143,11 +143,39 @@ test("load keeps a last line without a newline and the next append gets a new id
   expect(file).not.toContain("}{");
 });
 
+test("a valid index skips the log on load and pages the last window", async () => {
+  const dir = tmpDir("idx-skip-log");
+  const n = 100_000;
+  writeLog(dir, n);
+  const built = new LogIndex(dir);
+  built.rebuildSync();
+  expect(built.count).toBe(n);
+  const bin = readFileSync(join(dir, "log.offsets.bin"));
+  expect(bin.readUInt32LE(4)).toBe(n);
+  expect(bin.length).toBe(12 + n * 4);
+  const t0 = performance.now();
+  const mem = memAt(dir);
+  const ms = performance.now() - t0;
+  expect(mem.log.length).toBe(0);
+  expect(mem.logIndex.count).toBe(n);
+  expect(mem.logIndex.stale()).toBe(false);
+  expect(ms).toBeLessThan(50);
+  const page = await mem.logIndex.page({ limit: 80 });
+  expect(page.messages.length).toBe(80);
+  expect(page.messages[0]?.i).toBe(n - 80);
+  expect(page.messages.at(-1)?.i).toBe(n - 1);
+  expect(page.hasMoreBefore).toBe(true);
+});
+
 test("ingest stringifies each message once", () => {
   const store = readFileSync(join(import.meta.dir, "../src/memory/store.ts"), "utf8");
   const ingest = store.slice(store.indexOf("ingest(partials"), store.indexOf("publish():"));
   expect(ingest).toContain("const lines = out.map");
   expect(ingest).toContain("Buffer.byteLength(lines[k]");
   expect(ingest).not.toMatch(/out\.map\(\(msg\) => `\$\{JSON\.stringify\(msg\)\}\\n`\)\.join/);
-  expect(store.slice(store.indexOf("private load()"), store.indexOf("if (existsSync(treePath)"))).toContain("const fresh");
+  const load = store.slice(store.indexOf("private load()"), store.indexOf("if (existsSync(treePath)"));
+  expect(load).toContain("const fresh");
+  expect(load).toContain("if (!fresh)");
+  expect(load).toContain("this.logIndex.count <= 2000");
+  expect(load).toContain("this.parseLog(logPath)");
 });
