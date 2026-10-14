@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   bunxExtractRoot,
-  bunxNeedsRemoteTip,
   clearNcliBunxExtracts,
   ncliExtractName,
   planBunxRefresh,
@@ -50,23 +49,33 @@ test("a bunx extract without NCLI_REVISION re-execs the pinned spec even if .ncl
   });
 });
 
-test("a pinned extract does not need git ls-remote", () => {
-  const tmp = tmpDir("bunx-pin-net");
+test("a pinned extract re-execs bunx when live main moved", () => {
+  const tmp = tmpDir("bunx-fresh");
   const extract = plantExtract(tmp);
-  const path = join(extract, "src/index.ts");
-  expect(bunxNeedsRemoteTip(path, { NCLI_REVISION: LIVE }, UID)).toBe(false);
-  expect(bunxNeedsRemoteTip(path, {}, UID)).toBe(true);
-  expect(bunxNeedsRemoteTip(join(tmp, "src/index.ts"), {}, UID)).toBe(false);
+  const next = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const plan = planBunxRefresh({
+    runningPath: join(extract, "src/index.ts"),
+    env: { NCLI_REVISION: LIVE },
+    uid: UID,
+    remoteSha: next,
+    tmpDirs: [tmp],
+  });
+  expect(plan).toEqual({
+    kind: "reexec",
+    argv: ["bunx", ncliSpecAt(next)],
+    env: { NCLI_REVISION: next },
+    removed: [],
+  });
 });
 
-test("when NCLI_REVISION is set, boot in place even if live main moved", () => {
-  const tmp = tmpDir("bunx-fresh");
+test("a pinned extract that already matches remote boots in place", () => {
+  const tmp = tmpDir("bunx-current");
   const extract = plantExtract(tmp);
   const plan = planBunxRefresh({
     runningPath: join(extract, "src/index.ts"),
     env: { NCLI_REVISION: LIVE },
     uid: UID,
-    remoteSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    remoteSha: LIVE,
     tmpDirs: [tmp],
   });
   expect(plan).toEqual({ kind: "boot" });

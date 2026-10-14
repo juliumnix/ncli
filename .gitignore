@@ -1,6 +1,5 @@
 node_modules
 data
-.ncli-revision
 .ncli
 .env
 *.log

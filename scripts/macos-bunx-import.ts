@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ncliExtractPrefix } from "../src/bunx-cache";
-import { ncliSpecAt, parseRevision, readGitHead, shortSha } from "../src/revision";
+import { fetchMainTip, ncliSpecAt, parseRevision, readGitHead, readyBannerSha, shortSha } from "../src/revision";
 
 export const LINES = 100;
 export const FILES = 66;
@@ -24,13 +24,14 @@ function plantClaude(root: string): number {
   return FILES * LINES;
 }
 
-function plantExtract(repo: string, uid: number, work: string): string {
+function plantExtract(repo: string, uid: number, work: string, pin: string): string {
   const dest = join(work, `${ncliExtractPrefix(uid)}18408305413554282373`);
   mkdirSync(dest, { recursive: true });
   cpSync(join(repo, "src"), join(dest, "src"), { recursive: true });
   for (const name of ["package.json", "views", "public", "fixtures", "ncli", "scripts", "node_modules"]) {
     symlinkSync(join(repo, name), join(dest, name));
   }
+  writeFileSync(join(dest, ".ncli-revision"), `${pin}\n`);
   return dest;
 }
 
@@ -53,6 +54,13 @@ async function waitBanner(proc: ReturnType<typeof Bun.spawn>, timeoutMs: number)
   throw new Error(`banner missing sha\n${text}`);
 }
 
+function killListeners(port: number): void {
+  const ran = Bun.spawnSync(["lsof", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { stdout: "pipe", stderr: "pipe" });
+  for (const pid of ran.stdout.toString().split(/\s+/).map(Number).filter((n) => n > 0)) {
+    try { process.kill(pid, "SIGTERM"); } catch {}
+  }
+}
+
 async function waitT(url: string, want: number, timeoutMs: number, proc: ReturnType<typeof Bun.spawn>, log: string): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   let t = 0;
@@ -72,40 +80,43 @@ async function waitT(url: string, want: number, timeoutMs: number, proc: ReturnT
 async function main(): Promise<void> {
   const repo = join(import.meta.dir, "..");
   const uid = process.getuid?.() ?? 0;
-  const sha = parseRevision(process.env.NCLI_REVISION)?.sha ?? readGitHead(repo);
-  if (!sha) throw new Error("ncli: need NCLI_REVISION or a git HEAD");
+  const pin = parseRevision(process.env.NCLI_REVISION)?.sha ?? readGitHead(repo);
+  if (!pin) throw new Error("ncli: need NCLI_REVISION or a git HEAD");
+  const live = await fetchMainTip();
+  const bannerSha = readyBannerSha(pin, live);
   const work = mkdtempSync(join(tmpdir(), "ncli-bunx-"));
   const claude = join(work, "claude");
   const expectLines = plantClaude(claude);
   const viaBunx = process.argv.includes("--bunx");
-  const port = 19000 + Math.floor(Math.random() * 400);
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     NCLI_HARNESS: "mock",
     NCLI_COMPACT: "mock",
     NCLI_GH: "mock",
     NCLI_NO_OPEN: "1",
-    NCLI_REVISION: sha,
+    NCLI_REVISION: pin,
     NCLI_IMPORT_CLAUDE: claude,
     NCLI_DATA: join(work, "data"),
-    NCLI_PORT: String(port),
     NCLI_REPO: join(work, "repo"),
   };
   delete env.NCLI_DEMO;
+  delete env.NCLI_PORT;
   mkdirSync(env.NCLI_REPO, { recursive: true });
+  mkdirSync(join(env.NCLI_DATA, "main"), { recursive: true });
   const cmd = viaBunx
-    ? ["bunx", ncliSpecAt(sha)]
-    : [process.execPath, join(plantExtract(repo, uid, work), "src/index.ts")];
-  const bannerMs = viaBunx ? 180_000 : 20_000;
+    ? ["bunx", ncliSpecAt(pin)]
+    : [process.execPath, join(plantExtract(repo, uid, work, pin), "src/index.ts")];
+  const bannerMs = 180_000;
   const spawnHub = () => Bun.spawn(cmd, { cwd: env.NCLI_REPO, env, stdout: "pipe", stderr: "pipe" });
   const first = spawnHub();
   try {
     const ready = await waitBanner(first, bannerMs);
-    if (ready.short !== shortSha(sha)) {
-      throw new Error(`banner sha ${ready.short} != ${shortSha(sha)}\n${ready.text}`);
+    if (ready.short !== shortSha(bannerSha)) {
+      throw new Error(`banner sha ${ready.short} != ${shortSha(bannerSha)}\n${ready.text}`);
     }
     if (ready.text.includes("unknown")) throw new Error(`banner printed unknown\n${ready.text}`);
     const url = `http://127.0.0.1:${ready.port}`;
+    env.NCLI_PORT = String(ready.port);
     const apply = await fetch(`${url}/api/import`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -117,11 +128,12 @@ async function main(): Promise<void> {
     await waitT(url, half, 60_000, first, ready.text);
     first.kill();
     await first.exited;
+    killListeners(ready.port);
     const second = spawnHub();
     try {
       const again = await waitBanner(second, bannerMs);
-      if (again.short !== shortSha(sha)) {
-        throw new Error(`restart banner sha ${again.short} != ${shortSha(sha)}\n${again.text}`);
+      if (again.short !== shortSha(bannerSha)) {
+        throw new Error(`restart banner sha ${again.short} != ${shortSha(bannerSha)}\n${again.text}`);
       }
       const t = await waitT(url, expectLines, 90_000, second, again.text);
       if (t < expectLines) throw new Error(`import T=${t} want ${expectLines}`);
@@ -129,12 +141,11 @@ async function main(): Promise<void> {
     } finally {
       second.kill();
       await second.exited;
+      killListeners(ready.port);
     }
   } finally {
-    if (first.exitCode === null) {
-      first.kill();
-      await first.exited;
-    }
+    first.kill();
+    await first.exited;
   }
 }
 
