@@ -3,15 +3,27 @@ import { inflateSync } from "node:zlib";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bootNcli } from "../src/boot";
-import { demo3dGraphFence } from "../src/live/3d-demo";
 import { iframeTag, mermaidNodes, renderLive } from "../src/live/frame";
+import { assemble } from "../src/memory/assemble";
+import { Memory, mockCompressor } from "../src/memory/store";
 import { liveBlocks, parseLive } from "../src/live/parse";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, shotsDir, waitUntil } from "./helpers";
+import { makeHub, shotsDir, tmpDir, waitUntil } from "./helpers";
 
 const NESTED_CODEX = `aqui o diagrama\n\n\`\`\`ncli ui\n\`\`\`mermaid\nflowchart TD\n  hub[Hub] --> ui[Chat]\n\`\`\`\n\`\`\``;
 const BARE_MERMAID = `\`\`\`mermaid\nflowchart LR\n  a[Entrada] --> b[Índice]\n\`\`\``;
 const FLOW_SEATS = ["claude", "codex", "cursor"] as const;
+const DESK_LABELS = /Tampo|Grampo|mesa/i;
+
+function graphFenceFor(topic: string): string {
+  const nodes = topic.split(/\s*[·>|→-]+\s*/).map((label, i) => ({
+    id: `n${i}`,
+    label: label.replace(/[^\p{L}\p{N} ]/gu, "").trim() || `n${i}`,
+  })).filter((n) => n.label);
+  const edges = nodes.slice(1).map((n, i) => [nodes[i]!.id, n.id]);
+  const layers = nodes.map((n) => [n.id]);
+  return `\`\`\`ncli 3d\nncli3d.graph(${JSON.stringify({ nodes, edges, layers })})\n\`\`\``;
+}
 
 test("Codex nested mermaid-in-ui and bare mermaid become a diagram, never an empty card", () => {
   expect(liveBlocks(NESTED_CODEX).map((b) => b.kind)).toEqual(["mermaid"]);
@@ -52,6 +64,12 @@ test("live shell and frames inherit the dark theme; skill teaches three seats an
   expect(kit).toContain("function graph");
   expect(kit).toContain("showError");
   expect(kit).not.toMatch(/if \(!document.querySelector\("canvas"\)\) desk\(\)/);
+  const mem = new Memory({ dir: tmpDir("ui-3d-sys"), nodeBytes: 80, viewBytes: 400, compressor: mockCompressor() });
+  mem.append({ kind: "note", text: "oi" });
+  const ctx = assemble(mem);
+  expect(ctx.system).toContain("ncli3d.graph");
+  expect(ctx.system).not.toMatch(DESK_LABELS);
+  expect(ctx.system).not.toContain("ncli3d.desk");
 });
 
 function paeth(a: number, b: number, c: number): number {
@@ -174,12 +192,16 @@ test("chrome: mermaid from Claude, Codex, and Cursor paints non-white pixels", a
 
 test("chrome: 3d graph for a real topic never shows desk labels", async () => {
   if (!chromePath()) throw new Error("chrome not found");
+  const topic = "Cockpit v2 · Hub → Chat → Memory";
+  const fence = graphFenceFor(topic);
+  expect(fence).toContain("Cockpit");
+  expect(fence).not.toMatch(DESK_LABELS);
   const { hub } = await makeHub();
   for (const seat of FLOW_SEATS) {
     hub.memory.append({
       kind: "talk",
       seat,
-      text: `Cockpit v2 · ${seat}\n\n${demo3dGraphFence()}`,
+      text: `${seat} · ${topic}\n\n${fence}`,
     });
   }
   hub.cfg.port = 0;
@@ -197,9 +219,13 @@ test("chrome: 3d graph for a real topic never shows desk labels", async () => {
       15000,
       "3d graph",
     );
-    const labels = await driver.session.evaluate<string>(`[...document.querySelectorAll("iframe.live-3d")].map((f) => f.dataset.ncli3dBtns || "").join("|")`);
-    expect(labels).not.toMatch(/Tampo|Grampo|mesa/i);
-    expect(labels).toMatch(/Hub|Cockpit/i);
+    const facts = await driver.session.evaluate<{ n: number; labels: string }>(`(() => {
+      const frames = [...document.querySelectorAll("iframe.live-3d")];
+      return { n: frames.length, labels: frames.map((f) => f.dataset.ncli3dBtns || f.dataset.ncli3dKind || "").join("|") };
+    })()`);
+    expect(facts.n).toBe(FLOW_SEATS.length);
+    expect(facts.labels).not.toMatch(DESK_LABELS);
+    expect(facts.labels).toMatch(/Hub|Cockpit|Chat|Memory|graph/i);
   } finally {
     driver.close();
     booted.stop();
