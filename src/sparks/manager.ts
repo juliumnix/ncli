@@ -298,6 +298,7 @@ export class SparkManager {
     const rt = this.runtimes.get(id);
     if (!rt) return;
     await this.merge(rt, summary ?? rt.spark.summary ?? `spark ${id} terminou`);
+    await this.dropWorktree(id);
   }
 
   async close(id: string): Promise<void> {
@@ -308,9 +309,7 @@ export class SparkManager {
       await this.merge(rt, rt.spark.summary ?? "fechado");
     }
     await this.maybeArchiveMerged(rt);
-    if (rt.worktree) {
-      await this.archive(id, false);
-    }
+    await this.dropWorktree(id);
   }
 
   async maybeArchiveMerged(rt: SparkRuntime, fresh = true): Promise<void> {
@@ -386,7 +385,9 @@ export class SparkManager {
 
   async archive(id: string, force = false): Promise<ArchiveResult | undefined> {
     const rt = this.runtimes.get(id);
-    if (!rt?.worktree) return undefined;
+    if (!rt) return undefined;
+    this.harnessFor(rt).release?.(rt.spark.id);
+    if (!rt.worktree) return undefined;
     const result = await archiveWorktree(rt.worktree, this.hooks.git ?? realGit, { force });
     if (result.ok) {
       rt.worktree = undefined;
@@ -403,6 +404,12 @@ export class SparkManager {
     persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     return result;
+  }
+
+  private async dropWorktree(id: string): Promise<void> {
+    const rt = this.runtimes.get(id);
+    if (!rt?.worktree) return;
+    await this.archive(id, true);
   }
 
   private harnessFor(rt: SparkRuntime): Harness {
