@@ -42,6 +42,8 @@ import {
   applyCursor,
   clearCheckpoint,
   defaultImportRoots,
+  publicImportPreview,
+  publicSpark,
   formatApply,
   formatPreview,
   Importer,
@@ -311,19 +313,19 @@ export class Hub {
   } {
     return {
       messages: this.memory.log,
-      sparks: this.sparks.list(),
-      forks: this.sparks.list(),
+      sparks: this.sparks.list().map((s) => publicSpark(s)),
+      forks: this.sparks.list().map((s) => publicSpark(s)),
       views: this.views.list(),
       debug: this.memory.debug(),
       context: contextSnapshot(this.memory, this.compact, this.cfg.userName, this.spaces.currentId),
-      waiting: this.sparks.waitingOnUser(),
+      waiting: this.sparks.waitingOnUser().map((s) => publicSpark(s)),
       main: this.mainAgent(),
       turn: this.live?.turn ?? null,
       compact: this.compact,
       turning: this.turning,
       queue: this.queue.list(),
       usage: this.usageSnap(),
-      import: this.lastImport,
+      import: this.lastImport ? publicImportPreview(this.lastImport) : null,
       importOffers: this.importOffers,
       clis: detectClis(this.cfg),
       seats: this.seatChoices(),
@@ -490,8 +492,9 @@ export class Hub {
   previewImport(source: ImportPreview["source"], since?: string): ImportPreview {
     const preview = this.importer.preview(source, since);
     this.lastImport = preview;
-    this.emit({ type: "import", preview });
-    return preview;
+    const pub = publicImportPreview(preview);
+    this.emit({ type: "import", preview: pub });
+    return pub;
   }
 
   offerFirstImport(): void {
@@ -518,7 +521,7 @@ export class Hub {
       newCount: 0,
       seenCount: 0,
     };
-    this.emit({ type: "import", preview: this.lastImport, offers: this.importOffers });
+    this.emit({ type: "import", preview: publicImportPreview(this.lastImport), offers: this.importOffers });
   }
 
   async applyImport(
@@ -582,7 +585,7 @@ export class Hub {
       this.memory.publish();
       this.emit({
         type: "import",
-        preview: this.lastImport,
+        preview: publicImportPreview(this.lastImport),
         offers: this.importOffers,
         messages: this.memory.log,
       });
@@ -592,7 +595,7 @@ export class Hub {
       saveCheckpoint(this.importer.dir, checkpoint);
       if (err instanceof Error && err.message === "import stopped") {
         return {
-          preview: {
+          preview: publicImportPreview({
             source,
             root: rootFor(source, this.importer.roots),
             sessions: files.length,
@@ -601,7 +604,7 @@ export class Hub {
             seenCount: this.importer.ledger.size(),
             skipped: 0,
             since,
-          },
+          }),
           applied: 0,
         };
       }

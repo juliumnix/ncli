@@ -8,6 +8,7 @@ import { handleMcpHttp } from "./mcp/http";
 import { sanitizeViewHtml } from "./util";
 import { liveOrigin } from "./live/origin";
 import { publicJson, redactValue } from "./redact";
+import { publicImportPreview, publicSpark } from "./import/roots";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -29,6 +30,10 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
     port: cfg.port,
     hostname: cfg.host,
     idleTimeout: 0,
+    development: false,
+    error() {
+      return Response.json({ error: "internal error" }, { status: 500 });
+    },
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/mcp") return handleMcpHttp(req, hub.mcp, (who) => hub.mcpSession(who));
@@ -48,7 +53,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
             c.enqueue(wire({ type: "queue", items: hub.queue.list() }));
             c.enqueue(wire({ type: "usage", usage: hub.usage.snapshot() }));
             if (hub.lastImport) {
-              c.enqueue(wire({ type: "import", preview: hub.lastImport, offers: hub.importOffers }));
+              c.enqueue(wire({ type: "import", preview: publicImportPreview(hub.lastImport), offers: hub.importOffers }));
             }
           },
           cancel() {
@@ -136,7 +141,8 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       if ((url.pathname === "/api/sparks" || url.pathname === "/api/forks") && req.method === "POST") {
         const body = (await req.json()) as { view?: string; params?: Record<string, string> };
         const rt = await hub.sparks.open(body.view ?? "", body.params ?? {});
-        return publicJson({ ok: true, spark: rt.spark, fork: rt.spark });
+        const pub = publicSpark(rt.spark);
+        return publicJson({ ok: true, spark: pub, fork: pub });
       }
       const sparkMsg = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/message$/);
       if (sparkMsg && req.method === "POST") {
