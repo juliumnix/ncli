@@ -425,6 +425,12 @@ export class Memory {
     return this.pumping;
   }
 
+  shutdown(): void {
+    this.flushTree();
+    this.saveView();
+    this.persistRefineQueue();
+  }
+
   private async pumpLoop(): Promise<void> {
     this.seedLocalTree();
     this.notifyWaiters();
