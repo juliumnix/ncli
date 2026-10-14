@@ -101,6 +101,15 @@ export class SparkManager {
     return [...this.runtimes.values()].map((r) => r.spark);
   }
 
+  sparkMemories(): Memory[] {
+    const memories: Memory[] = [];
+    for (const rt of this.runtimes.values()) {
+      if (!OPEN_STATUS.has(rt.spark.status)) continue;
+      memories.push(rt.memory);
+    }
+    return memories;
+  }
+
   setHarness(harness: Harness): void {
     this.hooks.harness = harness;
   }
