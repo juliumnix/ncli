@@ -33,6 +33,13 @@ export type CompactEngine = {
   close: () => void;
 };
 
+export function bindCompactShutdown(
+  engine: Pick<CompactEngine, "killAll">,
+  setCompactorKiller?: (fn: () => void) => void,
+): void {
+  setCompactorKiller?.(engine.killAll);
+}
+
 export function createCompactEngine(
   cfg: NcliConfig,
   opts: {
