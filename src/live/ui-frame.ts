@@ -43,8 +43,8 @@ export function uiKey(source: string): string {
 
 export function liveDocCss(): string {
   const t = NCLI_UI_TOKENS;
-  return `:root{--bg:${t.bg};--card:${t.card};--line:${t.line};--fg:${t.fg};--muted:${t.muted};--accent:${t.accent}}
-html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
+  return `:root{color-scheme:dark;--bg:${t.bg};--card:${t.card};--line:${t.line};--fg:${t.fg};--muted:${t.muted};--accent:${t.accent}}
+html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);color-scheme:dark;font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
 a{color:var(--accent)}`;
 }
 
@@ -57,8 +57,8 @@ export function wrapUiSource(source: string): string {
 
 export function uiThemeCss(): string {
   const t = NCLI_UI_TOKENS;
-  return `:root{--bg:${t.bg};--card:${t.card};--line:${t.line};--fg:${t.fg};--muted:${t.muted};--accent:${t.accent}}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif;overflow:hidden}
+  return `:root{color-scheme:dark;--bg:${t.bg};--card:${t.card};--line:${t.line};--fg:${t.fg};--muted:${t.muted};--accent:${t.accent}}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);color-scheme:dark;font:13px/1.45 ui-sans-serif,system-ui,sans-serif;overflow:hidden}
 body{padding:16px 16px 18px}
 *{box-sizing:border-box}
 h1,h2,h3{font-size:15px;font-weight:600;margin:0 0 10px}

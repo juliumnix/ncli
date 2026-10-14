@@ -1,4 +1,4 @@
-(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();
+(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;if(p==="write"||p==="writeln"||p==="open")return function(){};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function muteDoc(d){try{d.write=function(){};d.writeln=function(){};d.open=function(){}}catch(e){}}muteDoc(document);try{muteDoc(Document.prototype)}catch(e5){}function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();
 const THREE = window.THREE;
 const WOOD = 0x8b5a2b;
 const METAL = 0x6a7078;
@@ -8,17 +8,103 @@ const BG = 0x0f0f11;
 const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
 function wrapLiveScript(source) {
-  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,eval){"use strict";${source}\n}).apply(a[0],a)})();`;
+  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,ncliEval){"use strict";${source}\n}).apply(a[0],a)})();`;
 }
 
 function sceneSource() {
   try {
-    const raw = decodeURIComponent(String(location.hash || "").replace(/^#/, "")).trim() || "ncli3d.desk()";
-    if (/^ncli3d\.(desk|box)\(\)\s*;?\s*$/.test(raw)) return raw;
+    const raw = decodeURIComponent(String(location.hash || "").replace(/^#/, "")).trim();
+    if (!raw) return "";
+    if (/^ncli3d\.(desk|box|graph)\(/.test(raw)) return raw;
     return wrapLiveScript(raw);
-  } catch {
-    return "ncli3d.desk()";
+  } catch (err) {
+    showError(err);
+    return "";
   }
+}
+
+function showError(err) {
+  const host = document.getElementById("ncli3d") || document.body;
+  const msg = String(err && err.message ? err.message : err || "cena vazia");
+  host.innerHTML = `<div class="n3-err">não deu para renderizar a cena\n${msg.replace(/[<>&]/g, (c) => (c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&amp;"))}</div>`;
+  document.documentElement.style.colorScheme = "dark";
+  document.documentElement.style.background = "#0f0f11";
+  try {
+    parent.postMessage({ type: "ncli-live", op: "error", message: msg, name: String(window.name || "") }, "*");
+    parent.postMessage({ type: "ncli-3d", op: "ready", kind: "error", buttons: [], engine: "", triangles: 0 }, "*");
+  } catch {
+  }
+}
+
+function graph(spec) {
+  if (!spec || !Array.isArray(spec.nodes) || !spec.nodes.length) {
+    showError("ncli3d.graph precisa de nodes com label do conteúdo real");
+    return;
+  }
+  const world = mountWorld();
+  addLights(world.scene);
+  const nodes = spec.nodes;
+  const edges = spec.edges || [];
+  const layers = spec.layers && spec.layers.length
+    ? spec.layers
+    : [nodes.map((n) => n.id)];
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const pos = new Map();
+  layers.forEach((row, yi) => {
+    row.forEach((id, xi) => {
+      const x = (xi - (row.length - 1) / 2) * 1.4;
+      const z = (yi - (layers.length - 1) / 2) * 1.5;
+      pos.set(id, new THREE.Vector3(x, 0.2, z));
+    });
+  });
+  const mat = new THREE.MeshLambertMaterial({ color: 0x2b2b31 });
+  nodes.forEach((n) => {
+    const p = pos.get(n.id) || new THREE.Vector3();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.32, 1.1), mat);
+    mesh.position.copy(p);
+    world.scene.add(mesh);
+    const label = makeLabel(n.label || n.id);
+    label.position.set(p.x, p.y + 0.32, p.z);
+    world.scene.add(label);
+  });
+  edges.forEach((e) => {
+    const a = pos.get(Array.isArray(e) ? e[0] : e.from);
+    const b = pos.get(Array.isArray(e) ? e[1] : e.to);
+    if (!a || !b) return;
+    const geo = new THREE.BufferGeometry().setFromPoints([a, b]);
+    world.scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x6ea4ff })));
+  });
+  void byId;
+  const host = document.getElementById("ncli3d") || document.body;
+  const cams = document.createElement("div");
+  cams.className = "n3-cams";
+  layers.forEach((row, i) => btn(cams, row.map((id) => (byId.get(id) || {}).label || id).filter(Boolean).join(" · ") || `camada ${i + 1}`));
+  host.append(cams);
+  parent.postMessage({
+    type: "ncli-3d",
+    op: "ready",
+    kind: "graph",
+    buttons: [...cams.querySelectorAll("button")].map((b) => b.textContent),
+    engine: `three.js r${THREE.REVISION || ""}`,
+    triangles: nodes.length,
+  }, "*");
+  return world;
+}
+
+function makeLabel(text) {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 64;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#eeeef0";
+  ctx.font = "28px ui-sans-serif,system-ui,sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(text), 128, 32);
+  const tex = new THREE.CanvasTexture(c);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  spr.scale.set(1.2, 0.3, 1);
+  return spr;
 }
 
 function desk() {
@@ -312,21 +398,27 @@ function partBtn(parent, label, color) {
 
 function boot() {
   if (!THREE) {
-    parent.postMessage({ type: "ncli-3d", op: "ready", kind: "error", buttons: [], engine: "", triangles: 0 }, "*");
+    showError("three.js não carregou");
     return;
   }
-  window.ncli3d = { desk, box };
+  window.ncli3d = { desk, box, graph };
   const src = sceneSource();
+  if (!src) {
+    showError("cena vazia — use ncli3d.graph({nodes, edges, layers}) com labels do pedido");
+    return;
+  }
   const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
   const el = document.createElement("script");
   el.src = url;
   el.onload = () => {
     URL.revokeObjectURL(url);
-    if (!document.querySelector("canvas")) desk();
+    if (document.querySelector("canvas") || document.querySelector(".n3-err")) return;
+    if (/\bncli3d\.desk\s*\(/.test(src)) desk();
+    else showError("cena não desenhou");
   };
   el.onerror = () => {
     URL.revokeObjectURL(url);
-    desk();
+    showError("script da cena falhou");
   };
   document.head.appendChild(el);
 }

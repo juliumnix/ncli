@@ -227,20 +227,66 @@ function escapeHtml(s) {
 }
 
 function bodyHtml(text, streaming) {
+  const segs = parseLiveClient(text);
+  const html = segs.map((s) => (s.type === "live" ? iframeFor(s.block.kind, s.block.source) : md(s.text, streaming))).join("");
+  return html || md(text, streaming);
+}
+
+function parseLiveClient(text) {
   const segs = [];
-  const re = /```ncli[ \t]+(mermaid|html|react|url|ui|3d)[ \t]*\n([\s\S]*?)```/g;
-  let last = 0;
-  let m;
-  while ((m = re.exec(text))) {
-    if (m.index > last) segs.push(md(text.slice(last, m.index), false));
-    segs.push(iframeFor(m[1], m[2].trim()));
-    last = m.index + m[0].length;
+  const ncliRe = /(```|~~~)ncli(?:-|[ \t]+)(mermaid|html|react|url|ui|3d)\b[ \t]*\r?\n/i;
+  const mermaidRe = /(```|~~~)mermaid\b[ \t]*\r?\n/i;
+  let i = 0;
+  while (i < text.length) {
+    const slice = text.slice(i);
+    const ncli = ncliRe.exec(slice);
+    const mermaid = mermaidRe.exec(slice);
+    const ncliAt = ncli ? ncli.index : Infinity;
+    const mermaidAt = mermaid ? mermaid.index : Infinity;
+    const m = ncli && ncliAt <= mermaidAt ? ncli : mermaid;
+    const kind = ncli && ncliAt <= mermaidAt ? ncli[2].toLowerCase() : "mermaid";
+    if (!m) {
+      if (i < text.length) segs.push({ type: "text", text: text.slice(i) });
+      break;
+    }
+    const start = i + m.index;
+    if (start > i) segs.push({ type: "text", text: text.slice(i, start) });
+    const tick = m[1];
+    const bodyStart = start + m[0].length;
+    const close = new RegExp(`(?:^|\\n)${tick.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}[ \\t]*\\w*[ \\t]*(?:\\n|$)`);
+    const rest = text.slice(bodyStart);
+    const c = close.exec(rest);
+    const source = (c ? rest.slice(0, c.index) : rest).trim();
+    const end = c ? bodyStart + c.index + c[0].length : text.length;
+    let block = { kind, source };
+    const nested = source.match(/^(?:```|~~~)mermaid\b[ \t]*\r?\n([\s\S]+)$/i);
+    if (nested) block = { kind: "mermaid", source: nested[1].replace(/(?:```|~~~)\s*$/i, "").trim() };
+    else if ((kind === "ui" || kind === "html") && /^(graph|flowchart)\b/i.test(source)) {
+      block = { kind: "mermaid", source };
+    }
+    if (block.kind === "ui" && !block.source) {
+      const leftover = text.slice(end);
+      const bare = leftover.match(/^(mermaid|html|react|url|ui|3d)[ \t]*\r?\n([\s\S]*?)(?:```|~~~)/);
+      const flow = leftover.match(/^((?:flowchart|graph)\b[\s\S]*?)(?:```|~~~)/);
+      if (bare) {
+        segs.push({ type: "live", block: { kind: bare[1].toLowerCase(), source: bare[2].trim() } });
+        i = end + bare[0].length;
+        continue;
+      }
+      if (flow) {
+        segs.push({ type: "live", block: { kind: "mermaid", source: flow[1].trim() } });
+        i = end + flow[0].length;
+        continue;
+      }
+    }
+    if (!c && !source.includes("```")) {
+      segs.push({ type: "text", text: shimmerFor(kind, source) });
+      break;
+    }
+    segs.push({ type: "live", block });
+    i = end;
   }
-  const rest = text.slice(last);
-  const open = rest.match(/```ncli[ \t]+(mermaid|html|react|url|ui|3d)[ \t]*\n([\s\S]*)$/);
-  if (open && !open[2].includes("```")) segs.push(shimmerFor(open[1], open[2]));
-  else if (rest) segs.push(md(rest, streaming));
-  return segs.join("") || md(text, streaming);
+  return segs;
 }
 
 const mdMemo = new Map();
@@ -291,10 +337,10 @@ function sanitizeLiveMarkup(source) {
     .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
 }
 
-const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();`;
+const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel"];for(var i=0;i<n.length;i++){try{Object.defineProperty(window,n[i],{configurable:false,enumerable:false,writable:false,value:undefined})}catch(e){try{window[n[i]]=undefined}catch(e2){}}}var create=Document.prototype.createElement;Document.prototype.createElement=function(name,opts){var el=create.call(this,name,opts);if(String(name).toLowerCase()==="meta"){var set=el.setAttribute.bind(el);el.setAttribute=function(k,v){if(/^http-equiv$/i.test(k)&&/refresh/i.test(String(v)))return;if(/^content$/i.test(k)&&/url=/i.test(String(v)))return;return set(k,v)}}return el};function strip(el){if(!el||el.nodeType!==1)return;if(el.hasAttribute("href")||el.hasAttribute("xlink:href")){el.removeAttribute("href");el.removeAttribute("xlink:href")}if(/^META$/i.test(el.tagName)){var eq=el.getAttribute("http-equiv")||"";if(/refresh/i.test(eq))el.remove()}}var desc=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");if(desc&&desc.set){Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,enumerable:desc.enumerable,get:desc.get,set:function(v){desc.set.call(this,v);strip(this);if(this.querySelectorAll)this.querySelectorAll("*").forEach(strip)}})}document.addEventListener("click",function(ev){var t=ev.target;while(t&&t.nodeType===1){if(t.hasAttribute&&(t.hasAttribute("href")||t.hasAttribute("xlink:href"))){ev.preventDefault();ev.stopPropagation();return}t=t.parentNode}},true);window.ncliFakes=function(){var loc={href:"",assign:function(){},replace:function(){},reload:function(){}};var win;var par=new Proxy(window.parent,{get:function(t,p){if(p==="location")return loc;var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});var doc=new Proxy(document,{get:function(t,p){if(p==="location")return loc;if(p==="defaultView")return win;if(p==="write"||p==="writeln"||p==="open")return function(){};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});win=new Proxy(window,{get:function(t,p){if(p==="location")return loc;if(p==="document")return doc;if(p==="parent"||p==="top")return par;if(p==="window"||p==="self"||p==="globalThis"||p==="frames")return win;if(p==="Function"||p==="eval")return function(){return function(){}};var v=t[p];return typeof v==="function"?v.bind(t):v},set:function(t,p,v){if(p==="location")return true;t[p]=v;return true}});return [win,doc,loc,par,par,win,win,win,function(){return function(){}},function(){}]};function muteDoc(d){try{d.write=function(){};d.writeln=function(){};d.open=function(){}}catch(e){}}muteDoc(document);try{muteDoc(Document.prototype)}catch(e5){}function ping(op){try{parent.postMessage({type:"ncli-live",op:op,name:String(window.name||"")},"*")}catch(e){}}try{ping("hello")}catch(e3){}try{window.addEventListener("pagehide",function(){ping("nav")},true)}catch(e4){}})();`;
 
 function wrapLiveScript(source) {
-  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,eval){"use strict";${source}\n}).apply(a[0],a)})();`;
+  return `(function(){var a=window.ncliFakes();return (function(window,document,location,top,parent,self,globalThis,frames,Function,ncliEval){"use strict";${source}\n}).apply(a[0],a)})();`;
 }
 
 function compartmentHtml(body, extraHead) {
@@ -329,13 +375,16 @@ function iframeFor(kind, source) {
       if (!href) return liveError(kind, source, "url bloqueada");
       return `<div class="live-wrap in live-url-ask" data-live-url="${escapeHtml(href)}"><p class="live-url-msg">Abrir <code>${escapeHtml(href)}</code>?</p><button type="button" class="live-url-go" data-href="${escapeHtml(href)}">abrir</button></div>`;
     }
+    if (!String(source || "").trim() && kind !== "url") {
+      return liveError(kind, source, "fonte vazia — o fence fechou cedo ou o kind está errado");
+    }
     if (kind === "ui") {
       const key = uiKey(source);
       return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${liveFrameSrc(wrapUiSource(source), "live-frame live-ui", "live ui")}</div>`;
     }
     if (kind === "3d") {
       const origin = window.NCLI_LIVE_ORIGIN || "";
-      const src = `${origin ? `${origin}/3d` : "/ncli3d.html"}#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
+      const src = `${origin ? `${origin}/3d` : "/ncli3d.html"}#${encodeURIComponent(String(source || "").trim())}`;
       return `<div class="live-wrap in"><iframe class="live-frame live-3d" name="${nextLiveFrameName()}" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
     }
     const inner =
@@ -344,7 +393,7 @@ function iframeFor(kind, source) {
         : kind === "react"
           ? jsxLite(source)
           : source;
-    if (kind === "mermaid" && !/<rect |<svg /.test(inner)) {
+    if (kind === "mermaid" && !/<rect /.test(inner)) {
       return liveError(kind, source, "diagrama sem nós");
     }
     const html = compartmentHtml(inner, `<style>${liveDocCss()}</style>`);
@@ -382,13 +431,12 @@ function isConfirmedUrlFrame(iframe) {
 }
 
 function liveFrameFromEvent(ev) {
-  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  if (!ev.source) return null;
   for (const iframe of document.querySelectorAll("iframe.live-frame")) {
     if (isConfirmedUrlFrame(iframe)) continue;
     const home = liveFrameHome.get(iframe);
-    if (name && iframe.name === name) return iframe;
-    if (ev.source && iframe.contentWindow === ev.source) return iframe;
-    if (ev.source && home && home.win === ev.source) return iframe;
+    if (iframe.contentWindow === ev.source) return iframe;
+    if (home && home.win === ev.source) return iframe;
   }
   return null;
 }
@@ -410,34 +458,27 @@ function adoptLiveFrame(iframe, win) {
   return home;
 }
 
+const LIVE_DEAD_SRCDOC = '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"><style>html,body{margin:0;width:100%;height:100%;background:#0f0f11;color:#eeeef0;color-scheme:dark}</style></head><body></body></html>';
+
 function killLiveFrame(iframe) {
   const home = liveFrameHome.get(iframe) || adoptLiveFrame(iframe, iframe.contentWindow);
   if (!home || home.dead) return;
   home.dead = true;
   iframe.removeAttribute("src");
-  iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body></body></html>';
-}
-
-function killAllLiveFrames() {
-  for (const iframe of document.querySelectorAll("iframe.live-frame")) {
-    if (!isConfirmedUrlFrame(iframe)) killLiveFrame(iframe);
-  }
+  iframe.srcdoc = LIVE_DEAD_SRCDOC;
 }
 
 function killLiveFrames(frame) {
-  if (frame) {
-    killLiveFrame(frame);
-    return;
-  }
-  killAllLiveFrames();
+  if (!frame) return;
+  killLiveFrame(frame);
 }
 
 function liveFrameAway(iframe) {
   const home = liveFrameHome.get(iframe);
   if (!home || home.dead) return false;
   const src = iframe.src || "";
-  if (!/^https?:/i.test(src)) return false;
-  if (!home.src) return true;
+  if (!home.src) return Boolean(src);
+  if (!/^https?:/i.test(src)) return true;
   try {
     return new URL(src).href !== new URL(home.src, location.href).href;
   } catch {
@@ -496,12 +537,11 @@ function bind3dPause() {
 }
 
 function live3dFrame(ev) {
-  const name = ev.data && typeof ev.data.name === "string" ? ev.data.name : "";
+  if (!ev.source) return null;
   const frames = document.querySelectorAll("iframe.live-3d");
   for (const iframe of frames) {
-    if (name && iframe.name === name) return iframe;
     try {
-      if (ev.source && iframe.contentWindow === ev.source) return iframe;
+      if (iframe.contentWindow === ev.source) return iframe;
     } catch {
       continue;
     }
@@ -515,6 +555,18 @@ window.addEventListener("message", (ev) => {
     const frame = liveFrameFromEvent(ev);
     if (d0.op === "hello" && frame) adoptLiveFrame(frame, ev.source);
     if (d0.op === "nav") killLiveFrames(frame);
+    if (d0.op === "error" && frame) {
+      const kind = (frame.getAttribute("title") || "live ui").replace(/^live\s*/, "") || "ui";
+      let src = "";
+      try {
+        src = decodeURIComponent(String(frame.getAttribute("src") || "").split("#")[1] || "");
+      } catch {
+        src = "";
+      }
+      const wrap = document.createElement("div");
+      wrap.innerHTML = liveError(kind, src, d0.message || "render falhou");
+      if (wrap.firstElementChild) frame.replaceWith(wrap.firstElementChild);
+    }
     return;
   }
   const iframe = live3dFrame(ev);
@@ -535,14 +587,14 @@ window.addEventListener("message", (ev) => {
 });
 
 function liveDocCss() {
-  return `:root{--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
-html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
+  return `:root{color-scheme:dark;--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
+html,body{margin:0;padding:8px;background:var(--bg);color:var(--fg);color-scheme:dark;font:13px/1.45 ui-sans-serif,system-ui,sans-serif}
 a{color:var(--accent)}`;
 }
 
 function uiThemeCss() {
-  return `:root{--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:13px/1.45 ui-sans-serif,system-ui,sans-serif;overflow:hidden}
+  return `:root{color-scheme:dark;--bg:${UI_T.bg};--card:${UI_T.card};--line:${UI_T.line};--fg:${UI_T.fg};--muted:${UI_T.muted};--accent:${UI_T.accent}}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);color-scheme:dark;font:13px/1.45 ui-sans-serif,system-ui,sans-serif;overflow:hidden}
 body{padding:16px 16px 18px}
 *{box-sizing:border-box}
 h1,h2,h3{font-size:15px;font-weight:600;margin:0 0 10px}
@@ -719,8 +771,8 @@ function mermaidSvg(source) {
   const edges = [];
   for (const raw of source.split("\n")) {
     const line = raw.trim();
-    if (!line || /^(graph|flowchart)\b/i.test(line)) continue;
-    const edge = line.match(/^(\w+)(?:\[([^\]]+)\])?\s*-->\s*(\w+)(?:\[([^\]]+)\])?/);
+    if (!line || /^(graph|flowchart|subgraph|end|classDef|class|style|click|%%)/i.test(line)) continue;
+    const edge = line.match(/^(\w+)(?:\[([^\]]+)\])?\s*(?:-->|---|-.->|==>)\s*(?:\|[^|]+\|\s*)?(\w+)(?:\[([^\]]+)\])?/);
     if (edge) {
       nodes.set(edge[1], edge[2] || nodes.get(edge[1]) || edge[1]);
       nodes.set(edge[3], edge[4] || nodes.get(edge[3]) || edge[3]);

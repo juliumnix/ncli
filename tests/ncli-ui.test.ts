@@ -108,6 +108,8 @@ test("assembled prompt and demo conversation teach the ui contract", async () =>
   const ctx = assemble(mem);
   expect(ctx.system).toContain("ncli/skills/ncli-ui/SKILL.md");
   expect(ctx.system).toContain("```ncli mermaid|html|react|url|ui|3d");
+  expect(ctx.system).toContain("ncli3d.graph");
+  expect(ctx.system).not.toContain("ncli3d.desk");
 
   const { hub } = await makeHub({ demo: true });
   const talk = hub.memory.log.find((m) => m.kind === "talk" && m.text.includes("```ncli ui"));

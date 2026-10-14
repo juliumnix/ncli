@@ -694,7 +694,7 @@ code { font-family: var(--font-mono); font-size: 0.87em; background: var(--raise
 }
 .live-frame {
   display: block; width: 100%; height: var(--live-h, 240px); border: 0;
-  background: var(--surface); margin: 0;
+  background: var(--surface); color-scheme: dark; margin: 0;
   transition: height var(--d-msg) var(--ease-out);
 }
 .live-frame[src] { height: var(--live-h, 240px); }
