@@ -5,10 +5,12 @@ import type { HarnessKind, NcliConfig } from "./config";
 import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatChoice, SeatId, Turn, ViewInfo } from "./types";
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
-import { Memory, mockCompressor, type Compressor } from "./memory/store";
+import { Memory, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
-import { haikuCompressor } from "./memory/compact";
-import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
+import { compactSnapshot } from "./memory/cursor-compact";
+import { createCompactEngine, type CompactEngine } from "./memory/compact-engine";
+import type { CompactChoice } from "./memory/compact-choice";
+import { compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
 import { factsOf, parseIds, wouldCycle } from "./memory/facts";
 import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
@@ -90,6 +92,7 @@ export class Hub {
   compact: CompactStatus;
   private listeners = new Set<(ev: HubEvent) => void>;
   readonly compressor: Compressor;
+  readonly engine: CompactEngine;
   private turning = false;
   private abort: AbortController | null = null;
   private spawnMain: ReturnType<Hub["injectSpawn"]> | null = null;
@@ -107,10 +110,13 @@ export class Hub {
     mkdirSync(cfg.dataDir, { recursive: true });
     this.mcpUrl = `http://127.0.0.1:${cfg.port}/mcp`;
     this.compact = compactStatusOf(compactSnapshot(cfg));
-    this.compressor = pickCompressor(cfg, (ev) => {
-      this.compact = this.syncCompact(ev);
-      this.emit({ type: "compact", compact: this.compact });
+    this.engine = createCompactEngine(cfg, {
+      onProgress: (ev) => {
+        this.compact = this.syncCompact(ev);
+        this.emit({ type: "compact", compact: this.compact });
+      },
     });
+    this.compressor = this.engine.compress;
     this.spaces = new SpaceRegistry({
       dataDir: cfg.dataDir,
       nodeBytes: cfg.nodeBytes,
@@ -666,6 +672,40 @@ export class Hub {
     this.pumpWhenIdle();
   }
 
+  async compactSettings(): Promise<CompactSettingsState> {
+    const listed = await this.engine.models();
+    const choice = this.engine.choice();
+    return {
+      choice,
+      models: listed.models,
+      error: listed.error || this.compact.error,
+      paused: this.compact.paused,
+      envModel: (process.env.NCLI_COMPACT_MODEL ?? "").trim() || undefined,
+    };
+  }
+
+  setCompactChoice(next: Partial<CompactChoice>): CompactChoice {
+    this.engine.killAll();
+    const choice = this.engine.setChoice(next);
+    this.cfg.compactModel = choice.model || this.cfg.compactModel;
+    this.memory.compactWork.paused = null;
+    this.compact = {
+      ...this.compact,
+      model: choice.model,
+      mode: choice.mode,
+      provider: choice.mode === "cli" ? choice.provider : "sdk",
+      error: undefined,
+      paused: undefined,
+    };
+    this.emit({ type: "compact", compact: this.compact });
+    this.pumpWhenIdle();
+    return choice;
+  }
+
+  compactSettingsHtml(state: CompactSettingsState): string {
+    return compactSettingsHtml(state);
+  }
+
   publishCompact(status: CompactStatus): void {
     this.compact = status;
     this.emit({ type: "compact", compact: this.compact });
@@ -678,17 +718,19 @@ export class Hub {
     budget: number;
     model: string;
     error?: string;
-    paused?: "budget";
+    paused?: "budget" | "limit";
   }): CompactStatus {
     const work = this.memory.compactWork;
     const tokensToday = ev?.tokensToday ?? this.compact.tokensToday;
     const budget = ev?.budget ?? this.compact.budget;
-    const model = ev?.model ?? this.compact.model;
+    const model = ev?.model ?? this.engine.choice().model ?? this.compact.model;
     const lastNodes = ev?.nodes ?? this.compact.lastNodes;
-    const paused = work.paused ?? ev?.paused;
+    const choice = this.engine.choice();
+    const paused = work.paused === "cli-error" ? undefined : (work.paused ?? ev?.paused);
+    const error = work.paused === "cli-error" ? ev?.error ?? this.compact.error : ev?.error;
     const total = work.total || this.compact.total;
     const done = work.done;
-    if (paused === "budget") {
+    if (paused === "budget" || paused === "limit") {
       return {
         running: false,
         lastNodes,
@@ -697,14 +739,24 @@ export class Hub {
         tokensToday,
         budget,
         model,
-        paused: "budget",
+        paused,
+        mode: choice.mode,
+        provider: choice.mode === "cli" ? choice.provider : "sdk",
       };
     }
-    if (ev?.error) {
-      return compactStatusOf({ running: false, nodes: lastNodes, tokensToday, budget, model }, done, total, ev.error);
+    if (error) {
+      return {
+        ...compactStatusOf({ running: false, nodes: lastNodes, tokensToday, budget, model }, done, total, error),
+        mode: choice.mode,
+        provider: choice.mode === "cli" ? choice.provider : "sdk",
+      };
     }
     const running = total > 0 && done < total;
-    return compactStatusOf({ running, nodes: lastNodes, tokensToday, budget, model }, done, total);
+    return {
+      ...compactStatusOf({ running, nodes: lastNodes, tokensToday, budget, model }, done, total),
+      mode: choice.mode,
+      provider: choice.mode === "cli" ? choice.provider : "sdk",
+    };
   }
 
   private pumpWhenIdle(): void {
@@ -1122,6 +1174,7 @@ export class Hub {
   async close(): Promise<void> {
     this.closed = true;
     this.importAbort?.abort();
+    this.engine.close();
     this.memory.paused = true;
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.harness.close?.();
@@ -1160,23 +1213,6 @@ function compactStatusOf(
     model: ev.model,
     ...(error ? { error } : {}),
   };
-}
-
-function pickCompressor(cfg: NcliConfig, onProgress?: (ev: { running: boolean; nodes: number; tokensToday: number; budget: number; model: string; error?: string }) => void): Compressor {
-  switch (cfg.compactBackend) {
-    case "mock":
-      return mockCompressor();
-    case "claude":
-      return haikuCompressor(cfg);
-    case "cursor":
-      return cursorCompressor(cfg, undefined, onProgress);
-    case "auto":
-      return cfg.harness === "mock" ? mockCompressor() : cursorCompressor(cfg, undefined, onProgress);
-    default: {
-      const _n: never = cfg.compactBackend;
-      return mockCompressor();
-    }
-  }
 }
 
 function pickGh(cfg: NcliConfig, fixturesDir: string): GhClient {

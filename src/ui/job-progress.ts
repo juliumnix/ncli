@@ -12,6 +12,7 @@ export type JobProgress = {
   total: number;
   startedAt: number;
   error?: string;
+  reason?: "budget" | "limit";
 };
 
 const SOURCE_NAME: Record<ImportSource, string> = {
@@ -68,7 +69,7 @@ export function jobStage(job: JobProgress): string {
     case "error":
       return "Não deu pra organizar a memória";
     case "paused":
-      return "Pausado: limite diário";
+      return job.reason === "limit" ? "Pausado no limite" : "Pausado: limite diário";
     default: {
       const _n: never = job.phase;
       return _n;

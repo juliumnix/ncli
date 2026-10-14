@@ -8,10 +8,11 @@ import { flattenLine, keepRecent, utf8Bytes } from "../util";
 import { cursorCliConfigPath, withUnchangedFile } from "./cli-config";
 import { isSdkUnavailable, requireCompactSdkKey, runCursorSdkCompact, type SdkCompactFn } from "./sdk-compact";
 import { COMPACT_PROMPT } from "./compact";
-import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
+import { CompactBudgetPause, CompactDeferred, CompactHold, isProviderLimitMessage, ProviderLimitError } from "./compact-deferred";
+import { COMPACT_RULER, COMPACT_TOO_LONG_TRIES } from "./cli-compact";
 import type { CompactInput, Compressor } from "./store";
 
-export { CompactBudgetPause, CompactDeferred };
+export { CompactBudgetPause, CompactDeferred, CompactHold, ProviderLimitError };
 
 export const CURSOR_COMPACT_PROMPT =
   "One-line memory for NCLI. Output only the line. Keep user words, decisions, ids. If a later item replaces an earlier one, keep the final state and name what it replaced. Drop tool noise.";
@@ -23,7 +24,7 @@ export interface CompactProgress {
   nodes: number;
   done?: number;
   total?: number;
-  paused?: "budget";
+  paused?: "budget" | "limit";
   tokensToday: number;
   budget: number;
   model: string;
@@ -116,7 +117,7 @@ export function jobPrompt(jobs: Array<{ input: CompactInput }>): string {
   const chat = jobs[0]?.input.contextLines?.join("\n") ?? "";
   const body = jobs
     .map((j, i) => {
-      const ruler = "-".repeat(j.input.nodeBytes);
+      const ruler = "-".repeat(COMPACT_RULER);
       const step =
         j.input.kind === "leaf"
           ? `Compress:\n<input>\n${j.input.source}\n</input>`
@@ -166,7 +167,7 @@ export function compactSnapshot(
   running = false,
   lastNodes = 0,
   error?: string,
-  paused?: "budget",
+  paused?: "budget" | "limit",
 ): CompactProgress {
   const b = loadBudget(cfg);
   return {
@@ -197,8 +198,19 @@ async function runBatch(
   const tokensIn = estimateTokens(prompt);
   onProgress?.(compactSnapshot(cfg, true, jobs.length));
   try {
-    const reply = await run(prompt, cfg.compactModel);
-    const lines = parseNumbered(reply, jobs.length);
+    let reply = "";
+    let lines: string[] = [];
+    let ask = prompt;
+    for (let tryN = 0; tryN < COMPACT_TOO_LONG_TRIES; tryN++) {
+      reply = await run(ask, cfg.compactModel);
+      lines = parseNumbered(reply, jobs.length);
+      const over = jobs.some((j, i) => {
+        const line = flattenLine(lines[i] ?? "");
+        return !line || utf8Bytes(line) > j.input.nodeBytes;
+      });
+      if (!over) break;
+      ask = `Too long.\n${prompt}`;
+    }
     const tokensOut = estimateTokens(reply);
     bumpBudget(cfg, tokensIn + tokensOut);
     logCall(cfg.dataDir, {
@@ -223,8 +235,18 @@ async function runBatch(
     });
     onProgress?.(compactSnapshot(cfg, false, jobs.length));
   } catch (err) {
-    onProgress?.(compactSnapshot(cfg, false, 0, err instanceof Error ? err.message : String(err)));
-    for (const j of jobs) j.reject(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    const fail = err instanceof ProviderLimitError || isProviderLimitMessage(msg)
+      ? err instanceof ProviderLimitError ? err : new ProviderLimitError(msg)
+      : err;
+    onProgress?.(compactSnapshot(
+      cfg,
+      false,
+      0,
+      msg,
+      fail instanceof ProviderLimitError ? "limit" : undefined,
+    ));
+    for (const j of jobs) j.reject(fail);
   }
 }
 

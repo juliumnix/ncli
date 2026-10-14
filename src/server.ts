@@ -114,7 +114,28 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         }
         return publicJson({ ok: true, preview: hub.previewImport(source, body.since) });
       }
+      if (url.pathname === "/api/compact" && req.method === "GET") {
+        const settings = await hub.compactSettings();
+        return Response.json({
+          ok: true,
+          ...settings,
+          compact: hub.compact,
+          html: hub.compactSettingsHtml(settings),
+        });
+      }
       if (url.pathname === "/api/compact" && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as { mode?: string; provider?: string; model?: string };
+        if (body.mode || body.provider || "model" in body) {
+          const choice = hub.setCompactChoice({
+            ...(body.mode === "sdk" || body.mode === "cli" ? { mode: body.mode } : {}),
+            ...(body.provider === "codex" || body.provider === "claude" || body.provider === "cursor"
+              ? { provider: body.provider }
+              : {}),
+            ...(typeof body.model === "string" ? { model: body.model } : {}),
+          });
+          const settings = await hub.compactSettings();
+          return Response.json({ ok: true, choice, compact: hub.compact, html: hub.compactSettingsHtml(settings) });
+        }
         hub.retryCompact();
         return publicJson({ ok: true, compact: hub.compact });
       }

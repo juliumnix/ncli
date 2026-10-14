@@ -173,6 +173,7 @@ const state = {
   turn: null,
   sparkTurns: {},
   compact: null,
+  compactSettings: null,
   userName: "Você",
   queue: [],
   editQid: "",
@@ -1317,7 +1318,7 @@ function jobStageOf(job) {
   }
   if (job.phase === "done") return "Memória organizada";
   if (job.phase === "error") return "Não deu pra organizar a memória";
-  if (job.phase === "paused") return "Pausado: limite diário";
+  if (job.phase === "paused") return job.reason === "limit" ? "Pausado no limite" : "Pausado: limite diário";
   return "Organizando a memória";
 }
 
@@ -1382,11 +1383,12 @@ function activeJob() {
   }
   const c = state.compact;
   if (c && (c.running || c.error || c.paused || state.jobFade === "compact")) {
-    const phase = c.error ? "error" : c.paused === "budget" ? "paused" : c.running ? "running" : "done";
+    const phase = c.error ? "error" : c.paused === "budget" || c.paused === "limit" ? "paused" : c.running ? "running" : "done";
     if (phase === "running") markJobStart("compact");
     return {
       kind: "compact",
       phase,
+      reason: c.paused === "limit" ? "limit" : c.paused === "budget" ? "budget" : undefined,
       done: c.done || 0,
       total: c.total || 0,
       startedAt: state.jobStartedAt.compact || Date.now(),
@@ -1764,6 +1766,38 @@ function renderContext() {
   viewList.innerHTML = state.views
     .map((v) => `<li><code>view://${v.id}</code> · ${escapeHtml(v.label)} <span class="muted">${escapeHtml(v.file)}</span></li>`)
     .join("");
+  renderCompactSet();
+}
+
+function renderCompactSet() {
+  const el = $("compactSet");
+  if (!el) return;
+  const snap = state.compactSettings;
+  if (snap && snap.html) {
+    el.innerHTML = snap.html;
+    return;
+  }
+  el.innerHTML = "";
+}
+
+async function loadCompactSettings() {
+  const res = await fetch("/api/compact");
+  if (!res.ok) return;
+  state.compactSettings = await res.json();
+  renderCompactSet();
+}
+
+async function postCompactChoice(body) {
+  const res = await fetch("/api/compact", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return;
+  state.compactSettings = await res.json();
+  if (state.compactSettings.compact) state.compact = state.compactSettings.compact;
+  renderCompactSet();
+  renderJob();
 }
 
 function rowLines(rows) {
@@ -1865,6 +1899,7 @@ function setDrawer(open) {
     d.hidden = false;
     if (s && !wide) s.hidden = false;
     document.body.classList.add("drawer-open");
+    void loadCompactSettings();
     requestAnimationFrame(() => {
       d.classList.add("in");
       if (s && !wide) s.classList.add("in");
@@ -2893,6 +2928,19 @@ $("menuBtn").addEventListener("click", () => {
   setDrawer(!document.body.classList.contains("drawer-open"));
 });
 $("scrim").addEventListener("click", () => setDrawer(false));
+$("compactSet")?.addEventListener("click", (e) => {
+  const mode = e.target.closest("[data-compact-mode]");
+  if (mode) {
+    void postCompactChoice({ mode: mode.getAttribute("data-compact-mode") });
+    return;
+  }
+  const prov = e.target.closest("[data-compact-provider]");
+  if (prov) void postCompactChoice({ mode: "cli", provider: prov.getAttribute("data-compact-provider") });
+});
+$("compactSet")?.addEventListener("change", (e) => {
+  const sel = e.target.closest("#compactModel");
+  if (sel) void postCompactChoice({ model: sel.value });
+});
 
 chat.addEventListener("wheel", (e) => {
   if (e.deltaY < 0) markUserUp();
