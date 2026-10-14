@@ -7,13 +7,15 @@ import type { HubEvent } from "./types";
 import { handleMcpHttp } from "./mcp/http";
 import { sanitizeViewHtml } from "./util";
 import { liveOrigin } from "./live/origin";
+import { publicJson, redactValue } from "./redact";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const enc = new TextEncoder();
 
+  const wire = (ev: unknown) => enc.encode(`data: ${JSON.stringify(redactValue(ev))}\n\n`);
   hub.subscribe((ev) => {
-    const chunk = enc.encode(`data: ${JSON.stringify(ev)}\n\n`);
+    const chunk = wire(ev);
     for (const c of clients) {
       try {
         c.enqueue(chunk);
@@ -36,17 +38,17 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           start(c) {
             controller = c;
             clients.add(c);
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "hello", userName: hub.cfg.userName })}\n\n`));
+            c.enqueue(wire({ type: "hello", userName: hub.cfg.userName }));
             const snap: HubEvent = { type: "views", views: hub.views.list() };
-            c.enqueue(enc.encode(`data: ${JSON.stringify(snap)}\n\n`));
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "main", main: hub.mainAgent() })}\n\n`));
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "compact", compact: hub.compact })}\n\n`));
-            c.enqueue(enc.encode(`data: ${JSON.stringify(hub.snapshot().context)}\n\n`));
-            if (hub.live) c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "turn", session: "main", turn: hub.live.turn })}\n\n`));
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "queue", items: hub.queue.list() })}\n\n`));
-            c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "usage", usage: hub.usage.snapshot() })}\n\n`));
+            c.enqueue(wire(snap));
+            c.enqueue(wire({ type: "main", main: hub.mainAgent() }));
+            c.enqueue(wire({ type: "compact", compact: hub.compact }));
+            c.enqueue(wire(hub.snapshot().context));
+            if (hub.live) c.enqueue(wire({ type: "turn", session: "main", turn: hub.live.turn }));
+            c.enqueue(wire({ type: "queue", items: hub.queue.list() }));
+            c.enqueue(wire({ type: "usage", usage: hub.usage.snapshot() }));
             if (hub.lastImport) {
-              c.enqueue(enc.encode(`data: ${JSON.stringify({ type: "import", preview: hub.lastImport, offers: hub.importOffers })}\n\n`));
+              c.enqueue(wire({ type: "import", preview: hub.lastImport, offers: hub.importOffers }));
             }
           },
           cancel() {
@@ -62,102 +64,102 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         });
       }
       if (url.pathname === "/api/state") {
-        return Response.json(hub.snapshot());
+        return publicJson(hub.snapshot());
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };
         void hub.send(body.text ?? "", { mode: body.mode, session: body.session });
-        return Response.json({ ok: true, queue: hub.queue.list() });
+        return publicJson({ ok: true, queue: hub.queue.list() });
       }
       const queueNow = url.pathname.match(/^\/api\/queue\/([^/]+)\/now$/);
       if (queueNow && req.method === "POST") {
         const id = decodeURIComponent(queueNow[1]!);
-        return Response.json({ ok: hub.sendNow(id), queue: hub.queue.list() });
+        return publicJson({ ok: hub.sendNow(id), queue: hub.queue.list() });
       }
       if (url.pathname.startsWith("/api/queue/") && req.method === "PATCH") {
         const id = decodeURIComponent(url.pathname.slice("/api/queue/".length));
         const body = (await req.json()) as { text?: string };
-        return Response.json({ ok: hub.editQueued(id, body.text ?? ""), queue: hub.queue.list() });
+        return publicJson({ ok: hub.editQueued(id, body.text ?? ""), queue: hub.queue.list() });
       }
       if (url.pathname.startsWith("/api/queue/") && req.method === "DELETE") {
         const id = decodeURIComponent(url.pathname.slice("/api/queue/".length));
-        return Response.json({ ok: hub.dropQueued(id), queue: hub.queue.list() });
+        return publicJson({ ok: hub.dropQueued(id), queue: hub.queue.list() });
       }
       if (url.pathname === "/api/stop" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { session?: string };
-        return Response.json({ ok: hub.stopTurn(body.session ?? "main") });
+        return publicJson({ ok: hub.stopTurn(body.session ?? "main") });
       }
       if (url.pathname === "/api/import" && req.method === "GET") {
         const source = url.searchParams.get("source") ?? "";
         if (source !== "claude" && source !== "codex" && source !== "cursor") {
-          return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
+          return publicJson({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
         }
         const since = url.searchParams.get("since") ?? undefined;
-        return Response.json({ ok: true, preview: hub.previewImport(source, since) });
+        return publicJson({ ok: true, preview: hub.previewImport(source, since) });
       }
       if (url.pathname === "/api/import" && req.method === "POST") {
         const body = (await req.json()) as { source?: string; since?: string; apply?: boolean };
         const source = body.source ?? "";
         if (source !== "claude" && source !== "codex" && source !== "cursor") {
-          return Response.json({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
+          return publicJson({ ok: false, error: "source claude|codex|cursor" }, { status: 400 });
         }
         if (body.apply) {
           void hub.applyImport(source, body.since, { surface: hub.memory.T === 0 }).catch(() => undefined);
-          return Response.json({ ok: true, started: true, via: "job" });
+          return publicJson({ ok: true, started: true, via: "job" });
         }
-        return Response.json({ ok: true, preview: hub.previewImport(source, body.since) });
+        return publicJson({ ok: true, preview: hub.previewImport(source, body.since) });
       }
       if (url.pathname === "/api/compact" && req.method === "POST") {
         hub.retryCompact();
-        return Response.json({ ok: true, compact: hub.compact });
+        return publicJson({ ok: true, compact: hub.compact });
       }
       if (url.pathname === "/api/usage" && req.method === "POST") {
         const body = (await req.json()) as { seat?: string; policy?: "resume" | "snooze" };
         const seat = body.seat;
         if (seat !== "claude" && seat !== "codex" && seat !== "cursor" && seat !== "mock") {
-          return Response.json({ ok: false, error: `seat desconhecida: ${body.seat}` }, { status: 400 });
+          return publicJson({ ok: false, error: `seat desconhecida: ${body.seat}` }, { status: 400 });
         }
         if (body.policy !== "resume" && body.policy !== "snooze") {
-          return Response.json({ ok: false, error: "policy resume|snooze" }, { status: 400 });
+          return publicJson({ ok: false, error: "policy resume|snooze" }, { status: 400 });
         }
-        return Response.json({ ok: true, usage: hub.setUsagePolicy(seat, body.policy) });
+        return publicJson({ ok: true, usage: hub.setUsagePolicy(seat, body.policy) });
       }
       if (url.pathname === "/api/harness" && req.method === "POST") {
         const body = (await req.json()) as { harness?: string };
         const kind = body.harness as HarnessKind;
         if (kind !== "claude" && kind !== "codex" && kind !== "cursor" && kind !== "mock") {
-          return Response.json({ ok: false, error: `harness desconhecido: ${body.harness}` }, { status: 400 });
+          return publicJson({ ok: false, error: `harness desconhecido: ${body.harness}` }, { status: 400 });
         }
         hub.switchMain(kind);
-        return Response.json({ ok: true, main: hub.mainAgent() });
+        return publicJson({ ok: true, main: hub.mainAgent() });
       }
       if ((url.pathname === "/api/sparks" || url.pathname === "/api/forks") && req.method === "POST") {
         const body = (await req.json()) as { view?: string; params?: Record<string, string> };
         const rt = await hub.sparks.open(body.view ?? "", body.params ?? {});
-        return Response.json({ ok: true, spark: rt.spark, fork: rt.spark });
+        return publicJson({ ok: true, spark: rt.spark, fork: rt.spark });
       }
       const sparkMsg = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/message$/);
       if (sparkMsg && req.method === "POST") {
         const body = (await req.json()) as { text?: string };
         void hub.sparks.message(decodeURIComponent(sparkMsg[1]), body.text ?? "");
-        return Response.json({ ok: true });
+        return publicJson({ ok: true });
       }
       const sparkShip = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ship$/);
       if (sparkShip && req.method === "POST") {
         const result = await hub.sparks.ship(decodeURIComponent(sparkShip[1]));
-        return Response.json(result);
+        return publicJson(result);
       }
       const sparkArchive = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/archive$/);
       if (sparkArchive && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { force?: boolean };
         const result = await hub.sparks.archive(decodeURIComponent(sparkArchive[1]), body.force === true);
-        return Response.json({ ok: result?.ok ?? false, archive: result });
+        return publicJson({ ok: result?.ok ?? false, archive: result });
       }
       const sparkAck = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ack$/);
       if (sparkAck && req.method === "POST") {
         const body = (await req.json()) as { summary?: string };
         await hub.ackSpark(decodeURIComponent(sparkAck[1]), body.summary);
-        return Response.json({ ok: true });
+        return publicJson({ ok: true });
       }
       const sparkAct = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/act$/);
       if (sparkAct && req.method === "POST") {
@@ -169,7 +171,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         });
         const plugin = hub.views.get(spark.view);
         const raw = plugin?.render?.(spark);
-        return Response.json({ ok: true, spark, fork: spark, html: raw === undefined ? undefined : sanitizeViewHtml(raw) });
+        return publicJson({ ok: true, spark, fork: spark, html: raw === undefined ? undefined : sanitizeViewHtml(raw) });
       }
       const sparkGet = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)$/);
       if (sparkGet && req.method === "GET") {
@@ -177,7 +179,7 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         if (!rt) return new Response("not found", { status: 404 });
         const plugin = hub.views.get(rt.spark.view);
         const raw = plugin?.render?.(rt.spark);
-        return Response.json({
+        return publicJson({
           spark: rt.spark,
           fork: rt.spark,
           messages: rt.memory.log,
@@ -188,10 +190,10 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
       }
       if (url.pathname === "/api/memory" && req.method === "GET") {
         const session = url.searchParams.get("session") ?? "main";
-        if (session === "main") return Response.json(hub.memory.debug());
+        if (session === "main") return publicJson(hub.memory.debug());
         const rt = hub.sparks.get(session);
         if (!rt) return new Response("not found", { status: 404 });
-        return Response.json(rt.memory.debug());
+        return publicJson(rt.memory.debug());
       }
       if (url.pathname === "/api/memory/zoom") {
         const id = Number(url.searchParams.get("id"));
@@ -199,10 +201,10 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const session = url.searchParams.get("session") ?? "main";
         const mem = session === "main" ? hub.memory : hub.sparks.get(session)?.memory;
         if (!mem) return new Response("not found", { status: 404 });
-        return Response.json(mem.zoom(id, n));
+        return publicJson(mem.zoom(id, n));
       }
       if (url.pathname === "/api/views") {
-        return Response.json(hub.views.list());
+        return publicJson(hub.views.list());
       }
       return staticFile(publicDir, url.pathname);
     },

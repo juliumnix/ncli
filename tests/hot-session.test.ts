@@ -77,7 +77,7 @@ test("claude keeps one hot process per session and never hands a spark the chat 
   }
 });
 
-test("codex keeps one waiter per session and passes that session's skill dirs", async () => {
+test("codex passes each session's skill dirs and does not keep a waiter", async () => {
   const dataDir = tmpDir("hot-iso-codex");
   const chatSkills = join(dataDir, "chat-skills");
   const sparkSkills = join(dataDir, "spark-skills");
@@ -105,11 +105,12 @@ test("codex keeps one waiter per session and passes that session's skill dirs", 
     );
     const again = await collect(adapter.run({ prompt: "chat-2", session: "main", cwd: chatSkills, addDir: [chatSkills] }));
     expect(again.some((e) => e.sessionUpdate === "agent_message_chunk")).toBe(true);
-    expect(adapter.lastTrace?.hot).toBe(true);
+    expect(adapter.lastTrace?.hot).toBe(false);
     adapter.release("spark-1");
     await collect(adapter.run({ prompt: "spark-2", session: "spark-1", cwd: sparkSkills, addDir: [sparkSkills] }));
     await collect(adapter.run({ prompt: "chat-3", session: "main", cwd: chatSkills, addDir: [chatSkills] }));
-    expect(adapter.lastTrace?.hot).toBe(true);
+    expect(adapter.lastTrace?.hot).toBe(false);
+    expect(processSpawns(logPath)).toHaveLength(5);
   } finally {
     adapter.close();
     if (prev === undefined) delete process.env.FAKE_CODEX_LOG;

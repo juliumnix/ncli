@@ -1,6 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { checkCodexConfig, formatCodexConfigWarnings } from "./acp/codex";
 import { hasCompactDailyBudget, loadConfig, type NcliConfig } from "./config";
+import { packageRoot } from "./pkg-root";
+import { redactText } from "./redact";
 import { Hub } from "./hub";
 import { serve } from "./server";
 import { MCP_PROTOCOL_DEFAULT } from "./mcp/handle";
@@ -57,10 +60,10 @@ export function formatBoot(r: BootReport, opts: { verbose?: boolean } = {}): str
     short,
     `agent ${r.main.harness}${r.main.model ? ` · ${r.main.model}` : ""}`,
     `mcp   ${r.mcpUrl}  (listening)`,
-    `bus   ${r.bus}`,
+    `bus   ${redactText(r.bus)}`,
     `compact: cursor-sdk ${r.compact.sdk} · ${r.compact.model}${hasCompactDailyBudget(r.compact.budget) ? ` · budget ${r.compact.budget}` : ""}`,
     `views ${r.views.join(", ") || "(none)"}`,
-    r.warning,
+    r.warning ? redactText(r.warning) : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -79,7 +82,7 @@ export async function bootNcli(opts: {
   hub?: Hub;
   openBrowser?: boolean;
 } = {}): Promise<Booted> {
-  const root = opts.root ?? join(import.meta.dir, "..");
+  const root = opts.root ?? packageRoot();
   loadNcliSecrets();
   const cfg = opts.cfg ?? loadConfig();
   if (shouldValidateCompactModel(cfg) && compactSdkKey()) {
@@ -114,6 +117,8 @@ export async function bootNcli(opts: {
   });
   const bunWarn = bunVersionWarning();
   if (bunWarn) flushText(bunWarn);
+  const codexWarn = formatCodexConfigWarnings(checkCodexConfig());
+  if (codexWarn) flushText(codexWarn);
   if (opts.openBrowser) {
     openReadyBrowser({ url: readyUrl(server.port), dataDir: cfg.dataDir });
   }
@@ -138,6 +143,7 @@ export async function bootNcli(opts: {
       sdk: compactSdkStatus(),
     },
     warning: [
+      codexWarn,
       cursorPollutionWarning({
         cliConfigPath: cursorCliConfigPath(homedir()),
         compactModel: cfg.compactModel,

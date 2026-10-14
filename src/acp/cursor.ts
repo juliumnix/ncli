@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
+import { spawnHarness } from "./children";
 import type { RunOpts } from "../harness/types";
 import { cursorCliConfigPath, holdFile } from "../memory/cli-config";
 import { NdjsonRpc } from "./rpc";
@@ -200,7 +201,7 @@ export class CursorAcpAdapter implements AcpAdapter {
     const spawnAt = performance.now();
     const env = childEnv(process.env, { allowAnthropicKey: false });
     const release = holdFile(cursorCliConfigPath(homedir()));
-    const proc = Bun.spawn([spawn.command, ...spawn.args], {
+    const proc = spawnHarness([spawn.command, ...spawn.args], {
       cwd: opts.cwd ?? this.cfg.repo,
       stdin: "pipe",
       stdout: "pipe",

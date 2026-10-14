@@ -99,7 +99,7 @@ test("planCodexSession rotates a fat rollout jsonl and resumes a small one", () 
   expect(small.id).toBe("thread-tiny");
 });
 
-test("a pre-warmed codex waiter handles two turns and timestamps init then token", async () => {
+test("codex resumes the saved thread on a fresh process", async () => {
   const dataDir = tmpDir("hot-codex");
   const logPath = join(dataDir, "spawn.jsonl");
   const prev = process.env.FAKE_CODEX_LOG;
@@ -119,7 +119,7 @@ test("a pre-warmed codex waiter handles two turns and timestamps init then token
 
     const second = await collect(adapter.run({ prompt: "de novo", session: "main", cwd: dataDir }));
     expect(second.some((e) => e.sessionUpdate === "agent_message_chunk")).toBe(true);
-    expect(adapter.lastTrace?.hot).toBe(true);
+    expect(adapter.lastTrace?.hot).toBe(false);
     const spawns = readFileSync(logPath, "utf8").trim().split("\n");
     expect(spawns.length).toBeGreaterThanOrEqual(2);
     const resumed = spawns.some((line) => JSON.parse(line).argv?.includes("resume"));
@@ -317,8 +317,8 @@ test("NCLI hot second token beats a cold spawn for Claude, Codex, and Cursor", a
     await Bun.sleep(120);
     await collect(codex.run({ prompt: "oi", session: "main", cwd: dataDir }));
     const hot = codex.lastTrace!;
-    rows.push(rowOf("codex", "after (pre-warmed waiter)", hot.spawnAt, hot.turnAt, hot.initAt, hot.firstTokenAt, true));
-    expect(hot.hot).toBe(true);
+    rows.push(rowOf("codex", "after (cold resume)", hot.spawnAt, hot.turnAt, hot.initAt, hot.firstTokenAt, false));
+    expect(hot.hot).toBe(false);
   } finally {
     codex.close();
   }

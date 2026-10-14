@@ -39,7 +39,7 @@ export function prepareSpawn(opts: {
   const extra = opts.extraMcp
     ? resolveServers({ servers: loadMcpFile(opts.extraMcp), path: opts.extraMcp }, vars)
     : [];
-  const servers = [...resolveServers(loadMcpRegistry(opts.cfg.ncliRoot), vars), ...extra];
+  const servers = [...resolveServers(loadMcpRegistry(opts.cfg.pkgRoot), vars), ...extra];
   const dir = join(opts.cfg.dataDir, "spawn", opts.session.replace(/[^a-zA-Z0-9._-]/g, "_"));
   assertLocal(dir, opts.cfg.dataDir);
   mkdirSync(dir, { recursive: true });
@@ -103,6 +103,8 @@ export function codexMcpFlags(servers: McpServerSpec[]): string[] {
 
 export function codexNcliTrustFlags(name = "ncli"): string[] {
   const flags = [
+    "-c",
+    `mcp_servers.${name}.enabled=true`,
     "-c",
     `mcp_servers.${name}.enabled_tools=${JSON.stringify(NCLI_TOOLS.map((tool) => tool.name))}`,
   ];

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
+import { packageRoot } from "../pkg-root";
 import { defaultSkillsDir } from "../skills/catalog";
 
 export type McpTransport = "stdio" | "http";
@@ -52,9 +53,13 @@ export function loadMcpFile(path: string): McpServerSpec[] {
   return servers;
 }
 
-export function loadMcpRegistry(ncliRoot: string): McpRegistry {
-  const path = defaultMcpRegistryPath(ncliRoot);
-  return { servers: loadMcpFile(path), path };
+export function loadMcpRegistry(root?: string): McpRegistry {
+  const requested = root && root.length > 0 ? root : packageRoot();
+  const primary = defaultMcpRegistryPath(requested);
+  if (existsSync(primary)) return { servers: loadMcpFile(primary), path: primary };
+  const bundled = defaultMcpRegistryPath(packageRoot());
+  if (bundled !== primary && existsSync(bundled)) return { servers: loadMcpFile(bundled), path: bundled };
+  return { servers: [], path: primary };
 }
 
 export function resolveServers(

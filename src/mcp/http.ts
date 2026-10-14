@@ -1,3 +1,4 @@
+import { publicJson, redactValue } from "../redact";
 import { bearerToken, type McpGate } from "./auth";
 import { handleMcpRpc, type McpRpcReq, type McpSession } from "./handle";
 
@@ -21,13 +22,13 @@ export async function handleMcpHttp(
 
   const token = bearerToken(req);
   const who = gate.lookup(token);
-  if (!who) return Response.json({ jsonrpc: "2.0", error: { code: -32001, message: "unauthorized" }, id: null }, { status: 401 });
+  if (!who) return publicJson({ jsonrpc: "2.0", error: { code: -32001, message: "unauthorized" }, id: null }, { status: 401 });
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return Response.json({ jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null }, { status: 400 });
+    return publicJson({ jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null }, { status: 400 });
   }
 
   const ctx = sessionOf(who);
@@ -53,9 +54,9 @@ async function replyOne(req: McpRpcReq, ctx: McpSession): Promise<Record<string,
 
 function pack(payload: unknown, sse: boolean): Response {
   if (!sse) {
-    return Response.json(payload, { headers: { "Content-Type": "application/json" } });
+    return publicJson(payload, { headers: { "Content-Type": "application/json" } });
   }
-  const data = `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+  const data = `event: message\ndata: ${JSON.stringify(redactValue(payload))}\n\n`;
   return new Response(data, {
     headers: {
       "Content-Type": "text/event-stream",
