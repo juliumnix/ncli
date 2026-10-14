@@ -45,9 +45,6 @@ export type SparkMemorySource = {
 };
 
 export function persistMemories(main: Memory, sparks: SparkMemorySource): void {
-  if (typeof sparks.sparkMemories !== "function") {
-    throw new Error("ncli shutdown: sparks.sparkMemories is not a function");
-  }
   for (const mem of [main, ...sparks.sparkMemories()]) mem.shutdown();
 }
 
