@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CompactHold } from "../src/memory/compact-deferred";
+import { bindQueueShutdown, persistMemories } from "../src/memory/compact-engine";
 import { COMPACT_QUEUE_FILE, loadCompactQueue } from "../src/memory/compact-queue";
 import { Memory } from "../src/memory/store";
-import { tmpDir } from "./helpers";
+import { makeHub, tmpDir } from "./helpers";
 
 const LONG = "marcador-shutdown FACT_MEMBER_DISCOUNT_BEFORE_TAX applies. ".repeat(8);
 
@@ -84,4 +85,61 @@ test("Memory.shutdown rewrites a deleted compact-queue.json from the live refine
   const after = loadCompactQueue(dir);
   expect(after).toEqual(before);
   mem.paused = true;
+});
+
+test("shutdown persists the refine queue of an open spark, not only main", async () => {
+  const { hub, dataDir } = await makeHub({ nodeBytes: 40, viewBytes: 400 });
+  const rt = await hub.sparks.open("review", { pr: "482" });
+  expect(rt.spark.status === "running" || rt.spark.status === "needs_user").toBe(true);
+  expect(hub.sparks.sparkMemories()).toContain(rt.memory);
+
+  rt.memory.compressor = async () => {
+    throw new CompactHold("limit");
+  };
+  rt.memory.append({ kind: "user", text: LONG });
+  await rt.memory.pump();
+  expect(rt.memory.compactWork.paused).toBe("limit");
+  const sparkDir = rt.memory.dir;
+  expect(sparkDir.startsWith(join(dataDir, "sparks"))).toBe(true);
+  const before = loadCompactQueue(sparkDir);
+  expect(before === null ? 0 : before.length).toBeGreaterThan(0);
+  unlinkSync(join(sparkDir, COMPACT_QUEUE_FILE));
+  expect(loadCompactQueue(sparkDir)).toBeNull();
+  expect(loadCompactQueue(hub.memory.dir)).not.toEqual(before);
+
+  persistMemories(hub.memory, hub.sparks);
+  expect(loadCompactQueue(sparkDir)).toEqual(before);
+  rt.memory.paused = true;
+  hub.memory.paused = true;
+  hub.close();
+});
+
+test("bindQueueShutdown persists every Memory when the queue slot runs", async () => {
+  const mainDir = join(tmpDir("q-main"), "mem");
+  const sparkDir = join(tmpDir("q-spark"), "mem");
+  const hold = async () => {
+    throw new CompactHold("limit");
+  };
+  const main = new Memory({ dir: mainDir, nodeBytes: 40, viewBytes: 400, compressor: hold });
+  const spark = new Memory({ dir: sparkDir, nodeBytes: 40, viewBytes: 400, compressor: hold });
+  main.append({ kind: "user", text: LONG });
+  spark.append({ kind: "user", text: `${LONG} spark` });
+  await main.pump();
+  await spark.pump();
+  const mainJobs = loadCompactQueue(mainDir);
+  const sparkJobs = loadCompactQueue(sparkDir);
+  expect(mainJobs === null ? 0 : mainJobs.length).toBeGreaterThan(0);
+  expect(sparkJobs === null ? 0 : sparkJobs.length).toBeGreaterThan(0);
+  unlinkSync(join(mainDir, COMPACT_QUEUE_FILE));
+  unlinkSync(join(sparkDir, COMPACT_QUEUE_FILE));
+
+  let persist: (() => void) | undefined;
+  bindQueueShutdown(main, { sparkMemories: () => [spark] }, (fn) => {
+    persist = fn;
+  });
+  persist!();
+  expect(loadCompactQueue(mainDir)).toEqual(mainJobs);
+  expect(loadCompactQueue(sparkDir)).toEqual(sparkJobs);
+  main.paused = true;
+  spark.paused = true;
 });

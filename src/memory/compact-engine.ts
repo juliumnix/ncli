@@ -21,7 +21,7 @@ import {
   type CompactProgress,
   type CompactRunner,
 } from "./cursor-compact";
-import { mockCompressor, type CompactInput, type Compressor } from "./store";
+import { mockCompressor, type CompactInput, type Compressor, type Memory } from "./store";
 
 export type CompactEngine = {
   compress: Compressor;
@@ -38,6 +38,25 @@ export function bindCompactShutdown(
   setCompactorKiller?: (fn: () => void) => void,
 ): void {
   setCompactorKiller?.(engine.killAll);
+}
+
+export type SparkMemorySource = {
+  sparkMemories(): Memory[];
+};
+
+export function persistMemories(main: Memory, sparks: SparkMemorySource): void {
+  if (typeof sparks.sparkMemories !== "function") {
+    throw new Error("ncli shutdown: sparks.sparkMemories is not a function");
+  }
+  for (const mem of [main, ...sparks.sparkMemories()]) mem.shutdown();
+}
+
+export function bindQueueShutdown(
+  main: Memory,
+  sparks: SparkMemorySource,
+  setQueuePersister?: (fn: () => void) => void,
+): void {
+  setQueuePersister?.(() => persistMemories(main, sparks));
 }
 
 export function createCompactEngine(
