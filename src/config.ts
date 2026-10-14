@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseFallbackChain } from "./harness/usage";
+import { packageRoot } from "./pkg-root";
 
 export type HarnessKind = "claude" | "cursor" | "codex" | "mock" | "auto";
 export type CompactBackend = "cursor" | "claude" | "mock" | "auto";
@@ -40,6 +41,7 @@ export interface NcliConfig {
   busChildren: number;
   busBudget: number;
   ncliRoot: string;
+  pkgRoot: string;
   backupHarness: HarnessKind;
   fallbackChain: HarnessKind[];
   userName: string;
@@ -94,6 +96,10 @@ export function parseUserName(raw: string | undefined): string {
   return name || "Você";
 }
 
+export function dataRoot(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string {
+  return env.NCLI_ROOT ?? cwd;
+}
+
 export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
   const harnessEnv = (process.env.NCLI_HARNESS ?? "auto") as HarnessKind;
   const ghEnv = (process.env.NCLI_GH ?? "auto") as NcliConfig["ghMode"];
@@ -139,7 +145,8 @@ export function loadConfig(overrides: Partial<NcliConfig> = {}): NcliConfig {
     busDepth: num("NCLI_BUS_DEPTH", 1),
     busChildren: num("NCLI_BUS_CHILDREN", 4),
     busBudget: num("NCLI_BUS_BUDGET", 8),
-    ncliRoot: process.env.NCLI_ROOT ?? process.cwd(),
+    ncliRoot: dataRoot(),
+    pkgRoot: packageRoot(),
     backupHarness: (process.env.NCLI_BACKUP ?? "codex") as HarnessKind,
     fallbackChain: parseFallbackChain(process.env.NCLI_FALLBACK, (process.env.NCLI_BACKUP ?? "codex") as HarnessKind),
     userName: parseUserName(userNameOverride ?? process.env.NCLI_USER_NAME),

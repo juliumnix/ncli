@@ -38,5 +38,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/codex" @openai/codex@0.160.1
           echo "NCLI_CODEX=$RUNNER_TEMP/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
+      - name: Packed bunx keeps MCP and data
+        run: bun test tests/bunx-pack-mcp.test.ts tests/pkg-root.test.ts tests/codex-linger.test.ts tests/codex-config-warning.test.ts tests/harness-children.test.ts tests/signal-harness.test.ts --timeout 60000
       - name: Codex lists the ncli MCP catalog
-        run: bun test tests/codex-mcp-real.test.ts --timeout 30000
+        run: bun test tests/codex-mcp-real.test.ts --timeout 60000

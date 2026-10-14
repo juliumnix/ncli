@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootNcli, type Booted } from "../src/boot";
@@ -29,6 +29,28 @@ registerCatalog("codex 0.160.1 lists every ncli MCP tool from the spawn flags", 
     const inj = booted.hub.injectSpawn("main", "codex");
     expect(booted.hub.mcp.lookup(inj.token)?.session).toBe("main");
     expect(await catalogFrom(bin, inj.extraArgs)).toEqual(CATALOG);
+  });
+});
+
+registerCatalog("codex 0.160.1 re-enables a disabled ncli and keeps servers added between spawns", async (bin) => {
+  await withBoot(async (booted) => {
+    const inj = booted.hub.injectSpawn("main", "codex");
+    expect(inj.extraArgs).toContain("mcp_servers.ncli.enabled=true");
+    const home = mkdtempSync(join(tmpdir(), "codex-user-"));
+    const config = join(home, "config.toml");
+    writeFileSync(
+      config,
+      `[mcp_servers.other]\ncommand = "fake-other"\nargs = ["serve"]\n\n[mcp_servers.ncli]\nenabled = false\nurl = "http://127.0.0.1:9/mcp"\n`,
+    );
+    const cwd = mkdtempSync(join(tmpdir(), "codex-cwd-"));
+    const first = await mcpRows(bin, inj.extraArgs, home, cwd);
+    expect(namesOf(first)).toEqual(["ncli", "other"]);
+    expect(toolNames(first, "ncli")).toEqual(CATALOG);
+    const third = `\n[mcp_servers.third]\ncommand = "fake-third"\nargs = ["serve"]\n`;
+    writeFileSync(config, `${readFileSync(config, "utf8")}${third}`);
+    const second = await mcpRows(bin, inj.extraArgs, home, cwd);
+    expect(namesOf(second)).toEqual(["ncli", "other", "third"]);
+    expect(toolNames(second, "ncli")).toEqual(CATALOG);
   });
 });
 
@@ -119,10 +141,27 @@ async function withBoot(body: (booted: Booted) => Promise<void>): Promise<void> 
   }
 }
 
+type McpRow = { name?: string; tools?: Record<string, { name?: string }>; toolsError?: string | null };
+
+function namesOf(rows: McpRow[]): string[] {
+  return rows.map((row) => row.name ?? "").filter(Boolean).sort();
+}
+
+function toolNames(rows: McpRow[], server: string): string[] {
+  const entry = rows.find((row) => row.name === server);
+  expect(entry?.toolsError ?? null).toBeNull();
+  return Object.keys(entry?.tools ?? {}).sort();
+}
+
 async function catalogFrom(bin: string, flags: string[]): Promise<string[]> {
   const home = mkdtempSync(join(tmpdir(), "codex-home-"));
+  const rows = await mcpRows(bin, flags, home, process.cwd(), "ncli");
+  return toolNames(rows, "ncli");
+}
+
+async function mcpRows(bin: string, flags: string[], home: string, cwd: string, serverName?: string): Promise<McpRow[]> {
   const child = spawn(bin, ["app-server", "--listen", "stdio://", ...flags], {
-    cwd: process.cwd(),
+    cwd,
     stdio: ["pipe", "pipe", "pipe"],
     env: { PATH: process.env.PATH ?? "", HOME: home, CODEX_HOME: home, LANG: process.env.LANG ?? "C" },
   });
@@ -146,18 +185,16 @@ async function catalogFrom(bin: string, flags: string[]): Promise<string[]> {
         jsonrpc: "2.0",
         id: 2,
         method: "mcpServerStatus/list",
-        params: { serverName: "ncli", detail: "toolsAndAuthOnly" },
+        params: serverName ? { serverName, detail: "toolsAndAuthOnly" } : { detail: "toolsAndAuthOnly" },
       })}\n`,
     );
     const listed = await waitFor(lines, (line) => jsonId(line) === 2, "codex mcpServerStatus/list", () => stderr);
     const body = JSON.parse(listed) as {
-      result?: { data?: Array<{ name?: string; tools?: Record<string, { name?: string }>; toolsError?: string | null }> };
+      result?: { data?: McpRow[] };
       error?: { message?: string };
     };
     if (body.error) throw new Error(body.error.message ?? stderr.slice(0, 500));
-    const entry = body.result?.data?.find((row) => row.name === "ncli");
-    expect(entry?.toolsError ?? null).toBeNull();
-    return Object.keys(entry?.tools ?? {}).sort();
+    return body.result?.data ?? [];
   } finally {
     child.kill();
   }

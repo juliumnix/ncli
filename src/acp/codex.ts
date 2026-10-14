@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
+import { redactPath } from "../redact";
+import { killProcessGroup, spawnHarness } from "./children";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
 import { SessionHot, sessionKey } from "./hot";
@@ -105,7 +107,6 @@ export class CodexExecAdapter implements AcpAdapter {
     if (!opts.signal?.aborted && code !== 0) {
       throw new Error(waiter.stderr.trim() || `codex exited ${code}`);
     }
-    if (!opts.signal?.aborted && code === 0) void this.ensureWaiter(opts);
   }
 
   private async ensureWaiter(opts: RunOpts): Promise<{ waiter: HotWaiter; reused: boolean }> {
@@ -130,7 +131,7 @@ export class CodexExecAdapter implements AcpAdapter {
   ): Promise<HotWaiter> {
     this.kill(this.table.take(key));
     const spawnAt = performance.now();
-    const proc = Bun.spawn(args, {
+    const proc = spawnHarness(args, {
       cwd: opts.cwd ?? this.cfg.repo,
       stdout: "pipe",
       stderr: "pipe",
@@ -152,9 +153,7 @@ export class CodexExecAdapter implements AcpAdapter {
 
   private kill(waiter: HotWaiter | undefined): void {
     if (!waiter) return;
-    try {
-      waiter.proc.kill();
-    } catch {}
+    killProcessGroup(waiter.proc.pid);
   }
 }
 
@@ -305,6 +304,84 @@ export function parseCodexConfigModel(toml: string): string | undefined {
 export function defaultCodexConfigPath(): string {
   const dir = process.env.CODEX_HOME || join(homedir(), ".codex");
   return join(dir, "config.toml");
+}
+
+export type CodexConfigWarning = {
+  code: "legacy-profile" | "stdio-ncli";
+  path: string;
+};
+
+export function checkCodexConfig(path = defaultCodexConfigPath()): CodexConfigWarning[] {
+  if (!existsSync(path)) return [];
+  let text = "";
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return [];
+  }
+  const warnings: CodexConfigWarning[] = [];
+  const shown = redactPath(path);
+  if (hasLegacyProfile(text)) warnings.push({ code: "legacy-profile", path: shown });
+  if (hasStdioNcli(text)) warnings.push({ code: "stdio-ncli", path: shown });
+  return warnings;
+}
+
+export function formatCodexConfigWarnings(warnings: CodexConfigWarning[]): string {
+  return warnings
+    .map((warning) => {
+      switch (warning.code) {
+        case "legacy-profile":
+          return `Codex config ${warning.path} has a legacy profile. codex exec rejects that file, so a compactor that runs codex exec will pause.`;
+        case "stdio-ncli":
+          return `Codex config ${warning.path} defines mcp_servers.ncli as stdio with a command. NCLI injects an HTTP url on that key, and Codex rejects the mix. Remove that ncli command so the HTTP server can load.`;
+        default: {
+          const _never: never = warning.code;
+          return _never;
+        }
+      }
+    })
+    .join("\n");
+}
+
+function tomlBodies(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const hash = raw.indexOf("#");
+    const body = (hash >= 0 ? raw.slice(0, hash) : raw).trim();
+    if (body) out.push(body);
+  }
+  return out;
+}
+
+function hasLegacyProfile(text: string): boolean {
+  let section = "";
+  for (const line of tomlBodies(text)) {
+    const header = /^\[([^\]]+)\]$/.exec(line);
+    if (header) {
+      section = header[1] ?? "";
+      if (section === "profiles" || section.startsWith("profiles.")) return true;
+      continue;
+    }
+    if (section === "" && /^profile\s*=/.test(line)) return true;
+  }
+  return false;
+}
+
+function hasStdioNcli(text: string): boolean {
+  let section = "";
+  for (const line of tomlBodies(text)) {
+    const header = /^\[([^\]]+)\]$/.exec(line);
+    if (header) {
+      section = header[1] ?? "";
+      continue;
+    }
+    if (section !== "mcp_servers.ncli") continue;
+    const match = /^command\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const raw = (match[1] ?? "").trim();
+    if (raw && raw !== '""' && raw !== "''") return true;
+  }
+  return false;
 }
 
 export function readCodexConfigModel(path = defaultCodexConfigPath()): string | undefined {

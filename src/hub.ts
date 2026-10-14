@@ -14,6 +14,8 @@ import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
 import { pickHarness } from "./harness/pick";
+import { killHarnessChildren } from "./acp/children";
+import { checkCodexConfig, type CodexConfigWarning } from "./acp/codex";
 import { isLiveSeat, persistSeatModel, readSeatModel } from "./acp/session";
 import { displaySeatModel } from "./harness/seat-model";
 import { isQuotaError } from "./harness/quota";
@@ -305,6 +307,7 @@ export class Hub {
     import: ImportPreview | null;
     clis: CliPresence;
     seats: SeatChoice[];
+    codexConfig: CodexConfigWarning[];
   } {
     return {
       messages: this.memory.log,
@@ -324,6 +327,7 @@ export class Hub {
       importOffers: this.importOffers,
       clis: detectClis(this.cfg),
       seats: this.seatChoices(),
+      codexConfig: checkCodexConfig(),
     };
   }
 
@@ -1112,7 +1116,7 @@ export class Hub {
     return own;
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.closed = true;
     this.importAbort?.abort();
     this.memory.paused = true;
@@ -1121,6 +1125,7 @@ export class Hub {
     this.usage.close();
     this.views.close();
     this.bus.close();
+    await killHarnessChildren();
   }
 
   private noteBus(line: BusLine): void {
