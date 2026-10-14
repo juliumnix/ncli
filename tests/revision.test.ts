@@ -7,6 +7,7 @@ import {
   fetchMainTip,
   ncliSpecAt,
   readyBannerSha,
+  testedRevision,
   parseGithubCommitSha,
   readBootRevision,
   parseRevision,
@@ -90,11 +91,21 @@ test("readBootRevision keeps a set NCLI_REVISION without fetching", () => {
   expect(readBootRevision(empty, { NCLI_REVISION: MAIN }).sha).toBe(MAIN);
 });
 
-test("a stale pin prints the live main sha on the ready banner", () => {
+test("the ready banner follows the pin under test, not live main", () => {
   const pin = "dcf4a93d350f37b5e28999e59373d3978d3993f2";
   const live = "04f0353d350f37b5e28999e59373d3978d3993f2";
   expect(pin).toHaveLength(40);
   expect(live).toHaveLength(40);
-  expect(shortSha(readyBannerSha(pin, live))).toBe("04f0353");
+  expect(shortSha(readyBannerSha(pin, live))).toBe("dcf4a93");
   expect(shortSha(readyBannerSha(pin, undefined))).toBe("dcf4a93");
+});
+
+test("testedRevision prefers NCLI_REVISION, then GITHUB_SHA, then HEAD", () => {
+  const pin = "dcf4a93d350f37b5e28999e59373d3978d3993f2";
+  const gh = "7a76228677e87053a461aba78b5dfe664b99fd15";
+  const head = "9ab93f494576e64e813a8b67bfd52ddaf5cf94c6";
+  expect(testedRevision({ NCLI_REVISION: pin, GITHUB_SHA: gh }, head)).toBe(pin);
+  expect(testedRevision({ GITHUB_SHA: gh }, head)).toBe(gh);
+  expect(testedRevision({}, head)).toBe(head);
+  expect(testedRevision({})).toBeUndefined();
 });

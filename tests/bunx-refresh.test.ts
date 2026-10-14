@@ -49,7 +49,7 @@ test("a bunx extract without NCLI_REVISION re-execs the pinned spec even if .ncl
   });
 });
 
-test("a pinned extract re-execs bunx when live main moved", () => {
+test("a pinned extract boots the pin even when live main moved", () => {
   const tmp = tmpDir("bunx-fresh");
   const extract = plantExtract(tmp);
   const next = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -60,12 +60,7 @@ test("a pinned extract re-execs bunx when live main moved", () => {
     remoteSha: next,
     tmpDirs: [tmp],
   });
-  expect(plan).toEqual({
-    kind: "reexec",
-    argv: ["bunx", ncliSpecAt(next)],
-    env: { NCLI_REVISION: next },
-    removed: [],
-  });
+  expect(plan).toEqual({ kind: "boot" });
 });
 
 test("a pinned extract that already matches remote boots in place", () => {

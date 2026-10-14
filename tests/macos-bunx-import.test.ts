@@ -26,8 +26,12 @@ test("macos CI launches the same probe through bunx github:juliumnix/ncli#sha", 
   expect(yml).toContain("scripts/macos-bunx-import.ts --bunx");
   const script = readFileSync(join(import.meta.dir, "../scripts/macos-bunx-import.ts"), "utf8");
   expect(script).toContain('["bunx", ncliSpecAt(pin)]');
-  expect(script).toContain("readyBannerSha(pin, live)");
+  expect(script).toContain("testedRevision");
+  expect(script).not.toContain("readyBannerSha(pin, live)");
+  expect(script).toContain("shortSha(pin)");
   expect(script).toContain("NCLI_REVISION: pin");
+  expect(yml).toContain("github.event.pull_request.head.sha");
+  expect(yml).toContain("github.sha");
   expect(script).toContain(".ncli-revision");
   expect(script).toContain("FILES = 66");
   expect(script).toContain("LINES = 100");
