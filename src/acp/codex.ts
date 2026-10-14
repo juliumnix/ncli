@@ -163,7 +163,7 @@ export function codexStdinPrompt(opts: RunOpts): string {
 }
 
 export function buildCodexArgs(cfg: NcliConfig, opts: RunOpts, plan?: SeatSessionPlan): string[] {
-  const args = [cfg.codexBin, "exec", "--json"];
+  const args = [cfg.codexBin, "exec", "--json", "--skip-git-repo-check"];
   if (cfg.codexModel) args.push("--model", cfg.codexModel);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
   for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);

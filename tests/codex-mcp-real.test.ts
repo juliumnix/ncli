@@ -41,10 +41,9 @@ test.skipIf("skip" in found)("codex 0.160.1 lists every ncli MCP tool from the s
       stdio: ["pipe", "pipe", "pipe"],
       env: { PATH: process.env.PATH ?? "", HOME: home, CODEX_HOME: home, LANG: process.env.LANG ?? "C" },
     });
-    const stderr: string[] = [];
+    let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr.push(chunk.toString());
-      if (stderr.join("").length > 4000) stderr.splice(0, stderr.length - 1);
+      stderr = (stderr + chunk.toString()).slice(-2000);
     });
     const lines = readLines(child);
     child.stdin.write(
@@ -69,7 +68,7 @@ test.skipIf("skip" in found)("codex 0.160.1 lists every ncli MCP tool from the s
       result?: { data?: Array<{ name?: string; tools?: Record<string, { name?: string }>; toolsError?: string | null }> };
       error?: { message?: string };
     };
-    if (body.error) throw new Error(body.error.message ?? stderr.join("").slice(0, 500));
+    if (body.error) throw new Error(body.error.message ?? stderr.slice(0, 500));
     const entry = body.result?.data?.find((row) => row.name === "ncli");
     expect(entry?.toolsError ?? null).toBeNull();
     const names = Object.keys(entry?.tools ?? {}).sort();

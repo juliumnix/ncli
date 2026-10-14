@@ -17,9 +17,12 @@ export function claudeNcliApproved(argv: string[]): boolean {
 export function codexNcliApproved(argv: string[]): boolean {
   const joined = argv.join(" ");
   if (/approval_policy\s*=\s*never/.test(joined)) return false;
-  const approve = argv.some((a) => a.includes("default_tools_approval_mode=approve"));
   const tools = argv.find((a) => a.includes("enabled_tools="));
-  return approve && Boolean(tools && tools.includes("recall") && tools.includes("zoom"));
+  if (!tools || !tools.includes("recall") || !tools.includes("zoom")) return false;
+  return (
+    argv.some((a) => a.includes("tools.recall.approval_mode=") && a.includes("approve")) &&
+    argv.some((a) => a.includes("tools.zoom.approval_mode=") && a.includes("approve"))
+  );
 }
 
 export function mcpFromClaudeArgs(argv: string[]): { url: string; token: string } | null {
