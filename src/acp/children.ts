@@ -51,17 +51,23 @@ export function killProcessGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"
   }
 }
 
-export async function killHarnessChildren(timeoutMs = 2000): Promise<void> {
-  const pids = [...live];
-  if (pids.length === 0) return;
-  for (const pid of pids) killProcessGroup(pid, "SIGTERM");
+export async function killProcessGroups(pids: number[], timeoutMs = 2000): Promise<void> {
+  const groups = [...new Set(pids.filter((pid) => pid > 0 && alive(pid)))];
+  if (groups.length === 0) return;
+  for (const pid of groups) killProcessGroup(pid, "SIGTERM");
   const deadline = Date.now() + Math.max(0, timeoutMs);
-  while (pids.some(alive) && Date.now() < deadline) await Bun.sleep(20);
-  for (const pid of pids) {
+  while (groups.some(alive) && Date.now() < deadline) await Bun.sleep(20);
+  for (const pid of groups) {
     if (alive(pid)) killProcessGroup(pid, "SIGKILL");
   }
   const killed = Date.now() + 200;
-  while (pids.some(alive) && Date.now() < killed) await Bun.sleep(20);
+  while (groups.some(alive) && Date.now() < killed) await Bun.sleep(20);
+}
+
+export async function killHarnessChildren(timeoutMs = 2000): Promise<void> {
+  const pids = [...live];
+  if (pids.length === 0) return;
+  await killProcessGroups(pids, timeoutMs);
   for (const pid of pids) live.delete(pid);
 }
 

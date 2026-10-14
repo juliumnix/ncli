@@ -1,6 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawn as nodeSpawn } from "node:child_process";
+import { killProcessGroup, killProcessGroups } from "../acp/children";
+
+export { killProcessGroup };
 
 export const COMPACT_MAX_PROCS = 8;
 export const COMPACT_CHILD_TIMEOUT_MS = 120_000;
@@ -88,18 +91,25 @@ export class CompactProcPool {
     this.releaseHeld();
   }
 
-  killAll(): void {
-    for (const proc of this.live.values()) {
+  async killAll(timeoutMs = 2000): Promise<void> {
+    const rows = [...this.live.values()];
+    for (const proc of rows) {
       if (proc.timer) clearTimeout(proc.timer);
+    }
+    this.live.clear();
+    this.held = 0;
+    while (this.wait.length) this.wait.shift()?.();
+    await killProcessGroups(
+      rows.map((row) => row.pid).filter((pid) => pid > 1 && pid !== process.pid),
+      timeoutMs,
+    );
+    for (const proc of rows) {
       try {
         proc.kill();
       } catch {
         continue;
       }
     }
-    this.live.clear();
-    this.held = 0;
-    while (this.wait.length) this.wait.shift()?.();
   }
 
   allocPid(): number {
@@ -111,19 +121,6 @@ export class CompactProcPool {
 
 export function pathOnlyEnv(path = process.env.PATH): Record<string, string> {
   return { PATH: path ?? "/usr/bin:/bin" };
-}
-
-export function killProcessGroup(pid: number): void {
-  if (pid <= 1 || pid === process.pid) return;
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      return;
-    }
-  }
 }
 
 export function bunCompactSpawn(argv: string[], env: Record<string, string>, opts: CompactSpawnOpts = {}): CompactChild {
@@ -142,12 +139,12 @@ export function bunCompactSpawn(argv: string[], env: Record<string, string>, opt
   const timer = timeoutMs > 0
     ? setTimeout(() => {
       timedOut = true;
-      killProcessGroup(pid);
+      killProcessGroup(pid, "SIGKILL");
     }, timeoutMs)
     : undefined;
   const kill = () => {
     if (timer) clearTimeout(timer);
-    killProcessGroup(pid);
+    killProcessGroup(pid, "SIGKILL");
     stopWatchdog(watchdog);
   };
   const exited = new Promise<number>((resolve) => {

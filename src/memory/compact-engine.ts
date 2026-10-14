@@ -29,13 +29,13 @@ export type CompactEngine = {
   setChoice: (next: Partial<CompactChoice>) => CompactChoice;
   status: () => CompactProgress;
   models: () => Promise<{ models: string[]; error?: string }>;
-  killAll: () => void;
-  close: () => void;
+  killAll: () => Promise<void>;
+  close: () => Promise<void>;
 };
 
 export function bindCompactShutdown(
   engine: Pick<CompactEngine, "killAll">,
-  setCompactorKiller?: (fn: () => void) => void,
+  setCompactorKiller?: (fn: () => Promise<void>) => void,
 ): void {
   setCompactorKiller?.(engine.killAll);
 }
@@ -122,7 +122,7 @@ export function createCompactEngine(
     },
     choice: () => choice,
     setChoice: (next) => {
-      pool.killAll();
+      void pool.killAll();
       choice = saveCompactChoice(cfg.dataDir, {
         mode: next.mode ?? choice.mode,
         provider: next.provider ?? choice.provider,

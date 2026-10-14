@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { chmodSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { bindCompactShutdown } from "../src/memory/compact-engine";
+import { loadConfig } from "../src/config";
+import { bindCompactShutdown, createCompactEngine } from "../src/memory/compact-engine";
 import { bunCompactSpawn, CompactProcPool, killProcessGroup, pathOnlyEnv } from "../src/memory/compact-proc";
 import { tmpDir } from "./helpers";
 
@@ -156,4 +157,79 @@ await Promise.all(kids.map((k) => k.exited));
   while (Date.now() < deadline && leftoverCodexExec(bin).length) await Bun.sleep(50);
   expect(leftoverCodexExec(bin)).toEqual([]);
   expect(alive(parent.pid)).toBe(false);
+});
+
+test("engine.killAll kills a fake codex and its sleep grandchild", async () => {
+  const dir = tmpDir("killall-grandchild");
+  const bin = join(dir, "codex");
+  const gpFile = join(dir, "grandchild.pid");
+  writeFileSync(
+    bin,
+    `#!/bin/sh
+if [ "$1" = "mcp" ]; then
+  echo '[]'
+  exit 0
+fi
+sleep 30 &
+echo $! > ${JSON.stringify(gpFile)}
+wait
+`,
+  );
+  chmodSync(bin, 0o755);
+  const engine = createCompactEngine(
+    loadConfig({
+      dataDir: dir,
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 60_000,
+      compactDebounceMs: 1,
+      harness: "cursor",
+      codexBin: bin,
+    }),
+    {
+      spawn: (argv, env, opts) => {
+        const child = bunCompactSpawn(argv, env, opts);
+        return {
+          ...child,
+          kill: () => {
+            try {
+              process.kill(child.pid, "SIGKILL");
+            } catch {
+              return;
+            }
+          },
+        };
+      },
+    },
+  );
+  engine.setChoice({ mode: "cli", provider: "codex", model: "mini" });
+  const job = engine.compress({
+    kind: "leaf",
+    source: "user: FACT_ORPHAN",
+    contextLines: [],
+    nodeBytes: 80,
+  }).catch(() => undefined);
+  const started = Date.now();
+  let grandchild = 0;
+  while (Date.now() - started < 4000) {
+    try {
+      grandchild = Number((await Bun.file(gpFile).text()).trim());
+      if (grandchild > 1) break;
+    } catch {
+    }
+    await Bun.sleep(40);
+  }
+  expect(grandchild).toBeGreaterThan(1);
+  expect(alive(grandchild)).toBe(true);
+  const parents = leftoverCodexExec(bin);
+  expect(parents.length).toBe(1);
+  await engine.killAll();
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline && (alive(grandchild) || leftoverCodexExec(bin).length)) {
+    await Bun.sleep(40);
+  }
+  expect(alive(grandchild)).toBe(false);
+  expect(leftoverCodexExec(bin)).toEqual([]);
+  expect([grandchild, ...parents].filter(alive)).toEqual([]);
+  await job;
 });

@@ -1180,7 +1180,7 @@ export class Hub {
   async close(): Promise<void> {
     this.closed = true;
     this.importAbort?.abort();
-    this.engine.close();
+    await this.engine.close();
     this.memory.paused = true;
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.harness.close?.();
