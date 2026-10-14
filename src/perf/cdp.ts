@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -94,10 +94,86 @@ export class CdpSession {
 
 export interface ChromeDriver {
   session: CdpSession;
-  close(): void;
+  /** Kills Chrome and removes its profile dir. Await it to be sure the dir is gone. */
+  close(): Promise<void>;
+  profile: string;
 }
 
-export async function launchChrome(port: number, extraArgs: string[] = []): Promise<ChromeDriver> {
+export interface LaunchOptions {
+  bootTimeoutMs?: number;
+}
+
+type Live = { proc: { kill(sig?: string | number): void }; profile: string };
+const live = new Set<Live>();
+let exitHooked = false;
+
+/**
+ * Chrome forks helpers (zygote, renderers, crashpad) that outlive a SIGKILL of
+ * the main pid and keep writing into the profile. Find them by their
+ * --user-data-dir flag (Linux /proc) so they can be killed too.
+ */
+function profilePids(profile: string): number[] {
+  const flag = `--user-data-dir=${profile}`;
+  const pids: number[] = [];
+  let entries: string[] = [];
+  try {
+    entries = readdirSync("/proc");
+  } catch {
+    return pids;
+  }
+  for (const name of entries) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const args = readFileSync(`/proc/${name}/cmdline`, "utf8").split("\0");
+      if (args.includes(flag)) pids.push(Number(name));
+    } catch {}
+  }
+  return pids;
+}
+
+function killProfileProcs(profile: string): number {
+  const pids = profilePids(profile);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+  return pids.length;
+}
+
+function killAndRemove(entry: Live): void {
+  try {
+    entry.proc.kill("SIGKILL");
+  } catch {}
+  killProfileProcs(entry.profile);
+  try {
+    rmSync(entry.profile, { recursive: true, force: true });
+  } catch {}
+}
+
+/** Synchronous last-resort cleanup for every Chrome this process still owns. */
+export function cleanupAllChromes(): void {
+  for (const entry of live) killAndRemove(entry);
+  live.clear();
+}
+
+function hookExit(): void {
+  if (exitHooked) return;
+  exitHooked = true;
+  process.on("exit", cleanupAllChromes);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(sig, () => {
+      cleanupAllChromes();
+      process.exit(sig === "SIGINT" ? 130 : 143);
+    });
+  }
+}
+
+export async function launchChrome(
+  port: number,
+  extraArgs: string[] = [],
+  opts: LaunchOptions = {},
+): Promise<ChromeDriver> {
   const bin = chromePath();
   if (!bin) throw new Error("chrome not found");
   const profile = mkdtempSync(join(tmpdir(), "ncli-perf-chrome-"));
@@ -121,29 +197,39 @@ export async function launchChrome(port: number, extraArgs: string[] = []): Prom
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
+  const entry: Live = { proc, profile };
+  live.add(entry);
+  hookExit();
   let session: CdpSession | undefined;
-  const close = () => {
-    try {
-      session?.close();
-    } catch {}
-    try {
-      proc.kill("SIGKILL");
-    } catch {}
-    try {
-      rmSync(profile, { recursive: true, force: true });
-    } catch {}
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      try {
+        session?.close();
+      } catch {}
+      killAndRemove(entry);
+      // Chrome helpers can still write into the profile right after SIGKILL;
+      // wait for the process to exit, then remove the dir again.
+      await Promise.race([proc.exited.catch(() => {}), Bun.sleep(5000)]);
+      for (let i = 0; i < 50 && killProfileProcs(profile) > 0; i++) await Bun.sleep(100);
+      try {
+        rmSync(profile, { recursive: true, force: true });
+      } catch {}
+      live.delete(entry);
+    })();
+    return closing;
   };
   try {
-    const version = await waitJson<{ webSocketDebuggerUrl: string }>(`http://127.0.0.1:${port}/json/version`, 8000);
+    const version = await waitJson<{ webSocketDebuggerUrl: string }>(`http://127.0.0.1:${port}/json/version`, opts.bootTimeoutMs ?? 8000);
     const ws = new WebSocket(version.webSocketDebuggerUrl);
     await new Promise<void>((resolve, reject) => {
       ws.addEventListener("open", () => resolve());
       ws.addEventListener("error", () => reject(new Error("chrome websocket failed")));
     });
     session = new CdpSession(ws);
-    return { session, close };
+    return { session, close, profile };
   } catch (err) {
-    close();
+    await close();
     throw err;
   }
 }
