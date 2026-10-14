@@ -3,6 +3,8 @@ import { bootNcli, bootVerbose, formatBoot } from "./boot";
 import { flushText } from "./boot-ready";
 import { bunxExtractRoot, planBunxRefresh } from "./bunx-cache";
 import { fetchMainTip } from "./revision";
+import { registerBootShutdown } from "./boot-shutdown";
+import { installChildShutdown, superviseChild } from "./shutdown";
 import { loadNcliSecrets } from "./secrets";
 
 loadNcliSecrets();
@@ -15,13 +17,15 @@ const refresh = planBunxRefresh({
   remoteSha: bunxExtractRoot(runningPath, uid) ? await fetchMainTip() : undefined,
 });
 if (refresh.kind === "reexec") {
-  const child = Bun.spawn(refresh.argv, {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-    env: { ...process.env, ...refresh.env },
-  });
-  process.exit((await child.exited) ?? 1);
+  process.exit(await superviseChild(refresh.argv, { ...process.env, ...refresh.env }));
 }
-const booted = await bootNcli({ openBrowser: true });
+const stopWatch = installChildShutdown();
+let booted;
+try {
+  booted = await bootNcli({ openBrowser: true });
+} catch (err) {
+  stopWatch();
+  throw err;
+}
+registerBootShutdown(booted);
 if (bootVerbose()) flushText(formatBoot(booted.report, { verbose: true }));
