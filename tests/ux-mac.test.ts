@@ -21,6 +21,8 @@ test("send does not pin to the last user bubble", () => {
   expect(appJs).toContain("const atFloor = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP");
   const send = appJs.slice(appJs.indexOf("async function sendUser"), appJs.indexOf('$("form").addEventListener("submit"'));
   expect(send).not.toContain("pinNewAnswer()");
+  expect(send).toContain("stick.follow = false");
+  expect(send).not.toContain("revealOwn");
 });
 
 test("Reviewed flips the button before the act fetch", () => {
@@ -41,7 +43,7 @@ async function chromeReview() {
   return { hub, booted, driver, sparkId: rt.spark.id };
 }
 
-test("chrome: open, close, and reopen a review spark three times", async () => {
+test("chrome: X on the overlay merges the spark", async () => {
   const { hub, booted, driver, sparkId } = await chromeReview();
   try {
     await driver.session.attachPage("about:blank");
@@ -51,32 +53,25 @@ test("chrome: open, close, and reopen a review spark three times", async () => {
       8000,
       "spark pill",
     );
-    for (let i = 0; i < 3; i++) {
-      await driver.session.evaluate(`document.querySelector('[data-spark="${sparkId}"]')?.click()`);
-      await waitUntil(
-        () => driver.session.evaluate(`Boolean(document.querySelector("#overlay.in") && document.querySelector(".rv-rev"))`),
-        8000,
-        `open ${i + 1}`,
-      );
-      await driver.session.evaluate(`document.getElementById("closeModal")?.click()`);
-      await waitUntil(
-        () => driver.session.evaluate(`!document.body.classList.contains("rv-open")`),
-        4000,
-        `close ${i + 1}`,
-      );
-    }
     await driver.session.evaluate(`document.querySelector('[data-spark="${sparkId}"]')?.click()`);
     await waitUntil(
       () => driver.session.evaluate(`Boolean(document.querySelector("#overlay.in") && document.querySelector(".rv-rev"))`),
       8000,
-      "open after 3 closes",
+      "open",
     );
+    await driver.session.evaluate(`document.getElementById("closeModal")?.click()`);
+    await waitUntil(
+      () => driver.session.evaluate(`!document.body.classList.contains("rv-open")`),
+      4000,
+      "close",
+    );
+    await waitUntil(() => hub.sparks.get(sparkId)?.spark.status === "merged", 4000, "merged");
   } finally {
     driver.close();
     booted.stop();
     hub.close();
   }
-});
+}, 30000);
 
 test("chrome: Reviewed paint is under 16ms and the mark persists", async () => {
   const { hub, booted, driver, sparkId } = await chromeReview();
@@ -135,10 +130,11 @@ test("chrome: sending a message keeps scroll when the user is not at the floor",
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver.session.evaluate(`document.querySelectorAll("#log .m, #log .u").length > 20`),
+      () => driver.session.evaluate(`document.querySelectorAll("#log [data-mid]").length > 5`),
       8000,
       "seeded chat",
     );
+    await driver.session.evaluate(`(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))()`);
     const before = await driver.session.evaluate<number>(`(() => {
       const chat = document.getElementById("chat");
       if (!chat) return -1;

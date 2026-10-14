@@ -1,6 +1,8 @@
 import type { Citation, Message, RecallEvent, RecallKind } from "../types";
 import { mcpToolName } from "../util";
-import { factsOf, supersededHeader } from "./facts";
+import { factsOf, supersededHeader, type Successor } from "./facts";
+
+export type MessageAt = readonly Message[] | ((id: number) => Message | undefined);
 
 export function recallKind(n: number): RecallKind {
   return n === 1 ? "original" : "summary";
@@ -17,18 +19,21 @@ export function parseCitations(talk: string): number[] {
 export function verifyCitations(
   talk: string,
   events: readonly RecallEvent[],
-  log: readonly Message[],
+  log: MessageAt,
   space: string,
+  facts?: Map<number, Successor>,
+  turnId?: string,
 ): Citation[] {
   const opened = new Set(
     events
-      .filter((e) => e.tool === "zoom" && e.kind === "original" && e.space === space)
+      .filter((e) => e.tool === "zoom" && e.kind === "original" && e.space === space && (!turnId || e.turnId === turnId))
       .map((e) => e.id),
   );
-  const facts = factsOf(log);
+  const at = typeof log === "function" ? log : (id: number) => log[id];
+  const index = facts ?? (typeof log === "function" ? new Map<number, Successor>() : factsOf(log));
   return parseCitations(talk).map((id) => {
-    if (!log[id] || !opened.has(id)) return { id, status: "unverified" };
-    if (supersededHeader(facts, id)) return { id, status: "superseded" };
+    if (!at(id) || !opened.has(id)) return { id, status: "unverified" };
+    if (supersededHeader(index, id)) return { id, status: "superseded" };
     return { id, status: "verified" };
   });
 }

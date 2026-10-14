@@ -51,6 +51,18 @@
     <div class="log" id="log"></div>
   </main>
   <button type="button" class="jump-latest" id="jumpLatest" hidden>↓ agora</button>
+  <aside class="hist" id="hist" hidden>
+    <div class="hist-track" id="histTrack" title="histórico">
+      <div class="hist-thumb" id="histThumb"></div>
+    </div>
+    <div class="hist-tip" id="histTip" hidden></div>
+  </aside>
+  <div class="hist-find" id="histFind" hidden>
+    <form id="histSearch">
+      <input id="histQ" type="search" placeholder="buscar no histórico" autocomplete="off" />
+    </form>
+    <button type="button" id="histStart">início</button>
+  </div>
 
   <aside class="shortcuts" id="shortcuts"></aside>
 

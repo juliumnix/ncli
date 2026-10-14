@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Spark, SparkStatus, Message, NeedsUser } from "../types";
+import type { Citation, Spark, SparkStatus, Message, NeedsUser } from "../types";
 import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
@@ -41,6 +41,9 @@ export interface SparkManagerHooks {
   findPr?: FindPr;
   bus?: Bus;
   inject?: (session: string, worktree?: string) => SpawnInject;
+  beginRecalls?: (session: string, turnId: string) => void;
+  finishRecalls?: (session: string, talk: string, memory: Memory) => Citation[];
+  discardRecalls?: (session: string) => void;
 }
 
 const OPEN_STATUS = new Set<SparkStatus>(["running", "needs_user"]);
@@ -481,6 +484,7 @@ export class SparkManager {
         : undefined;
       const live = new LiveTurn(rt.spark.id, seatOf(harness.id));
       const tools: string[] = [];
+      this.hooks.beginRecalls?.(rt.spark.id, live.id);
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       const model = pack ? agentForStep(pack.manifest, rt.spark.flowStep)?.model : undefined;
       for await (const ev of harness.run({
@@ -527,6 +531,7 @@ export class SparkManager {
       persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     } finally {
+      this.hooks.discardRecalls?.(rt.spark.id);
       this.hooks.onIdle?.(rt.spark.id);
     }
   }
@@ -559,7 +564,14 @@ export class SparkManager {
         break;
       case "done":
         if (ev.text) {
-          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.harnessFor(rt).id), model: live.turn.model });
+          const citations = this.hooks.finishRecalls?.(rt.spark.id, ev.text, rt.memory) ?? [];
+          const msg = rt.memory.append({
+            kind: "talk",
+            text: ev.text,
+            seat: seatOf(this.harnessFor(rt).id),
+            model: live.turn.model,
+            recall: citations.length ? citations : undefined,
+          });
           this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: msg });
           const plugin = this.views.get(rt.spark.view);
           const patch = plugin?.onEvent?.(rt.spark, { type: "done", text: ev.text });

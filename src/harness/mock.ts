@@ -39,6 +39,7 @@ export class MockHarness implements Harness {
     this.lastSystems.push(opts.system ?? "");
     this.lastAddDirs.push(opts.addDir ?? []);
     const script = this.scriptFor(opts.prompt, opts.session);
+    const signal = opts.signal;
     let extras = "";
     const drain = async function* (this: MockHarness): AsyncGenerator<HarnessEvent> {
       while (this.steers.length) {
@@ -46,10 +47,11 @@ export class MockHarness implements Harness {
         const piece = `\n\n${steerLine(s)}`;
         extras += piece;
         yield { type: "text", text: piece, seat: "claude" };
-        await delay(8);
+        await delay(8, signal);
       }
     }.bind(this);
     yield { type: "model", model: "mock" };
+    if (signal?.aborted) return;
     if (/^(quota|limite de uso)\b/i.test(lastUserBlock(opts.prompt).trim())) {
       yield {
         type: "error",
@@ -58,11 +60,14 @@ export class MockHarness implements Harness {
       return;
     }
     yield { type: "thinking", text: "lendo o contexto…", seat: "claude" };
-    await delay(20);
+    await delay(20, signal);
+    if (signal?.aborted) return;
     yield* drain();
     for (const t of script.tools ?? []) {
+      if (signal?.aborted) return;
       yield { type: "tool", name: t.name, input: t.input ?? {}, id: t.name, seat: "claude" };
-      await delay(15);
+      await delay(15, signal);
+      if (signal?.aborted) return;
       yield { type: "tool_result", id: t.name, content: "ok" };
       yield* drain();
     }
@@ -74,16 +79,20 @@ export class MockHarness implements Harness {
       mockWriteSeat(out, s.seat, s.text, [`${s.seat} running`, s.text]);
       yield { type: "seat", seat: s.seat, status: "delta", text: s.text };
       yield { type: "seat", seat: s.seat, status: "done", text: s.text };
-      await delay(20);
+      await delay(20, signal);
+      if (signal?.aborted) return;
       yield* drain();
     }
     const text = script.text;
     for (const chunk of chunks(text, 24)) {
+      if (signal?.aborted) return;
       yield { type: "text", text: chunk, seat: "claude" };
-      await delay(12);
+      await delay(12, signal);
       yield* drain();
     }
+    if (signal?.aborted) return;
     yield* drain();
+    if (signal?.aborted) return;
     yield { type: "done", text: `${text}${extras}` };
   }
 }
@@ -144,10 +153,17 @@ function qs(params: Record<string, string>): string {
   return s ? `?${s}` : "";
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
   const extra = Number(process.env.NCLI_MOCK_STEP_MS || 0);
   const wait = ms + (Number.isFinite(extra) && extra > 0 ? extra : 0);
-  return new Promise((r) => setTimeout(r, wait));
+  return new Promise((r) => {
+    const t = setTimeout(r, wait);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      r();
+    }, { once: true });
+  });
 }
 
 function chunks(text: string, n: number): string[] {

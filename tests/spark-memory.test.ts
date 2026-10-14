@@ -1,7 +1,21 @@
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { LogIndex } from "../src/memory/log-index";
 import { spaceFor } from "../src/memory/spaces";
 import { makeHub } from "./helpers";
+
+function writeSparkLog(dir: string, n: number, extra: string) {
+  mkdirSync(dir, { recursive: true });
+  const lines = Array.from({ length: n }, (_, i) => JSON.stringify({
+    i,
+    kind: i % 2 === 0 ? "user" : "talk",
+    text: extra && i === 0 ? extra : `spark linha ${i}`,
+    size: 20,
+    date: `2024-02-${String((i % 28) + 1).padStart(2, "0")}T00:00:00.000Z`,
+  }));
+  writeFileSync(join(dir, "log.jsonl"), `${lines.join("\n")}\n`);
+}
 
 test("a spark recall and zoom miss a chat fact, and the chat misses the spark fact", async () => {
   const { hub, repo } = await makeHub();
@@ -66,5 +80,33 @@ test("close and reopen keeps spark:<id> and the spark still recalls its own fact
     expect(chat).not.toContain("SPARK_KEPT_FACT");
   } finally {
     hub.close();
+  }
+});
+
+test("restore finds an old spark message and does not leak it to chat", async () => {
+  const { hub, dataDir } = await makeHub();
+  const rt = await hub.sparks.open("refino", { card: "old" });
+  const id = rt.spark.id;
+  const sparkDir = rt.memory.dir;
+  hub.close();
+  writeSparkLog(sparkDir, 2500, "SPARK_OLD_MSG");
+  new LogIndex(sparkDir).rebuildSync();
+
+  const again = await makeHub({ dataDir });
+  try {
+    const spark = again.hub.sparks.get(id);
+    expect(spark).toBeTruthy();
+    expect(spark?.memory.log.length).toBe(0);
+    expect(spark?.memory.T).toBe(2500);
+    const zoom = await again.hub.callMcp("zoom", { id: 0, n: 1 }, id);
+    expect(zoom).toContain("SPARK_OLD_MSG");
+    const recalled = await again.hub.callMcp("recall", { pattern: "SPARK_OLD_MSG" }, id);
+    expect(recalled).toContain("SPARK_OLD_MSG");
+    const chat = await again.hub.callMcp("recall", { pattern: "SPARK_OLD_MSG" }, "main");
+    expect(chat).not.toContain("SPARK_OLD_MSG");
+    const chatZoom = await again.hub.callMcp("zoom", { id: 0, n: 1 }, "main");
+    expect(chatZoom).not.toContain("SPARK_OLD_MSG");
+  } finally {
+    again.hub.close();
   }
 });

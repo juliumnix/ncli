@@ -74,7 +74,9 @@ export class CdpSession {
       { expression, returnByValue: true, awaitPromise: true },
     );
     if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.text ?? "evaluate failed");
+      const detail = result.exceptionDetails;
+      const desc = (detail.exception && (detail.exception.description || detail.exception.value)) || detail.text;
+      throw new Error(String(desc ?? "evaluate failed"));
     }
     return result.result?.value as T;
   }

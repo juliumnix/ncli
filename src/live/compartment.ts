@@ -8,6 +8,7 @@ export const LIVE_PRELUDE = `(function(){var n=["RTCPeerConnection","webkitRTCPe
 
 export function sanitizeLiveMarkup(source: string): string {
   return String(source ?? "")
+    .replace(/<\/?(?:html|head|body)\b[^>]*>/gi, "")
     .replace(/<meta\b[^>]*>/gi, (tag) => (/refresh|url\s*=/i.test(tag) ? "" : tag))
     .replace(/<base\b[^>]*>/gi, "")
     .replace(/\s(?:href|src|action|formaction|xlink:href|poster)\s*=\s*(['"])[\s\S]*?\1/gi, "")

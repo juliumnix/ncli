@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { seatOf as seatFromId } from "./agent";
 import type { HarnessKind, NcliConfig } from "./config";
-import type { CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatChoice, SeatId, Turn, ViewInfo } from "./types";
+import type { Citation, CompactStatus, ContextSnapshot, Spark, HubEvent, MainAgent, Message, RecallEvent, SeatChoice, SeatId, Turn, ViewInfo } from "./types";
 import { contextSnapshot } from "./memory/context";
 import type { ViewAction } from "./views/types";
 import { Memory, mockCompressor, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { haikuCompressor } from "./memory/compact";
 import { compactSnapshot, cursorCompressor } from "./memory/cursor-compact";
-import { factsOf, parseIds, wouldCycle } from "./memory/facts";
+import { parseIds, wouldCycle } from "./memory/facts";
 import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
 import type { Harness, HarnessEvent } from "./harness/types";
@@ -66,6 +66,8 @@ import {
 } from "./import";
 import { runImportJob } from "./import/job";
 import { detectClis, userHelp, type CliPresence } from "./ui/chrome";
+import { pageMessages, type StatePageOpts } from "./state-page";
+import type { SliceOpts } from "./memory/log-index";
 
 export class Hub {
   readonly memory: Memory;
@@ -94,7 +96,8 @@ export class Hub {
   private abort: AbortController | null = null;
   private spawnMain: ReturnType<Hub["injectSpawn"]> | null = null;
   private spawnHarness = "";
-  private recalls: RecallEvent[] = [];
+  private recalls = new Map<string, RecallEvent[]>();
+  private sessionTurns = new Map<string, string>();
 
   constructor(
     readonly cfg: NcliConfig,
@@ -180,6 +183,9 @@ export class Hub {
       onIdle: (id) => {
         void this.drainSession(id);
       },
+      beginRecalls: (session, turnId) => this.beginRecalls(session, turnId),
+      finishRecalls: (session, talk, mem) => this.finishRecalls(session, talk, mem),
+      discardRecalls: (session) => this.discardRecalls(session),
     });
     this.views.onChange = (list) => this.emit({ type: "views", views: list });
   }
@@ -271,6 +277,7 @@ export class Hub {
   }
 
   async start(): Promise<void> {
+    await this.memory.ensureIndex();
     await this.bus.listen();
     await this.views.loadAll();
     this.views.watch();
@@ -292,27 +299,27 @@ export class Hub {
     return () => this.listeners.delete(fn);
   }
 
-  snapshot(): {
-    messages: Message[];
-    sparks: Spark[];
-    forks: Spark[];
-    views: ViewInfo[];
-    debug: ReturnType<Memory["debug"]>;
-    context: ContextSnapshot;
-    waiting: Spark[];
-    main: MainAgent;
-    turn: Turn | null;
-    compact: CompactStatus;
-    turning: boolean;
-    queue: ReturnType<TurnQueue["list"]>;
-    usage: ReturnType<UsageBoard["snapshot"]>;
-    import: ImportPreview | null;
-    clis: CliPresence;
-    seats: SeatChoice[];
-    codexConfig: CodexConfigWarning[];
-  } {
+  messagesPage(opts: SliceOpts = {}) {
+    return this.memory.logIndex.page(opts);
+  }
+
+  searchMessages(q: string, limit = 20) {
+    return this.memory.logIndex.search(q, limit);
+  }
+
+  messageMeta() {
     return {
-      messages: this.memory.log,
+      messageCount: this.memory.logIndex.count || this.memory.log.length,
+      ticks: this.memory.logIndex.ticks(),
+    };
+  }
+
+  snapshot(opts: StatePageOpts = {}) {
+    const page = pageMessages(this.memory.log, opts);
+    const messageCount = this.memory.logIndex.count || page.messageCount;
+    return {
+      ...page,
+      messageCount,
       sparks: this.sparks.list().map((s) => publicSpark(s)),
       forks: this.sparks.list().map((s) => publicSpark(s)),
       views: this.views.list(),
@@ -583,11 +590,15 @@ export class Hub {
       this.importProgress = null;
       for (const mem of touched) mem.publish();
       this.memory.publish();
+      const page = pageMessages(this.memory.log);
       this.emit({
         type: "import",
         preview: publicImportPreview(this.lastImport),
         offers: this.importOffers,
-        messages: this.memory.log,
+        messages: page.messages,
+        before: page.before,
+        hasMore: page.hasMore,
+        messageCount: page.messageCount,
       });
       this.emitDebug();
       return result;
@@ -749,12 +760,12 @@ export class Hub {
   }
 
   private beginLive(): void {
-    this.recalls = [];
     this.live = new LiveTurn(
       "main",
       seatFromId(this.harness.id),
       this.model ?? displaySeatModel(this.cfg, this.harness.id as HarnessKind),
     );
+    this.beginRecalls("main", this.live.id);
     this.emit({ type: "turn", session: "main", turn: this.live.turn });
   }
 
@@ -815,7 +826,7 @@ export class Hub {
       const already = this.memory.log.filter((m) => m.kind === "talk").at(-1)?.text === talk;
       if (!already) {
         const seat = seatFromId(this.harness.id);
-        const citations = verifyCitations(talk, this.recalls, this.memory.log, this.spaces.currentId);
+        const citations = this.finishRecalls("main", talk, this.memory);
         const msg = this.memory.append({
           kind: "talk",
           text: migrating ? withImportTalkNote(talk, this.importProgress ?? undefined) : talk,
@@ -824,16 +835,10 @@ export class Hub {
           recall: citations.length ? citations : undefined,
         });
         this.emit({ type: "message", session: "main", message: msg });
-        this.emit({
-          type: "recall",
-          session: "main",
-          turnId: this.live.id,
-          events: this.recalls,
-          citations,
-        });
       }
       await this.openLinks(talk);
     }
+    this.discardRecalls("main");
     void this.memory.pump();
     this.emitDebug();
   }
@@ -922,19 +927,19 @@ export class Hub {
       case "zoom": {
         const r = mem.zoom(Number(args.id), Number(args.n));
         if (!r.ok) return r.error;
-        this.noteRecall("zoom", args, space);
+        this.noteRecall("zoom", args, from, space);
         return r.lines.join("\n");
       }
       case "date": {
         const out = mem.dateOf(Number(args.id));
         if (out.startsWith("No message")) return out;
-        this.noteRecall("date", args, space);
+        this.noteRecall("date", args, from, space);
         return out;
       }
       case "recall": {
         const out = mem.recall(String(args.pattern ?? "")).join("\n") || "No match.";
         if (out === "No match." || out.startsWith("bad regex:")) return out;
-        this.noteRecall("recall", args, space);
+        this.noteRecall("recall", args, from, space);
         return out;
       }
       case "supersede": {
@@ -942,14 +947,14 @@ export class Hub {
         const reason = String(args.reason ?? "").trim();
         const neu = args.new === undefined || args.new === "" ? undefined : Number(args.new);
         if (!old.length || !reason) return "supersede needs old and reason.";
-        if (old.some((id) => !mem.log[id])) return "no message to replace.";
-        if (neu !== undefined && (!Number.isInteger(neu) || neu < 0 || !mem.log[neu])) {
+        if (old.some((id) => !mem.at(id))) return "no message to replace.";
+        if (neu !== undefined && (!Number.isInteger(neu) || neu < 0 || !mem.at(neu))) {
           return "no successor message.";
         }
         if (neu !== undefined && old.some((id) => neu <= id)) {
           return "successor must be after the replaced message.";
         }
-        if (neu !== undefined && wouldCycle(factsOf(mem.log), old, neu)) {
+        if (neu !== undefined && wouldCycle(mem.facts, old, neu)) {
           return "supersede cycle.";
         }
         const note = mem.append({
@@ -1060,9 +1065,41 @@ export class Hub {
     return this.sparks.get(from) ? `spark:${from}` : this.spaces.currentId;
   }
 
-  private noteRecall(name: string, args: Record<string, unknown>, space: string): void {
-    const ev = recallFromTool(name, args, this.live?.id ?? "", nowIso(), space);
-    if (ev) this.recalls.push(ev);
+  beginRecalls(session: string, turnId: string): void {
+    this.sessionTurns.set(session, turnId);
+    this.recalls.set(session, []);
+  }
+
+  finishRecalls(session: string, talk: string, mem: Memory): Citation[] {
+    if (!this.recalls.has(session) && !this.sessionTurns.has(session)) return [];
+    const turnId = this.sessionTurns.get(session) ?? "";
+    const space = this.spaceIdOf(session);
+    const events = (this.recalls.get(session) ?? []).filter((e) => e.space === space && e.turnId === turnId);
+    this.discardRecalls(session);
+    const citations = verifyCitations(talk, events, (id) => mem.at(id), space, mem.facts, turnId);
+    if (talk.trim() || events.length) {
+      this.emit({ type: "recall", session, turnId, events, citations });
+    }
+    return citations;
+  }
+
+  discardRecalls(session: string): void {
+    this.recalls.delete(session);
+    this.sessionTurns.delete(session);
+  }
+
+  private sessionOf(from: string): string {
+    return this.sparks.get(from) ? from : "main";
+  }
+
+  private noteRecall(name: string, args: Record<string, unknown>, from: string, space: string): void {
+    const session = this.sessionOf(from);
+    const turnId = this.sessionTurns.get(session) ?? "";
+    const ev = recallFromTool(name, args, turnId, nowIso(), space);
+    if (!ev) return;
+    const list = this.recalls.get(session) ?? [];
+    list.push(ev);
+    this.recalls.set(session, list);
   }
 
   private persistToolSummary(tools: string[]): void {
@@ -1123,6 +1160,7 @@ export class Hub {
     this.closed = true;
     this.importAbort?.abort();
     this.memory.paused = true;
+    this.memory.logIndex.persist();
     for (const rt of this.sparks.runtimes.values()) rt.abort.abort();
     this.harness.close?.();
     this.usage.close();

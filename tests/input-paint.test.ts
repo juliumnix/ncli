@@ -58,7 +58,7 @@ test("chrome: p95 input-to-paint stays under 16ms while import and stream run", 
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitUntil(
-      () => driver.session.evaluate(`document.querySelectorAll("#log .m, #log .u").length > 200`),
+      () => driver.session.evaluate(`document.querySelectorAll("#log [data-mid]").length > 10`),
       12000,
       "seeded chat",
     );

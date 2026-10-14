@@ -9,7 +9,9 @@ Personal hub: one infinite chat, a binary summary tree on top of an append-only 
 | `src/index.ts` | bunx/`bin.ncli` entry: `bootNcli()` then print the startup summary |
 | `src/boot.ts` | one process: bus, views, HTTP, SSE, MCP. Fail if MCP does not answer initialize. Warns when bun is below 1.4.3 |
 | `src/hub.ts` | main turn, live `Turn`, `/ncli` slash, `view://` and GitHub PR URL open, pick harness/compressor |
-| `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state`. `idleTimeout: 0` for SSE |
+| `src/server.ts` | static + `/mcp` + `/api/message` `/api/stop` `/api/harness` `/api/sparks` `/api/import` `/api/events` `/api/state?before=&limit=` + `/api/messages?before=&after=&around=` `/api/messages/search` `/api/messages/meta`. `idleTimeout: 0` for SSE |
+| `src/state-page.ts` | last 80 messages + `before` cursor. Snapshot drops the `forks` and `waiting` copies |
+| `src/memory/log-index.ts` | persisted byte offsets for `log.jsonl`. `GET /api/messages?before=&limit=` reads a slice. Search and day ticks live here |
 | `src/import/` | Claude / Codex / Cursor JSONL → `user`/`talk`. Preview, apply, fingerprint ledger |
 | `src/memory/store.ts` | log + OptChat tree; `pump()` builds nodes in the background; `settle()` waits for the visible cover only |
 | `src/memory/spaces.ts` | `SpaceId` + one `Memory` per project / global / inbox; worktrees share `git-common-dir`. A git-root miss re-probes. Other `space` args error. |

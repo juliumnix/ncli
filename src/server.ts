@@ -9,6 +9,7 @@ import { sanitizeViewHtml } from "./util";
 import { liveOrigin } from "./live/origin";
 import { publicJson, redactValue } from "./redact";
 import { publicImportPreview, publicSpark } from "./import/roots";
+import { pageLimit } from "./state-page";
 
 export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -68,8 +69,44 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           },
         });
       }
+      if (url.pathname === "/api/messages/search" && req.method === "GET") {
+        const q = url.searchParams.get("q") ?? "";
+        const limit = Number(url.searchParams.get("limit") ?? 20);
+        return Response.json({ hits: await hub.searchMessages(q, limit) });
+      }
+      if (url.pathname === "/api/messages/meta") {
+        return Response.json(hub.messageMeta());
+      }
+      if (url.pathname === "/api/messages") {
+        const before = url.searchParams.get("before");
+        const after = url.searchParams.get("after");
+        const around = url.searchParams.get("around");
+        const limit = url.searchParams.get("limit");
+        return publicJson(await hub.messagesPage({
+          before: before == null || before === "" ? undefined : Number(before),
+          after: after == null || after === "" ? undefined : Number(after),
+          around: around == null || around === "" ? undefined : Number(around),
+          limit: limit == null || limit === "" ? undefined : Number(limit),
+        }));
+      }
       if (url.pathname === "/api/state") {
-        return publicJson(hub.snapshot());
+        const beforeRaw = url.searchParams.get("before");
+        const limitRaw = url.searchParams.get("limit");
+        const before = beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw);
+        const limit = limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw);
+        const snap = hub.snapshot({ before, limit });
+        if (hub.memory.logIndex.count > 0) {
+          const disk = await hub.messagesPage({ before, limit: pageLimit(limit) });
+          return publicJson({
+            ...snap,
+            messages: disk.messages,
+            before: disk.before,
+            hasMore: disk.hasMoreBefore,
+            messageCount: disk.messageCount,
+            debug: { ...snap.debug, lines: [] },
+          });
+        }
+        return publicJson({ ...snap, debug: { ...snap.debug, lines: [] } });
       }
       if (url.pathname === "/api/message" && req.method === "POST") {
         const body = (await req.json()) as { text?: string; mode?: "steer" | "queue"; session?: string };
@@ -160,6 +197,11 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const body = (await req.json().catch(() => ({}))) as { force?: boolean };
         const result = await hub.sparks.archive(decodeURIComponent(sparkArchive[1]), body.force === true);
         return publicJson({ ok: result?.ok ?? false, archive: result });
+      }
+      const sparkClose = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/close$/);
+      if (sparkClose && req.method === "POST") {
+        await hub.sparks.close(decodeURIComponent(sparkClose[1]));
+        return Response.json({ ok: true });
       }
       const sparkAck = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ack$/);
       if (sparkAck && req.method === "POST") {

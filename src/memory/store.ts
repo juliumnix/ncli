@@ -1,9 +1,10 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
+import { LogIndex } from "./log-index";
 import { CompactBudgetPause, CompactDeferred } from "./compact-deferred";
-import { factsOf, supersededHeader, type Successor } from "./facts";
+import { supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
 
 export interface MemoryOptions {
@@ -65,6 +66,7 @@ export class Memory {
   readonly deferBackoffMs: number;
   readonly compressTimeoutMs: number;
   readonly log: Message[] = [];
+  readonly logIndex: LogIndex;
   readonly nodes = new Map<string, TreeNode>();
   compactWork: CompactWork = { done: 0, total: 0, paused: null };
   view: ViewPart[] = [];
@@ -93,11 +95,44 @@ export class Memory {
     this.deferBackoffMs = opts.deferBackoffMs ?? 2000;
     this.compressTimeoutMs = opts.compressTimeoutMs ?? 30_000;
     mkdirSync(this.dir, { recursive: true });
+    this.logIndex = new LogIndex(this.dir);
     this.load();
   }
 
   get T(): number {
-    return this.log.length;
+    const last = this.log.at(-1)?.i;
+    const fromMem = last == null ? 0 : last + 1;
+    return Math.max(this.logIndex.count, fromMem);
+  }
+
+  get facts(): Map<number, Successor> {
+    return this.logIndex.facts;
+  }
+
+  factsCached(): Map<number, Successor> {
+    return this.facts;
+  }
+
+  at(id: number): Message | undefined {
+    if (!Number.isInteger(id) || id < 0 || id >= this.T) return undefined;
+    if (this.log.length && this.log[0]!.i === 0 && id < this.log.length && this.log[id]?.i === id) {
+      return this.log[id];
+    }
+    for (let k = this.log.length - 1; k >= 0; k--) {
+      if (this.log[k]!.i === id) return this.log[k];
+    }
+    return this.logIndex.readAtSync(id);
+  }
+
+  async ensureIndex(): Promise<void> {
+    if (this.logIndex.count > 0 && !this.logIndex.stale()) return;
+    this.logIndex.rebuildSync();
+  }
+
+  private nextSeq(): number {
+    const last = this.log.at(-1)?.i;
+    const fromLog = last == null ? this.log.length : last + 1;
+    return Math.max(fromLog, this.logIndex.count);
   }
 
   get viewLow(): number {
@@ -147,7 +182,15 @@ export class Memory {
     const out: Message[] = [];
     try {
       for (const partial of partials) out.push(this.writeLine(partial, false));
-      persistLines(join(this.dir, "log.jsonl"), out);
+      let offset = this.logIndex.size;
+      const lines = out.map((msg) => `${JSON.stringify(msg)}\n`);
+      persistRaw(join(this.dir, "log.jsonl"), lines.join(""));
+      for (let k = 0; k < out.length; k++) {
+        const n = Buffer.byteLength(lines[k]!);
+        this.logIndex.push(offset, out[k]!.date, n);
+        offset += n;
+      }
+      this.logIndex.persist();
       if (!opts.quiet) {
         if (this.viewBytesUsed() > this.viewHigh) this.fit();
         else this.saveView();
@@ -170,7 +213,7 @@ export class Memory {
     }
     const text = capText(partial.text, 80_000);
     const msg: Message = {
-      i: this.log.length,
+      i: this.nextSeq(),
       kind: partial.kind,
       text,
       size: utf8Bytes(`${partial.kind}: ${text}`),
@@ -190,20 +233,27 @@ export class Memory {
       recall: partial.recall,
     };
     this.log.push(msg);
-    if (persist) persistLine(join(this.dir, "log.jsonl"), msg);
+    this.logIndex.noteFact(msg);
+    if (persist) {
+      const raw = `${JSON.stringify(msg)}\n`;
+      const start = this.logIndex.size;
+      persistRaw(join(this.dir, "log.jsonl"), raw);
+      this.logIndex.push(start, msg.date, Buffer.byteLength(raw));
+      if (this.log.length % 64 === 0) this.logIndex.persist();
+    }
     this.view.push(this.partFromLevel(0, msg.i));
     this.enqueue(0, msg.i);
     return msg;
   }
 
   renderView(): string {
-    const facts = factsOf(this.log);
+    const facts = this.factsCached();
     const lines = this.view.map((p) => this.renderPart(p, facts));
     return `<chat>\n${lines.join("\n")}\n</chat>`;
   }
 
   viewLines(): string[] {
-    const facts = factsOf(this.log);
+    const facts = this.factsCached();
     return this.view.map((p) => this.renderPart(p, facts));
   }
 
@@ -221,24 +271,6 @@ export class Memory {
   private partBytes(p: ViewPart, facts: Map<number, Successor>): number {
     const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
     return p.size + (header ? utf8Bytes(`${header}\n`) : 0);
-  }
-
-  private factsMemo: { seen: number; index: Map<number, Successor> } = { seen: 0, index: new Map() };
-
-  /** factsOf(this.log) extended incrementally: the log is append-only, so only new messages are scanned. */
-  private factsCached(): Map<number, Successor> {
-    const memo = this.factsMemo;
-    if (memo.seen > this.log.length) memo.seen = 0, memo.index = new Map();
-    for (; memo.seen < this.log.length; memo.seen++) {
-      const msg = this.log[memo.seen];
-      if (!msg?.supersedes?.length) continue;
-      const by = msg.successor ?? msg.i;
-      const reason = msg.reason ?? "";
-      for (const id of msg.supersedes) {
-        if (Number.isInteger(id) && id >= 0) memo.index.set(id, { by, reason });
-      }
-    }
-    return memo.index;
   }
 
   allBuilt(): boolean {
@@ -276,7 +308,7 @@ export class Memory {
     const signal = opts.signal;
     if (signal?.aborted) return Promise.resolve(false);
     if (!this.hasInFlight()) return Promise.resolve(this.allBuilt());
-    return this.waitUntil(() => !this.hasInFlight(), timeoutMs, signal).then(() => this.allBuilt());
+    return this.waitUntil(() => !this.hasInFlight(), timeoutMs, signal).then((ok) => ok && this.allBuilt());
   }
 
   private waitUntil(ready: () => boolean, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
@@ -331,9 +363,9 @@ export class Memory {
       return { ok: false, error: `No line ${id}+${n}.` };
     }
     if (n === 1) {
-      const m = this.log[id];
+      const m = this.at(id);
       if (!m) return { ok: false, error: `No line ${id}+${n}.` };
-      const header = supersededHeader(factsOf(this.log), id);
+      const header = supersededHeader(this.factsCached(), id);
       const line = `${id}+0|${m.kind}: ${m.text}`;
       return { ok: true, lines: header ? [header, line] : [line] };
     }
@@ -352,7 +384,7 @@ export class Memory {
   }
 
   dateOf(id: number): string {
-    const m = this.log[id];
+    const m = this.at(id);
     if (!m) return `No message ${id}.`;
     return m.date;
   }
@@ -364,15 +396,12 @@ export class Memory {
     } catch {
       return [`bad regex: ${re}`];
     }
-    const facts = factsOf(this.log);
-    return this.log
-      .filter((m) => pat.test(`#${m.i} ${m.kind} ${m.text}`))
-      .slice(-40)
-      .flatMap((m) => {
-        const header = supersededHeader(facts, m.i);
-        const line = `#${m.i} ${m.kind}: ${m.text}`;
-        return header ? [header, line] : [line];
-      });
+    const facts = this.factsCached();
+    return this.recallHits(pat).flatMap((m) => {
+      const header = supersededHeader(facts, m.i);
+      const line = `#${m.i} ${m.kind}: ${m.text}`;
+      return header ? [header, line] : [line];
+    });
   }
 
   debug(): { lines: string[]; bytes: number; budget: number; levels: string[]; T: number } {
@@ -516,7 +545,8 @@ export class Memory {
 
   private cutSource(l: number, i: number): string {
     if (l === 0) {
-      const m = this.log[i];
+      const m = this.at(i);
+      if (!m) return "";
       return keepRecent(flattenLine(`${m.kind}: ${m.text}`), this.nodeBytes);
     }
     const left = this.nodeOf(l - 1, 2 * i)?.text ?? "";
@@ -595,7 +625,7 @@ export class Memory {
   private compactInput(l: number, i: number): CompactInput | undefined {
     const nodeBytes = this.nodeBytes;
     if (l === 0) {
-      const m = this.log[i];
+      const m = this.at(i);
       if (!m) return undefined;
       const source = `${m.kind}: ${m.text}`;
       return { kind: "leaf", contextLines: this.contextBefore(i), source, nodeBytes };
@@ -784,18 +814,44 @@ export class Memory {
     for (const w of [...this.waiters]) w();
   }
 
+  private parseLog(logPath: string): void {
+    const buf = readFileSync(logPath);
+    let start = 0;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] !== 10) continue;
+      if (i > start) {
+        try {
+          this.log.push(JSON.parse(buf.toString("utf8", start, i)) as Message);
+        } catch {
+        }
+      }
+      start = i + 1;
+    }
+    if (start < buf.length) {
+      const tail = buf.toString("utf8", start, buf.length);
+      if (tail.trim()) {
+        try {
+          this.log.push(JSON.parse(tail) as Message);
+        } catch {
+        }
+      }
+    }
+  }
+
   private load(): void {
     const logPath = join(this.dir, "log.jsonl");
     const treePath = join(this.dir, "tree.jsonl");
     if (existsSync(logPath)) {
-      for (const line of readFileSync(logPath, "utf8").split("\n")) {
-        if (!line.trim()) continue;
-        try {
-          this.log.push(JSON.parse(line) as Message);
-        } catch {
-          continue;
-        }
+      const known = this.logIndex.count;
+      const fresh = known > 0 && !this.logIndex.stale();
+      if (!fresh) {
+        this.logIndex.rebuildSync();
+        const size = statSync(logPath).size;
+        if (size > 0 && this.logIndex.size > size) appendFileSync(logPath, "\n");
       }
+      if (this.logIndex.count <= 2000) this.parseLog(logPath);
+      this.logIndex.fillFacts();
+      if (!fresh || this.logIndex.count !== known) this.logIndex.persist();
     }
     if (existsSync(treePath)) {
       for (const line of readFileSync(treePath, "utf8").split("\n")) {
@@ -813,7 +869,7 @@ export class Memory {
         }
       }
     }
-    if (!this.loadSavedView()) this.rebuildView();
+    if (!this.loadSavedView() && this.log.length) this.rebuildView();
     this.seedReady();
   }
 
@@ -858,8 +914,51 @@ export class Memory {
   }
 
   private seedReady(): void {
-    for (let i = 0; i < this.T; i++) this.enqueue(0, i);
+    for (const m of this.log) this.enqueue(0, m.i);
     for (const node of this.nodes.values()) this.enqueue(node.l + 1, Math.floor(node.i / 2));
+  }
+
+  private recallHits(pat: RegExp): Message[] {
+    if (this.log.length === this.T) {
+      return this.log.filter((m) => pat.test(`#${m.i} ${m.kind} ${m.text}`)).slice(-40);
+    }
+    const src = pat.source;
+    const literal = !/[\\^$*+?()[\]{}|.]/.test(src) ? src.toLowerCase() : null;
+    const hits: Message[] = [];
+    const text = this.logIndex.rawText();
+    let i = 0;
+    let from = 0;
+    for (let c = 0; c < text.length; c++) {
+      if (text.charCodeAt(c) !== 10) continue;
+      const line = text.slice(from, c);
+      from = c + 1;
+      const hit = this.matchRecallLine(line, i, pat, literal);
+      i += 1;
+      if (!hit) continue;
+      hits.push(hit);
+      if (hits.length > 40) hits.shift();
+    }
+    if (from < text.length) {
+      const hit = this.matchRecallLine(text.slice(from), i, pat, literal);
+      if (hit) {
+        hits.push(hit);
+        if (hits.length > 40) hits.shift();
+      }
+    }
+    return hits;
+  }
+
+  private matchRecallLine(line: string, i: number, pat: RegExp, literal: string | null): Message | undefined {
+    if (!line.trim()) return undefined;
+    if (literal && !line.toLowerCase().includes(literal)) return undefined;
+    try {
+      const m = JSON.parse(line) as Message;
+      if (typeof m.i !== "number") m.i = i;
+      if (!pat.test(`#${m.i} ${m.kind} ${m.text}`)) return undefined;
+      return m;
+    } catch {
+      return undefined;
+    }
   }
 
   private saveView(): void {
@@ -904,6 +1003,11 @@ function parseSavedView(raw: string): SavedPart[] | null {
 
 function isPair(item: unknown): item is [number, number] {
   return Array.isArray(item) && item.length >= 2 && typeof item[0] === "number" && typeof item[1] === "number";
+}
+
+function persistRaw(path: string, raw: string): void {
+  if (!raw) return;
+  appendFileSync(path, raw);
 }
 
 function persistLine(path: string, obj: unknown): void {

@@ -20,6 +20,9 @@ test("html ui and 3d lock navigation and RTC before agent code", () => {
   expect(appJs).toContain("function sanitizeLiveMarkup");
   expect(appJs).toContain("data-live-kind");
   expect(appJs).toContain("function bindLiveUrlAsks");
+  expect(appJs).toContain("function confirmLiveUrl");
+  expect(appJs).toContain('e.target.closest?.(".live-url-go")');
+  expect(appJs).toContain("function isLiveFence");
   expect(appJs).toContain("form-action 'none'");
   expect(appJs).toContain("navigate-to 'none'");
   expect(kit).toContain("ncliFakes");

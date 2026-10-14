@@ -47,6 +47,12 @@ test("a [#id] is verified only after zoom(id, 1) in the same space on an existin
   expect(verifyCitations("ghost [#12]", [zoomOriginal(12)], [], SPACE)).toEqual([
     { id: 12, status: "unverified" },
   ]);
+  expect(verifyCitations("the rate is 15 percent [#3]", events, log, SPACE, undefined, "other-turn")).toEqual([
+    { id: 3, status: "unverified" },
+  ]);
+  expect(verifyCitations("the rate is 15 percent [#3]", events, log, SPACE, undefined, "t1")).toEqual([
+    { id: 3, status: "verified" },
+  ]);
 });
 
 test("a citation of a superseded fact is not verified", () => {
