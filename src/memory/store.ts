@@ -26,7 +26,9 @@ export type CompactWork = {
   paused: "budget" | "limit" | "cli-error" | null;
 };
 
-export type CompactResult = string | { text: string; provider?: string; model?: string };
+export type CompactStamp = { compactor?: "sdk" | "cli"; agent?: string; model?: string };
+
+export type CompactResult = string | ({ text: string } & CompactStamp);
 
 export type Compressor = (input: CompactInput) => Promise<CompactResult>;
 
@@ -668,7 +670,7 @@ export class Memory {
     this.busy.add(key);
     try {
       const result = await this.runCompressor(input);
-      this.putNode(slot.l, slot.i, result.text, { provider: result.provider, model: result.model });
+      this.putNode(slot.l, slot.i, result.text, result);
       this.refined.add(key);
       this.compactWork.done += 1;
       this.compactQ.remove(slot);
@@ -694,7 +696,7 @@ export class Memory {
     }
   }
 
-  private async runCompressor(input: CompactInput): Promise<{ text: string; provider?: string; model?: string }> {
+  private async runCompressor(input: CompactInput): Promise<{ text: string } & CompactStamp> {
     const work = this.compressor(input);
     const ms = this.compressTimeoutMs;
     const unwrap = async () => {
@@ -717,27 +719,23 @@ export class Memory {
     }
   }
 
-  private putNode(l: number, i: number, text: string, meta?: { provider?: string; model?: string }): void {
+  private putNode(l: number, i: number, text: string, meta?: CompactStamp): void {
     const flat = flattenLine(text);
     const key = Memory.key(l, i);
+    const existing = this.nodes.get(key);
+    if (existing?.compactor) {
+      this.compactQ.remove({ l, i });
+      return;
+    }
     const node: TreeNode = {
       l,
       i,
       text: flat,
       size: utf8Bytes(flat),
-      ...(meta?.provider ? { provider: meta.provider } : {}),
+      ...(meta?.compactor ? { compactor: meta.compactor } : {}),
+      ...(meta?.agent ? { agent: meta.agent } : {}),
       ...(meta?.model ? { model: meta.model } : {}),
     };
-    const existing = this.nodes.get(key);
-    if (
-      existing
-      && existing.text === node.text
-      && existing.provider === node.provider
-      && existing.model === node.model
-    ) {
-      this.compactQ.remove({ l, i });
-      return;
-    }
     this.nodes.set(key, node);
     if (this.muteChange) this.treeBuf.push(node);
     else persistLine(join(this.dir, "tree.jsonl"), node);
@@ -867,17 +865,19 @@ export class Memory {
       for (const line of readFileSync(treePath, "utf8").split("\n")) {
         if (!line.trim()) continue;
         try {
-          const n = JSON.parse(line) as TreeNode & { dropped?: boolean };
+          const n = JSON.parse(line) as TreeNode & { dropped?: boolean; provider?: string };
           if (typeof n.l !== "number" || typeof n.i !== "number") continue;
           const key = Memory.key(n.l, n.i);
           if (n.dropped) this.nodes.delete(key);
           else if (typeof n.text === "string") {
+            const agent = typeof n.agent === "string" ? n.agent : typeof n.provider === "string" ? n.provider : undefined;
             this.nodes.set(key, {
               l: n.l,
               i: n.i,
               text: n.text,
               size: n.size ?? utf8Bytes(n.text),
-              ...(typeof n.provider === "string" ? { provider: n.provider } : {}),
+              ...(n.compactor === "sdk" || n.compactor === "cli" ? { compactor: n.compactor } : {}),
+              ...(agent ? { agent } : {}),
               ...(typeof n.model === "string" ? { model: n.model } : {}),
             });
           }

@@ -110,7 +110,8 @@ export interface TreeNode {
   i: number;
   text: string;
   size: number;
-  provider?: string;
+  compactor?: "sdk" | "cli";
+  agent?: string;
   model?: string;
 }
 

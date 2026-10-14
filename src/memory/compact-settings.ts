@@ -7,6 +7,7 @@ export type CompactSettingsState = {
   error?: string;
   paused?: "budget" | "limit";
   envModel?: string;
+  evalWarn?: string;
 };
 
 const PROVIDER_ICON: Record<CompactProvider, { src: string; label: string }> = {
@@ -44,6 +45,7 @@ export function compactSettingsHtml(state: CompactSettingsState): string {
     ? `<p class="compact-pause">${escapeHtml(compactPauseLabel(state.paused))}</p>`
     : "";
   const env = envLock ? `<p class="muted">NCLI_COMPACT_MODEL sobrepõe o modelo.</p>` : "";
+  const evalWarn = state.evalWarn ? `<p class="compact-warn" role="status">${escapeHtml(state.evalWarn)}</p>` : "";
   return `<section class="compact-set" id="compactSet">
     <div class="dbg-h">compactação</div>
     <p class="muted">${escapeHtml(choiceLabel(choice))}</p>
@@ -53,7 +55,7 @@ export function compactSettingsHtml(state: CompactSettingsState): string {
       <span>modelo</span>
       <select id="compactModel" ${envLock ? "disabled" : ""}>${modelOpts}</select>
     </label>
-    ${env}${err}${pause}
+    ${env}${evalWarn}${err}${pause}
   </section>`;
 }
 

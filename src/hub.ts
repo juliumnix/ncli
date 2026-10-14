@@ -10,6 +10,7 @@ import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { compactSnapshot } from "./memory/cursor-compact";
 import { createCompactEngine, type CompactEngine } from "./memory/compact-engine";
 import type { CompactChoice } from "./memory/compact-choice";
+import { evalDropVsComposer } from "./memory/compact-eval";
 import { compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
 import { factsOf, parseIds, wouldCycle } from "./memory/facts";
 import { recallFromTool, verifyCitations } from "./memory/recall";
@@ -681,6 +682,7 @@ export class Hub {
       error: listed.error || this.compact.error,
       paused: this.compact.paused,
       envModel: (process.env.NCLI_COMPACT_MODEL ?? "").trim() || undefined,
+      evalWarn: evalDropVsComposer(choice.model),
     };
   }
 

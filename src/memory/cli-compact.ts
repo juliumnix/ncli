@@ -1,6 +1,12 @@
-import { flattenLine } from "../util";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
+import { MASTER, VIEW_DOC } from "./assemble";
+import { codexMcpFlags } from "../mcp/inject";
+import { loadMcpRegistry, resolveServers, spawnVars } from "../mcp/registry";
+import { skillPrompt } from "../skills/catalog";
+import { flattenLine } from "../util";
 import type { CompactProvider } from "./compact-choice";
 import {
   CompactCliError,
@@ -27,12 +33,50 @@ export type CliCompactDeps = {
   pool?: CompactProcPool;
   env?: Record<string, string | undefined>;
   onTiming?: (row: CompactProcTiming & { provider: CompactProvider }) => void;
+  shareChat?: boolean;
 };
 
-export function cliCompactArgv(provider: CompactProvider, cfg: NcliConfig, model: string, prompt: string): string[] {
+export const CODEX_ISOLATE_C = [
+  "mcp_servers={}",
+  "project_doc_max_bytes=0",
+  'instructions=""',
+  'developer_instructions=""',
+] as const;
+
+export function isolatedCompactCwd(dataDir: string): string {
+  const dir = join(dataDir, "compact-empty");
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function compactSharesChat(provider: CompactProvider, harness: string): boolean {
+  return harness === provider;
+}
+
+export function chatSystemPrompt(): string {
+  return [MASTER, skillPrompt(), VIEW_DOC].filter(Boolean).join("\n\n");
+}
+
+export function compactAsk(prompt: string, shareChat: boolean): string {
+  return shareChat ? `${chatSystemPrompt()}\n\n${prompt}` : prompt;
+}
+
+export function cliCompactArgv(
+  provider: CompactProvider,
+  cfg: NcliConfig,
+  model: string,
+  prompt: string,
+  opts: { shareChat?: boolean } = {},
+): string[] {
   switch (provider) {
     case "codex": {
       const args = [cfg.codexBin, "exec", "--json"];
+      if (opts.shareChat) {
+        args.push(...codexMcpFlags(resolveServers(loadMcpRegistry(cfg.ncliRoot), spawnVars(cfg, "compact"))));
+      } else {
+        args.push("--skip-git-repo-check", "--sandbox", "read-only");
+        for (const key of CODEX_ISOLATE_C) args.push("-c", key);
+      }
       if (model) args.push("--model", model);
       args.push(prompt);
       return args;
@@ -84,11 +128,13 @@ export async function runCliCompact(
   const spawn = deps.spawn ?? bunCompactSpawn;
   const env = childEnv(deps.env ?? process.env);
   await pool.acquire();
-  const argv = cliCompactArgv(provider, cfg, model, prompt);
+  const shareChat = Boolean(deps.shareChat);
+  const argv = cliCompactArgv(provider, cfg, model, prompt, { shareChat });
+  const cwd = shareChat ? undefined : isolatedCompactCwd(cfg.dataDir);
   const t0 = Date.now();
   let child: CompactChild;
   try {
-    child = spawn(argv, env);
+    child = spawn(argv, env, cwd ? { cwd } : undefined);
   } catch (err) {
     throw classifyCliError(provider, cfg, err);
   }

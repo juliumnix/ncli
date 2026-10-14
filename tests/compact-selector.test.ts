@@ -6,6 +6,7 @@ import {
   saveCompactChoice,
 } from "../src/memory/compact-choice";
 import { cachedProviderModels, parseModelList, pickCheapModel, saveModelCache } from "../src/memory/compact-models";
+import { COMPACT_EVAL, evalDropVsComposer } from "../src/memory/compact-eval";
 import { compactPauseLabel, compactSettingsHtml } from "../src/memory/compact-settings";
 import { CompactCliError } from "../src/memory/compact-deferred";
 import { tmpDir } from "./helpers";
@@ -81,4 +82,22 @@ test("a missing CLI is a clear cached error, not an empty silent list", async ()
     error: row.error,
   });
   expect(html).toContain("não está instalado");
+});
+
+test("selector warns when memory:eval of a model drops versus Composer", () => {
+  expect(evalDropVsComposer("composer-2.5")).toBeUndefined();
+  expect(evalDropVsComposer("unknown-model")).toBeUndefined();
+  const warn = evalDropVsComposer("cheap-mini", {
+    ...COMPACT_EVAL,
+    "cheap-mini": { viewPresence: 0.2, reachability: 0.6 },
+  });
+  expect(warn).toContain("memory:eval");
+  expect(warn).toContain("Composer");
+  const html = compactSettingsHtml({
+    choice: { mode: "cli", provider: "codex", model: "cheap-mini" },
+    models: ["cheap-mini", "composer-2.5"],
+    evalWarn: warn,
+  });
+  expect(html).toContain("memory:eval");
+  expect(html).toContain("class=\"compact-warn\"");
 });

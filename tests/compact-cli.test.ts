@@ -3,7 +3,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { createCompactEngine } from "../src/memory/compact-engine";
-import { COMPACT_RULER, cliCompactArgv, parseCliCompactOutput } from "../src/memory/cli-compact";
+import {
+  COMPACT_RULER,
+  CODEX_ISOLATE_C,
+  cliCompactArgv,
+  compactSharesChat,
+  isolatedCompactCwd,
+  parseCliCompactOutput,
+} from "../src/memory/cli-compact";
+import { utf8Bytes } from "../src/util";
 import { CompactCliError, ProviderLimitError } from "../src/memory/compact-deferred";
 import { COMPACT_MAX_PROCS, CompactProcPool } from "../src/memory/compact-proc";
 import { jobPrompt } from "../src/memory/cursor-compact";
@@ -40,7 +48,19 @@ test("jobPrompt keeps the 512 ruler and the same compact system prompt", () => {
   }]);
   expect(prompt).toContain("-".repeat(COMPACT_RULER));
   expect(prompt).toContain("You write the memory of NCLI");
-  expect(cliCompactArgv("codex", loadConfig({}), "mini", "p")).toEqual(["codex", "exec", "--json", "--model", "mini", "p"]);
+  const isolated = cliCompactArgv("codex", loadConfig({}), "mini", "p");
+  expect(isolated.slice(0, 6)).toEqual(["codex", "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only"]);
+  for (const key of CODEX_ISOLATE_C) {
+    expect(isolated).toContain("-c");
+    expect(isolated).toContain(key);
+  }
+  expect(isolated.at(-1)).toBe("p");
+  expect(isolated.join("\0")).not.toContain("CODEX_HOME");
+  expect(compactSharesChat("codex", "codex")).toBe(true);
+  expect(compactSharesChat("codex", "cursor")).toBe(false);
+  const shared = cliCompactArgv("codex", loadConfig({ ncliRoot: process.cwd() }), "mini", "p", { shareChat: true });
+  expect(shared).not.toContain("--skip-git-repo-check");
+  expect(shared.join(" ")).toContain("mcp_servers.");
   expect(parseCliCompactOutput("codex", '{"type":"agent_message","text":"one line"}\n')).toContain("one line");
 });
 
@@ -121,9 +141,9 @@ test("kill mid-batch then resume matches an uninterrupted tree and writes each i
   for (let i = 0; i < 8; i++) clean.append({ kind: i % 2 === 0 ? "user" : "talk", text: `${LONG} ${i}` });
   await clean.pump();
   expect(resumed).toEqual(treeIds(cleanDir));
-  const refined = [...again.nodes.values()].filter((n) => n.provider);
+  const refined = [...again.nodes.values()].filter((n) => n.compactor);
   expect(refined.length).toBeGreaterThan(0);
-  expect(refined.every((n) => n.model)).toBe(true);
+  expect(refined.every((n) => n.model && n.agent && n.compactor)).toBe(true);
 });
 
 test("a simulated provider limit requeues and writes no half node", async () => {
@@ -152,10 +172,10 @@ test("a simulated provider limit requeues and writes no half node", async () => 
   mem.append({ kind: "user", text: LONG });
   await mem.pump();
   expect(mem.compactWork.paused).toBe("limit");
-  const refined = [...mem.nodes.values()].filter((n) => n.provider);
+  const refined = [...mem.nodes.values()].filter((n) => n.compactor);
   expect(refined).toEqual([]);
   const tree = readFileSync(join(memDir, "tree.jsonl"), "utf8");
-  expect(tree).not.toContain("\"provider\"");
+  expect(tree).not.toContain("\"compactor\"");
   const queue = loadCompactQueue(memDir);
   expect(queue && queue.length).toBeGreaterThan(0);
   mem.paused = true;
@@ -319,4 +339,115 @@ test("cli spawn and model times are logged separately and stay under the SDK moc
   expect(cliMs).toBeLessThan(sdkMs * 8 + 2000);
   mem.paused = true;
   sdkMem.paused = true;
+});
+
+test("SDK and CLI compact the same stretch under the 512 ruler and call no tool", async () => {
+  const stretch = {
+    kind: "leaf" as const,
+    source: "user: FACT_X applies before tax",
+    contextLines: ["0+1|older"],
+    nodeBytes: 512,
+  };
+  const body = "1. user: FACT_X applies before tax";
+  const sdkPrompts: string[] = [];
+  const cliPrompts: string[] = [];
+  const cliArgv: string[][] = [];
+  let tools = 0;
+  const sdkDir = tmpDir("same-sdk");
+  const sdk = createCompactEngine(
+    loadConfig({
+      dataDir: sdkDir,
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 0,
+      compactDebounceMs: 1,
+      compactBatch: 1,
+      harness: "cursor",
+    }),
+    {
+      runner: async (prompt) => {
+        sdkPrompts.push(prompt);
+        return body;
+      },
+    },
+  );
+  sdk.setChoice({ mode: "sdk", provider: "cursor", model: "composer-2.5" });
+  const cliDir = tmpDir("same-cli");
+  const cli = createCompactEngine(
+    loadConfig({
+      dataDir: cliDir,
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 0,
+      compactDebounceMs: 1,
+      compactBatch: 1,
+      harness: "cursor",
+    }),
+    {
+      spawn: (argv, env, opts) => {
+        cliArgv.push(argv);
+        expect(opts?.cwd).toBe(isolatedCompactCwd(cliDir));
+        expect(env.CODEX_HOME).toBe(process.env.CODEX_HOME);
+        const prompt = argv.at(-1) ?? "";
+        cliPrompts.push(prompt);
+        if (argv.some((a) => a.includes("mcp_servers.ncli") || a === "--mcp-config")) tools += 1;
+        return {
+          pid: 1,
+          stdout: new Response(`{"type":"agent_message","text":${JSON.stringify(body)}}\n`).body,
+          stderr: new Response("").body,
+          exited: Promise.resolve(0),
+          kill: () => undefined,
+        };
+      },
+    },
+  );
+  cli.setChoice({ mode: "cli", provider: "codex", model: "mini" });
+  const sdkOut = await sdk.compress(stretch);
+  const cliOut = await cli.compress(stretch);
+  const sdkText = typeof sdkOut === "string" ? sdkOut : sdkOut.text;
+  const cliText = typeof cliOut === "string" ? cliOut : cliOut.text;
+  expect(utf8Bytes(sdkText)).toBeLessThanOrEqual(512);
+  expect(utf8Bytes(cliText)).toBeLessThanOrEqual(512);
+  expect(sdkText).toBe(cliText);
+  expect(sdkPrompts[0]).toContain("-".repeat(COMPACT_RULER));
+  expect(cliPrompts[0]).toContain("-".repeat(COMPACT_RULER));
+  expect(sdkPrompts[0]).toContain("You write the memory of NCLI");
+  expect(cliPrompts[0]).toContain("You write the memory of NCLI");
+  expect(tools).toBe(0);
+  expect(cliArgv[0]).toContain("--skip-git-repo-check");
+  expect(cliArgv[0]).toContain("read-only");
+  for (const key of CODEX_ISOLATE_C) expect(cliArgv[0]).toContain(key);
+  expect(typeof sdkOut === "object" ? sdkOut.compactor : undefined).toBe("sdk");
+  expect(typeof cliOut === "object" ? cliOut.compactor : undefined).toBe("cli");
+  expect(typeof cliOut === "object" ? cliOut.agent : undefined).toBe("codex");
+});
+
+test("switching compactador does not rewrite an existing node", async () => {
+  const dir = tmpDir("keep-node");
+  const memDir = join(dir, "mem");
+  const cfg = loadConfig({
+    dataDir: dir,
+    compactBackend: "cursor",
+    compactSkipTokens: 1,
+    compactTimeoutMs: 0,
+    compactDebounceMs: 1,
+    compactBatch: 1,
+  });
+  const engine = createCompactEngine(cfg, {
+    runner: async () => "1. first stamp",
+  });
+  engine.setChoice({ mode: "sdk", provider: "cursor", model: "composer-2.5" });
+  const mem = new Memory({ dir: memDir, nodeBytes: 80, viewBytes: 2000, compressor: engine.compress });
+  mem.append({ kind: "user", text: LONG });
+  await mem.pump();
+  const before = mem.nodeOf(0, 0);
+  expect(before?.compactor).toBe("sdk");
+  expect(before?.text).toContain("first stamp");
+  engine.setChoice({ mode: "cli", provider: "codex", model: "mini" });
+  await mem.pump();
+  const after = mem.nodeOf(0, 0);
+  expect(after?.compactor).toBe("sdk");
+  expect(after?.text).toBe(before?.text);
+  expect(after?.agent).toBe(before?.agent);
+  mem.paused = true;
 });

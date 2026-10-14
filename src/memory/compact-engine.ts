@@ -12,7 +12,7 @@ import {
 } from "./compact-choice";
 import { cachedProviderModels, pickCheapModel, type CompactModelLister } from "./compact-models";
 import { CompactProcPool, type CompactProcTiming, type CompactSpawn } from "./compact-proc";
-import { COMPACT_TOO_LONG_TRIES, runCliCompact, type CliCompactDeps } from "./cli-compact";
+import { compactAsk, compactSharesChat, COMPACT_TOO_LONG_TRIES, runCliCompact, type CliCompactDeps } from "./cli-compact";
 import {
   compactSnapshot,
   cursorCompressor,
@@ -47,7 +47,7 @@ export function createCompactEngine(
   if (!choice.model) choice = { ...choice, model: cfg.compactModel };
   let last: CompactProgress = compactSnapshot(cfg);
   last = { ...last, model: choice.model };
-  let lastMeta: { provider: CompactProvider | "sdk"; model: string } | null = null;
+  let lastMeta: { compactor: "sdk" | "cli"; agent: string; model: string } | null = null;
   const cliDeps: CliCompactDeps = {
     spawn: opts.spawn,
     pool,
@@ -65,15 +65,21 @@ export function createCompactEngine(
   };
 
   const run: CompactRunner = async (prompt, model) => {
-    lastMeta = { provider: choice.mode === "sdk" ? "sdk" : choice.provider, model: model || choice.model };
-    if (opts.runner) return withTooLong(opts.runner, prompt, model || choice.model);
+    lastMeta = {
+      compactor: choice.mode,
+      agent: choice.mode === "sdk" ? "cursor" : choice.provider,
+      model: model || choice.model,
+    };
+    const shareChat = choice.mode === "cli" && compactSharesChat(choice.provider, cfg.harness);
+    const ask = compactAsk(prompt, shareChat);
+    if (opts.runner) return withTooLong(opts.runner, ask, model || choice.model);
     if (choice.mode === "sdk") {
-      return withTooLong(defaultCompactRunner(cfg), prompt, model || choice.model);
+      return withTooLong(defaultCompactRunner(cfg), ask, model || choice.model);
     }
     try {
       return await withTooLong(
-        (p, m) => runCliCompact(choice.provider, cfg, p, m, cliDeps),
-        prompt,
+        (p, m) => runCliCompact(choice.provider, cfg, p, m, { ...cliDeps, shareChat }),
+        ask,
         model || choice.model,
       );
     } catch (err) {
@@ -92,7 +98,7 @@ export function createCompactEngine(
   const engine: CompactEngine = {
     compress: async (input: CompactInput) => {
       const text = await backend(input);
-      if (lastMeta) return { text, provider: lastMeta.provider, model: lastMeta.model };
+      if (lastMeta) return { text, ...lastMeta };
       return text;
     },
     choice: () => choice,

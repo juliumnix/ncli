@@ -12,7 +12,9 @@ type LiveProc = {
   startedAt: number;
 };
 
-export type CompactSpawn = (argv: string[], env: Record<string, string>) => CompactChild;
+export type CompactSpawnOpts = { cwd?: string };
+
+export type CompactSpawn = (argv: string[], env: Record<string, string>, opts?: CompactSpawnOpts) => CompactChild;
 
 export type CompactChild = {
   pid: number;
@@ -75,12 +77,13 @@ export class CompactProcPool {
   }
 }
 
-export function bunCompactSpawn(argv: string[], env: Record<string, string>): CompactChild {
+export function bunCompactSpawn(argv: string[], env: Record<string, string>, opts: CompactSpawnOpts = {}): CompactChild {
   const proc = Bun.spawn(argv, {
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
     env,
+    cwd: opts.cwd,
   });
   return {
     pid: proc.pid,
