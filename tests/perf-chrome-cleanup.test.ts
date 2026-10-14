@@ -45,7 +45,12 @@ chmodSync(fakeDead, 0o755);
 const lastProfile = () => readFileSync(log, "utf8").trim().split("\n").at(-1)!;
 const port = () => 15000 + Math.floor(Math.random() * 2000);
 
-afterAll(() => rmSync(work, { recursive: true, force: true }));
+const prevChrome = process.env.NCLI_PERF_CHROME;
+afterAll(() => {
+  if (prevChrome === undefined) delete process.env.NCLI_PERF_CHROME;
+  else process.env.NCLI_PERF_CHROME = prevChrome;
+  rmSync(work, { recursive: true, force: true });
+});
 
 describe("launchChrome profile cleanup", () => {
   test("removes the profile dir after a successful run closes", async () => {

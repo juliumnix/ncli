@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
-import { spawnHarness } from "./children";
+import { killProcessGroup, spawnHarness } from "./children";
 import type { RunOpts } from "../harness/types";
 import { ncliAllowedToolsArg } from "../mcp/tools";
 import type { AcpAdapter, AcpUpdate } from "./types";
@@ -230,9 +230,7 @@ export class ClaudeCliAdapter implements AcpAdapter {
       const stdin = hot.proc.stdin;
       if (stdin && typeof stdin !== "number") stdin.end();
     } catch {}
-    try {
-      hot.proc.kill();
-    } catch {}
+    killProcessGroup(hot.proc.pid);
     hot.pump.close();
   }
 }

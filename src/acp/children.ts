@@ -7,7 +7,7 @@ const GROUP_EXEC = [
   "  setpgid: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },",
   "  execvp: { args: [FFIType.cstring, FFIType.ptr], returns: FFIType.i32 },",
   "});",
-  "libc.symbols.setpgid(0, 0);",
+  "if (libc.symbols.setpgid(0, 0) !== 0) console.error('ncli: setpgid failed');",
   "const args = process.argv.slice(1);",
   'const bufs = args.map((arg) => Buffer.from(arg + "\\0"));',
   "const arr = new BigUint64Array(args.length + 1);",
@@ -36,33 +36,33 @@ export function spawnHarness(
   return proc;
 }
 
-export async function killHarnessChildren(timeoutMs = 2000): Promise<void> {
-  const pids = [...live];
-  if (pids.length === 0) return;
-  for (const pid of pids) signalGroup(pid, "SIGTERM");
-  const deadline = Date.now() + Math.max(0, timeoutMs);
-  while (pids.some(alive) && Date.now() < deadline) await Bun.sleep(20);
-  for (const pid of pids) {
-    if (alive(pid)) signalGroup(pid, "SIGKILL");
-  }
-  const killed = Date.now() + 200;
-  while (pids.some(alive) && Date.now() < killed) await Bun.sleep(20);
-  for (const pid of pids) live.delete(pid);
-}
-
-function signalGroup(pid: number, signal: NodeJS.Signals): void {
+export function killProcessGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (!pid || pid <= 0) return;
   try {
     process.kill(-pid, signal);
     return;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ESRCH" && code !== "EPERM") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") return;
   }
   try {
     process.kill(pid, signal);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "ESRCH") return;
   }
+}
+
+export async function killHarnessChildren(timeoutMs = 2000): Promise<void> {
+  const pids = [...live];
+  if (pids.length === 0) return;
+  for (const pid of pids) killProcessGroup(pid, "SIGTERM");
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (pids.some(alive) && Date.now() < deadline) await Bun.sleep(20);
+  for (const pid of pids) {
+    if (alive(pid)) killProcessGroup(pid, "SIGKILL");
+  }
+  const killed = Date.now() + 200;
+  while (pids.some(alive) && Date.now() < killed) await Bun.sleep(20);
+  for (const pid of pids) live.delete(pid);
 }
 
 function alive(pid: number): boolean {

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import { redactPath } from "../redact";
-import { spawnHarness } from "./children";
+import { killProcessGroup, spawnHarness } from "./children";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
 import { SessionHot, sessionKey } from "./hot";
@@ -153,9 +153,7 @@ export class CodexExecAdapter implements AcpAdapter {
 
   private kill(waiter: HotWaiter | undefined): void {
     if (!waiter) return;
-    try {
-      waiter.proc.kill();
-    } catch {}
+    killProcessGroup(waiter.proc.pid);
   }
 }
 

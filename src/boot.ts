@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { killHarnessChildren } from "./acp/children";
 import { checkCodexConfig, formatCodexConfigWarnings } from "./acp/codex";
 import { hasCompactDailyBudget, loadConfig, type NcliConfig } from "./config";
+import type { Memory } from "./memory/store";
 import { packageRoot } from "./pkg-root";
 import { redactText } from "./redact";
 import { Hub } from "./hub";
@@ -102,7 +104,7 @@ export async function bootNcli(opts: {
     server = listenUi(hub, cfg, publicDir);
   } catch (err) {
     live.stop();
-    hub.close();
+    await hub.close();
     if (err instanceof Error && err.message.startsWith("A porta ")) throw err;
     throw new Error(`HTTP UI failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -110,6 +112,10 @@ export async function bootNcli(opts: {
   hub.mcpUrl = `http://127.0.0.1:${server.port}/mcp`;
   const clis = detectClis(cfg);
   const revision = requireBootRevision(root);
+  const unlisten = installSignalStop(hub, () => {
+    live.stop();
+    server.stop(true);
+  });
   announceReady({
     url: readyUrl(server.port),
     clis,
@@ -126,9 +132,10 @@ export async function bootNcli(opts: {
   try {
     await assertMcp(hub.mcpUrl, token);
   } catch (err) {
+    unlisten();
     live.stop();
     server.stop(true);
-    hub.close();
+    await hub.close();
     throw err;
   }
   const main = hub.mainAgent();
@@ -161,11 +168,46 @@ export async function bootNcli(opts: {
     server,
     report,
     stop() {
+      unlisten();
       live.stop();
       server.stop(true);
-      hub.close();
+      void hub.close();
     },
   };
+}
+
+function installSignalStop(hub: Hub, stopIo: () => void): () => void {
+  let ran = false;
+  const run = (code: number) => {
+    if (ran) return;
+    ran = true;
+    void (async () => {
+      const mems = [hub.memory, ...[...hub.sparks.runtimes.values()].map((rt) => rt.memory)];
+      for (const mem of mems) {
+        mem.paused = true;
+        callMem(mem, "flushTree");
+      }
+      await killHarnessChildren();
+      for (const mem of mems) callMem(mem, "saveView");
+      stopIo();
+      await hub.close();
+      process.exit(code);
+    })();
+  };
+  const onInt = () => run(130);
+  const onTerm = () => run(143);
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
+  return () => {
+    process.off("SIGINT", onInt);
+    process.off("SIGTERM", onTerm);
+  };
+}
+
+function callMem(mem: Memory, name: "flushTree" | "saveView"): void {
+  const fn = (mem as unknown as Record<string, unknown>)[name];
+  if (typeof fn !== "function") throw new Error(`ncli shutdown: Memory.${name} is not a function`);
+  (fn as () => void).call(mem);
 }
 
 function listenUi(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<typeof Bun.serve> {
