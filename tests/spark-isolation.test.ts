@@ -133,7 +133,7 @@ test("a view that asks for a worktree fails visibly when git worktree add fails"
   views.close();
 });
 
-test("open after close starts a new spark instead of the merged one", async () => {
+test("open after close keeps the spark id, rebuilds the worktree, and runs again", async () => {
   const repo = await initTempRepo("iso-find");
   const dataDir = tmpDir("iso-find-data");
   const { views } = await isoViews(join(dataDir, "views"));
@@ -143,7 +143,7 @@ test("open after close starts a new spark instead of the merged one", async () =
   await mgr.close(first.spark.id);
   expect(first.spark.status).toBe("merged");
   const second = await mgr.open("iso", { card: "same", wt: "1" });
-  expect(second.spark.id).not.toBe(first.spark.id);
+  expect(second.spark.id).toBe(first.spark.id);
   expect(second.spark.status).toBe("running");
   expect(existsSync(second.worktree?.path ?? "")).toBe(true);
   await waitUntil(() => harness.lastSystems.some((s) => s.includes(second.spark.id)));
@@ -164,9 +164,9 @@ test("reopen after close builds a new worktree and runs again", async () => {
   await mgr.close(first.spark.id);
   expect(first.spark.status).toBe("merged");
   const second = await mgr.open("iso", { card: "same", wt: "1" });
-  expect(second.spark.id).not.toBe(first.spark.id);
+  expect(second.spark.id).toBe(first.spark.id);
   expect(second.spark.status).toBe("running");
-  expect(second.worktree?.path).toBe(join(base, second.spark.id));
+  expect(second.worktree?.path).toBe(join(base, first.spark.id));
   expect(existsSync(second.worktree!.path)).toBe(true);
   await waitUntil(() => harness.lastSystems.some((s) => s.includes(second.spark.id)));
   expect(harness.lastCwds).toContain(second.worktree!.path);

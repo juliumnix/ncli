@@ -114,14 +114,23 @@ export class SparkManager {
   }
 
   findOpen(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
-    return [...this.runtimes.values()].find((r) => {
-      if (!OPEN_STATUS.has(r.spark.status)) return false;
-      if (r.spark.view !== viewId) return false;
-      if (viewId === "review") {
-        return sameReviewParams(r.spark.params, params);
-      }
-      return new URLSearchParams(r.spark.params).toString() === new URLSearchParams(params).toString();
-    });
+    return [...this.runtimes.values()].find(
+      (r) => OPEN_STATUS.has(r.spark.status) && this.sameSpark(viewId, params, r),
+    );
+  }
+
+  private findSettled(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
+    const hits = [...this.runtimes.values()].filter(
+      (r) => !OPEN_STATUS.has(r.spark.status) && this.sameSpark(viewId, params, r),
+    );
+    hits.sort((a, b) => b.spark.seq - a.spark.seq);
+    return hits[0];
+  }
+
+  private sameSpark(viewId: string, params: Record<string, string>, rt: SparkRuntime): boolean {
+    if (rt.spark.view !== viewId) return false;
+    if (viewId === "review") return sameReviewParams(rt.spark.params, params);
+    return new URLSearchParams(rt.spark.params).toString() === new URLSearchParams(params).toString();
   }
 
   async open(viewId: string, params: Record<string, string>): Promise<SparkRuntime> {
@@ -135,6 +144,8 @@ export class SparkManager {
       this.hooks.onEvent({ type: "spark", session: existing.spark.id, payload: existing.spark });
       return existing;
     }
+    const settled = this.findSettled(viewId, parsed);
+    if (settled) return this.reopen(settled, parsed);
     const created = await plugin.createSpark(parsed, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
@@ -179,6 +190,50 @@ export class SparkManager {
     persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: spark });
     await this.maybeArchiveMerged(rt, false);
+    void this.runTurn(rt, created.prompt, true);
+    return rt;
+  }
+
+  private async reopen(rt: SparkRuntime, parsed: Record<string, string>): Promise<SparkRuntime> {
+    const plugin = this.views.get(rt.spark.view);
+    if (!plugin) throw new Error(`view desconhecida: ${rt.spark.view}`);
+    const created = await plugin.createSpark(parsed, {
+      dataDir: this.cfg.dataDir,
+      repo: this.cfg.repo,
+      fetchPr: (pr, spec) => this.gh.view(pr, spec),
+    });
+    rt.abort = new AbortController();
+    this.watchAbort(rt);
+    rt.spark.status = created.needsUser ? "needs_user" : "running";
+    rt.spark.needsUser = created.needsUser;
+    rt.spark.hold = created.hold;
+    rt.spark.mergedAt = undefined;
+    rt.spark.title = created.title;
+    rt.spark.ui = created.ui ?? rt.spark.ui;
+    rt.spark.flowStep = created.flowStep ?? rt.spark.flowStep;
+    if (created.needsWorktree) {
+      try {
+        const worktree = await addWorktree(
+          created.repo ?? rt.spark.repo ?? this.cfg.repo,
+          rt.spark.id,
+          this.hooks.git,
+          this.hooks.worktreeBase,
+        );
+        rt.worktree = worktree;
+        rt.spark.worktree = shortWt(worktree.path);
+        rt.spark.branch = worktree.branch;
+        rt.spark.repo = worktree.repo;
+      } catch (err) {
+        rt.spark.status = "error";
+        rt.spark.summary = (err as Error).message;
+        rt.worktree = undefined;
+        persistRuntime(rt);
+        this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
+        throw err;
+      }
+    }
+    persistRuntime(rt);
+    this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     void this.runTurn(rt, created.prompt, true);
     return rt;
   }
