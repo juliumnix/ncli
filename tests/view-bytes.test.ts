@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { factsOf, supersededHeader } from "../src/memory/facts";
+import { applyFact, supersededHeader, type Successor } from "../src/memory/facts";
 import { Memory, mockCompressor } from "../src/memory/store";
 import { pairDue } from "../src/memory/merge-order";
 import { utf8Bytes } from "../src/util";
 import { tmpDir } from "./helpers";
 
 function fullBytes(mem: Memory): number {
-  const facts = factsOf(mem.log);
+  const facts = new Map<number, Successor>();
+  for (let i = 0; i < mem.T; i++) {
+    const msg = mem.at(i);
+    if (msg) applyFact(facts, msg);
+  }
   return mem.view.reduce((s, p) => {
     const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
     return s + p.size + (header ? utf8Bytes(`${header}\n`) : 0);
@@ -87,7 +91,8 @@ test("cold boot does not recount the whole view per message", () => {
   try {
     const mem = open(dir);
     mem.paused = true;
-    expect(mem.log.length).toBe(n);
+    expect(mem.T).toBe(n);
+    expect(mem.log.length).toBe(0);
     expect(calls).toBeLessThan(n / 10);
   } finally {
     proto.viewBytesUsed = real;
@@ -102,7 +107,7 @@ type Part = Memory["view"][number];
 /** The pre-heap fit(): linear scan per merge. Kept as the oracle for merge order. */
 function legacyFit(mem: Memory, view: Part[], low: number): string[] {
   const m = mem as unknown as { T: number; partFromLevel(l: number, i: number): Part };
-  const facts = factsOf(mem.log);
+  const facts = mem.factsCached();
   const bytesOf = (p: Part) => {
     const header = p.n === 1 ? supersededHeader(facts, p.start) : undefined;
     return p.size + (header ? utf8Bytes(`${header}\n`) : 0);
