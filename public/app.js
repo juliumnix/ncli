@@ -3215,7 +3215,13 @@ overlay.addEventListener("click", (e) => {
     return;
   }
   if (e.target === overlay || e.target.id === "closeModal") {
+    const id = state.openSpark;
     hideOverlay();
+    if (id) {
+      void fetch(`/api/sparks/${encodeURIComponent(id)}/close`, { method: "POST" })
+        .then((r) => { if (r.status === 404) return; })
+        .catch(() => undefined);
+    }
     return;
   }
   const tab = e.target.closest?.("[data-tab]")?.dataset?.tab;

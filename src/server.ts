@@ -197,6 +197,11 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
         const result = await hub.sparks.archive(decodeURIComponent(sparkArchive[1]), body.force === true);
         return publicJson({ ok: result?.ok ?? false, archive: result });
       }
+      const sparkClose = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/close$/);
+      if (sparkClose && req.method === "POST") {
+        await hub.sparks.close(decodeURIComponent(sparkClose[1]));
+        return Response.json({ ok: true });
+      }
       const sparkAck = url.pathname.match(/^\/api\/(?:sparks|forks)\/([^/]+)\/ack$/);
       if (sparkAck && req.method === "POST") {
         const body = (await req.json()) as { summary?: string };

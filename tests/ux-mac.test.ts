@@ -43,7 +43,7 @@ async function chromeReview() {
   return { hub, booted, driver, sparkId: rt.spark.id };
 }
 
-test("chrome: open, close, and reopen a review spark three times", async () => {
+test("chrome: X on the overlay merges the spark", async () => {
   const { hub, booted, driver, sparkId } = await chromeReview();
   try {
     await driver.session.attachPage("about:blank");
@@ -53,32 +53,25 @@ test("chrome: open, close, and reopen a review spark three times", async () => {
       8000,
       "spark pill",
     );
-    for (let i = 0; i < 3; i++) {
-      await driver.session.evaluate(`document.querySelector('[data-spark="${sparkId}"]')?.click()`);
-      await waitUntil(
-        () => driver.session.evaluate(`Boolean(document.querySelector("#overlay.in") && document.querySelector(".rv-rev"))`),
-        8000,
-        `open ${i + 1}`,
-      );
-      await driver.session.evaluate(`document.getElementById("closeModal")?.click()`);
-      await waitUntil(
-        () => driver.session.evaluate(`!document.body.classList.contains("rv-open")`),
-        4000,
-        `close ${i + 1}`,
-      );
-    }
     await driver.session.evaluate(`document.querySelector('[data-spark="${sparkId}"]')?.click()`);
     await waitUntil(
       () => driver.session.evaluate(`Boolean(document.querySelector("#overlay.in") && document.querySelector(".rv-rev"))`),
       8000,
-      "open after 3 closes",
+      "open",
     );
+    await driver.session.evaluate(`document.getElementById("closeModal")?.click()`);
+    await waitUntil(
+      () => driver.session.evaluate(`!document.body.classList.contains("rv-open")`),
+      4000,
+      "close",
+    );
+    await waitUntil(() => hub.sparks.get(sparkId)?.spark.status === "merged", 4000, "merged");
   } finally {
     driver.close();
     booted.stop();
     hub.close();
   }
-});
+}, 30000);
 
 test("chrome: Reviewed paint is under 16ms and the mark persists", async () => {
   const { hub, booted, driver, sparkId } = await chromeReview();
