@@ -158,10 +158,12 @@ test("codex exec omits --model unless NCLI_CODEX_MODEL is set", () => {
   expect(args.at(-1)).toBe("-");
   expect(args).not.toContain("confirma");
   const pinned = loadConfig({ codexBin: "codex", codexModel: "gpt-6.1-sol" });
-  expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 5)).toEqual([
+  expect(args).toContain("--skip-git-repo-check");
+  expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 6)).toEqual([
     "codex",
     "exec",
     "--json",
+    "--skip-git-repo-check",
     "--model",
     "gpt-6.1-sol",
   ]);

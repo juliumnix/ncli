@@ -59,16 +59,17 @@ test("codex exec reads the prompt from stdin dash and resumes a small thread", (
   const dataDir = tmpDir("codex-args");
   const cfg = loadConfig({ dataDir, codexBin: "codex" });
   const args = buildCodexArgs(cfg, { prompt: "confirma" });
-  expect(args.slice(0, 3)).toEqual(["codex", "exec", "--json"]);
+  expect(args.slice(0, 4)).toEqual(["codex", "exec", "--json", "--skip-git-repo-check"]);
   expect(args.at(-1)).toBe("-");
   expect(args).not.toContain("confirma");
   expect(codexStdinPrompt({ prompt: "confirma", system: "You are NCLI." })).toContain("You are NCLI.");
   expect(codexStdinPrompt({ prompt: "confirma", system: "You are NCLI." })).toContain("confirma");
   const pinned = loadConfig({ dataDir, codexBin: "codex", codexModel: "gpt-6.1-sol" });
-  expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 5)).toEqual([
+  expect(buildCodexArgs(pinned, { prompt: "confirma" }).slice(0, 6)).toEqual([
     "codex",
     "exec",
     "--json",
+    "--skip-git-repo-check",
     "--model",
     "gpt-6.1-sol",
   ]);

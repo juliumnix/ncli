@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { loadMcpRegistry, resolveServers, spawnVars } from "../src/mcp/registry";
 import { asClaudeMap, codexMcpFlags, prepareSpawn } from "../src/mcp/inject";
-import { NCLI_TOOLS } from "../src/mcp/tools";
+import { isNcliAutoTool, NCLI_TOOLS } from "../src/mcp/tools";
 import { buildClaudeArgs } from "../src/acp/claude";
 import { buildCodexArgs, codexStdinPrompt } from "../src/acp/codex";
 import { busRpc } from "../src/bus/client";
@@ -89,15 +89,40 @@ test("codex spawn gets -c mcp_servers.ncli.url and the system prompt in the prom
   expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("You are NCLI.");
   expect(codexStdinPrompt({ prompt: "ping", system: "You are NCLI." })).toContain("ping");
   expect(args).toContain("-c");
-  expect(flags.join(" ")).toContain("mcp_servers.ncli.default_tools_approval_mode=approve");
-  expect(flags.join(" ")).toContain("enabled_tools=");
+  expect(args).toContain("--skip-git-repo-check");
+  expect(flags.join(" ")).not.toContain("default_tools_approval_mode=");
   expect(flags.join(" ")).not.toContain("approval_policy=never");
-  const enabledRaw = flags.find((f) => f.includes("enabled_tools=")) ?? "";
-  const enabled = JSON.parse(enabledRaw.slice(enabledRaw.indexOf("=") + 1)) as string[];
-  expect(enabled.sort()).toEqual(["budget", "date", "inbox", "list_sparks", "list_views", "recall", "zoom"]);
-  for (const name of ["supersede", "post", "ask", "open_spark", "close_spark", "switch_harness", "read"]) {
-    expect(enabled).not.toContain(name);
+  const enabled = JSON.parse(codexFlag(flags, "mcp_servers.ncli.enabled_tools") ?? "[]") as string[];
+  expect(enabled).toEqual(NCLI_TOOLS.map((t) => t.name));
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.zoom.approval_mode")).toBe('"approve"');
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.recall.approval_mode")).toBe('"approve"');
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.list_views.approval_mode")).toBe('"approve"');
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.list_sparks.approval_mode")).toBe('"approve"');
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.supersede.approval_mode")).toBeUndefined();
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.ask.approval_mode")).toBeUndefined();
+  expect(codexFlag(flags, "mcp_servers.ncli.tools.post.approval_mode")).toBeUndefined();
+  const resumed = buildCodexArgs(cfg, { prompt: "ping", extraArgs: flags }, { id: "thread-1", resume: true, rotated: false });
+  expect(resumed).toContain("--skip-git-repo-check");
+  expect(resumed.slice(-3)).toEqual(["resume", "thread-1", "-"]);
+});
+
+function codexFlag(flags: string[], key: string): string | undefined {
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] !== "-c") continue;
+    const raw = flags[i + 1] ?? "";
+    const prefix = `${key}=`;
+    if (raw.startsWith(prefix)) return raw.slice(prefix.length);
   }
+  return undefined;
+}
+
+test("read-only approval names are list_views and list_sparks, not every list_ prefix", () => {
+  expect(isNcliAutoTool("list_views")).toBe(true);
+  expect(isNcliAutoTool("list_sparks")).toBe(true);
+  expect(isNcliAutoTool("list_secrets")).toBe(false);
+  expect(isNcliAutoTool("zoom")).toBe(true);
+  expect(isNcliAutoTool("supersede")).toBe(false);
+  expect(isNcliAutoTool("ask")).toBe(false);
 });
 
 test("ncli MCP marks read tools read-only so Codex can skip the exec prompt", () => {
