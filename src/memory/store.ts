@@ -727,35 +727,28 @@ export class Memory {
     this.refreshViewParts();
     const facts = this.factsCached();
     let bytes = this.viewBytesUsed();
+    const heap = new PairHeap();
+    const T = this.T;
+    const consider = (left: ViewPart | undefined, right: ViewPart | undefined) => {
+      if (!left || !right || left.l !== right.l || left.i % 2 !== 0 || right.i !== left.i + 1) return;
+      const built = Boolean(this.nodeOf(left.l + 1, left.i / 2));
+      heap.push({ left, right, built, due: pairDue(T, left.l, left.i), start: left.start });
+    };
+    for (let k = 0; k < this.view.length - 1; k++) consider(this.view[k], this.view[k + 1]);
+    const dead = new Set<ViewPart>();
     while (bytes > this.viewLow) {
-      let bestAt = -1;
-      let bestDue = Number.NEGATIVE_INFINITY;
-      let bestBuilt = false;
-      for (let k = 0; k < this.view.length - 1; k++) {
-        const a = this.view[k];
-        const b = this.view[k + 1];
-        if (a.l !== b.l || a.i % 2 !== 0 || b.i !== a.i + 1) continue;
-        const built = Boolean(this.nodeOf(a.l + 1, Math.floor(a.i / 2)));
-        const due = pairDue(this.T, a.l, a.i);
-        if (built !== bestBuilt) {
-          if (built || bestAt < 0) {
-            bestBuilt = built;
-            bestDue = due;
-            bestAt = k;
-          }
-          continue;
-        }
-        if (due > bestDue) {
-          bestDue = due;
-          bestAt = k;
-        }
-      }
-      if (bestAt < 0) break;
-      const a = this.view[bestAt];
-      const b = this.view[bestAt + 1];
-      const merged = this.partFromLevel(a.l + 1, Math.floor(a.i / 2));
+      let pick = heap.pop();
+      while (pick && (dead.has(pick.left) || dead.has(pick.right))) pick = heap.pop();
+      if (!pick) break;
+      const { left: a, right: b } = pick;
+      const at = this.view.indexOf(a);
+      const merged = this.partFromLevel(a.l + 1, a.i / 2);
       bytes += this.partBytes(merged, facts) - this.partBytes(a, facts) - this.partBytes(b, facts);
-      this.view.splice(bestAt, 2, merged);
+      this.view.splice(at, 2, merged);
+      dead.add(a);
+      dead.add(b);
+      consider(this.view[at - 1], merged);
+      consider(merged, this.view[at + 1]);
       this.notify();
     }
     this.saveView();
@@ -948,4 +941,51 @@ export function mockCompressor(): Compressor {
 
 export function writeSnapshot(mem: Memory): void {
   writeFileSync(join(mem.dir, "view.txt"), mem.renderView(), "utf8");
+}
+
+type PairCandidate = { left: ViewPart; right: ViewPart; built: boolean; due: number; start: number };
+
+/** Max-heap with the same order fit() always used: built pairs first, then highest due, then leftmost. */
+class PairHeap {
+  private items: PairCandidate[] = [];
+
+  private static before(x: PairCandidate, y: PairCandidate): boolean {
+    if (x.built !== y.built) return x.built;
+    if (x.due !== y.due) return x.due > y.due;
+    return x.start < y.start;
+  }
+
+  push(item: PairCandidate): void {
+    const h = this.items;
+    h.push(item);
+    let k = h.length - 1;
+    while (k > 0) {
+      const up = (k - 1) >> 1;
+      if (!PairHeap.before(h[k]!, h[up]!)) break;
+      [h[k], h[up]] = [h[up]!, h[k]!];
+      k = up;
+    }
+  }
+
+  pop(): PairCandidate | undefined {
+    const h = this.items;
+    if (!h.length) return undefined;
+    const top = h[0];
+    const last = h.pop()!;
+    if (h.length) {
+      h[0] = last;
+      let k = 0;
+      for (;;) {
+        const l = 2 * k + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < h.length && PairHeap.before(h[l]!, h[m]!)) m = l;
+        if (r < h.length && PairHeap.before(h[r]!, h[m]!)) m = r;
+        if (m === k) break;
+        [h[k], h[m]] = [h[m]!, h[k]!];
+        k = m;
+      }
+    }
+    return top;
+  }
 }
