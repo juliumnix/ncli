@@ -390,7 +390,7 @@ export async function measureOnboardChrome(opts: {
     });
     return samples;
   } finally {
-    driver.close();
+    await driver.close();
     booted.stop();
   }
 }

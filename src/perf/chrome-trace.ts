@@ -20,7 +20,7 @@ export async function measureBrowser(uiUrl: string, screenshotDir?: string): Pro
     samples.push(await longScroll(session));
     return samples;
   } finally {
-    driver.close();
+    await driver.close();
   }
 }
 
