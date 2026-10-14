@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
+import { ncliAllowedToolsArg } from "../mcp/tools";
 import type { AcpAdapter, AcpUpdate } from "./types";
 import { SessionHot, sessionKey } from "./hot";
 import { persistSeatModel, readSeatModel } from "./session";
@@ -256,7 +257,7 @@ export function claudeSpawn(cfg: NcliConfig, opts: RunOpts): { args: string[]; p
   if (opts.model ?? cfg.claudeModel) args.push("--model", opts.model ?? cfg.claudeModel);
   if (opts.mcpConfigPath) {
     args.push("--mcp-config", opts.mcpConfigPath, "--strict-mcp-config");
-    if (!opts.extraArgs?.includes("--allowedTools")) args.push("--allowedTools", "mcp__ncli__*");
+    if (!opts.extraArgs?.includes("--allowedTools")) args.push("--allowedTools", ncliAllowedToolsArg());
   }
   for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);

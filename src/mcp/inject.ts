@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
 import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
 import { loadMcpFile, loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
-import { NCLI_TOOLS } from "./tools";
+import { ncliAutoToolNames } from "./tools";
 
 export interface SpawnInject {
   dir: string;
@@ -106,7 +106,7 @@ export function codexNcliTrustFlags(name = "ncli"): string[] {
     "-c",
     `mcp_servers.${name}.default_tools_approval_mode=approve`,
     "-c",
-    `mcp_servers.${name}.enabled_tools=${JSON.stringify(NCLI_TOOLS.map((t) => t.name))}`,
+    `mcp_servers.${name}.enabled_tools=${JSON.stringify(ncliAutoToolNames())}`,
   ];
 }
 

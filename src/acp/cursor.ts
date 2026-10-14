@@ -15,7 +15,7 @@ import {
   sessionCap,
   type SeatTurnTrace,
 } from "./session";
-import { NCLI_TOOLS } from "../mcp/tools";
+import { isNcliAutoTool } from "../mcp/tools";
 import type { AcpAdapter, AcpUpdate } from "./types";
 import { SessionHot, sessionKey } from "./hot";
 
@@ -68,13 +68,9 @@ export type CursorPermissionRequest = {
   options?: CursorPermissionOption[];
 };
 
-const NCLI_TOOL_NAMES = new Set(NCLI_TOOLS.map((t) => t.name));
-
 export function isNcliMcpTitle(title: string): boolean {
-  const t = title.trim();
-  if (/^mcp__ncli__/i.test(t)) return true;
-  const bare = t.replace(/^mcp__/, "").replace(/^ncli__/i, "");
-  return NCLI_TOOL_NAMES.has(t) || NCLI_TOOL_NAMES.has(bare);
+  const m = title.trim().match(/^mcp__ncli__([A-Za-z0-9_.]+)$/i);
+  return Boolean(m?.[1] && isNcliAutoTool(m[1]));
 }
 
 export function cursorPermissionChoice(params: CursorPermissionRequest): string {
