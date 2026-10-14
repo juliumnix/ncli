@@ -11,8 +11,10 @@ import {
   DEFAULT_SESSION_CAP,
   fileBytes,
   formatSeatTrace,
+  persistSeatBlob,
   persistSeatId,
   persistSeatModel,
+  readSeatBlob,
   readSeatId,
   resumeOrRotate,
   sessionCap,
@@ -185,7 +187,9 @@ export function planCodexSession(opts: {
     existing,
     resume: opts.resume,
     capBytes: cap,
-    bytes: existing ? codexSessionBytes(existing, opts.sessionsDir) : 0,
+    bytes: existing
+      ? codexSessionBytes(existing, opts.sessionsDir, { dataDir: opts.dataDir, name: opts.name })
+      : 0,
   });
 }
 
@@ -193,15 +197,29 @@ export function defaultCodexSessionsDir(): string {
   return process.env.NCLI_CODEX_SESSIONS?.trim() || join(process.env.CODEX_HOME || join(homedir(), ".codex"), "sessions");
 }
 
-export function codexSessionBytes(threadId: string, sessionsDir?: string): number {
+export function codexSessionBytes(
+  threadId: string,
+  sessionsDir?: string,
+  seat?: { dataDir: string; name: string },
+): number {
   if (!threadId) return 0;
+  const blob = seat ? readSeatBlob(seat.dataDir, seat.name, "codex") : undefined;
+  if (blob && blob.id === threadId && existsSync(blob.path)) return fileBytes(blob.path);
   const root = sessionsDir ?? defaultCodexSessionsDir();
   let found = 0;
+  let foundPath = "";
   walkFiles(root, (abs) => {
     if (!abs.endsWith(".jsonl")) return;
     if (!abs.includes(threadId)) return;
-    found = Math.max(found, fileBytes(abs));
+    const bytes = fileBytes(abs);
+    if (!foundPath || bytes >= found) {
+      found = bytes;
+      foundPath = abs;
+    }
   });
+  if (seat && foundPath) {
+    persistSeatBlob(seat.dataDir, seat.name, "codex", { id: threadId, path: foundPath, bytes: found });
+  }
   return found;
 }
 

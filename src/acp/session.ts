@@ -23,6 +23,12 @@ export interface SeatTurnTrace {
   hot: boolean;
 }
 
+export type SessionBlob = {
+  id: string;
+  path: string;
+  bytes: number;
+};
+
 export function isLiveSeat(id: string): id is LiveSeat {
   return id === "claude" || id === "codex" || id === "cursor";
 }
@@ -83,6 +89,11 @@ export function seatModelPath(dataDir: string, name: string, seat: LiveSeat): st
   return seat === "claude" ? `${base}.model` : `${base}.${seat}.model`;
 }
 
+export function seatBlobPath(dataDir: string, name: string, seat: LiveSeat): string {
+  const base = join(sessionsDir(dataDir), safeSession(name));
+  return seat === "claude" ? `${base}.blob` : `${base}.${seat}.blob`;
+}
+
 export function persistSeatId(dataDir: string, name: string, seat: LiveSeat, id: string): void {
   if (!id) return;
   writeFileSync(seatIdPath(dataDir, name, seat), id, "utf8");
@@ -103,6 +114,27 @@ export function readSeatModel(dataDir: string, name: string, seat: LiveSeat): st
   if (!existsSync(path)) return undefined;
   const model = readFileSync(path, "utf8").trim();
   return model || undefined;
+}
+
+export function persistSeatBlob(dataDir: string, name: string, seat: LiveSeat, blob: SessionBlob): void {
+  if (!blob.id || !blob.path) return;
+  writeFileSync(seatBlobPath(dataDir, name, seat), JSON.stringify(blob), "utf8");
+}
+
+export function readSeatBlob(dataDir: string, name: string, seat: LiveSeat): SessionBlob | undefined {
+  const path = seatBlobPath(dataDir, name, seat);
+  if (!existsSync(path)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object") return undefined;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec.id !== "string" || typeof rec.path !== "string" || typeof rec.bytes !== "number") return undefined;
+  if (!rec.id || !rec.path || !Number.isFinite(rec.bytes)) return undefined;
+  return { id: rec.id, path: rec.path, bytes: rec.bytes };
 }
 
 export function resumeOrRotate(opts: {
