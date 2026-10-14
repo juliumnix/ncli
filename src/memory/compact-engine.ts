@@ -35,7 +35,7 @@ export type CompactEngine = {
 
 export function bindCompactShutdown(
   engine: Pick<CompactEngine, "killAll">,
-  setCompactorKiller?: (fn: () => Promise<void>) => void,
+  setCompactorKiller?: (fn: () => void | Promise<void>) => void,
 ): void {
   setCompactorKiller?.(engine.killAll);
 }
@@ -51,7 +51,7 @@ export function persistMemories(main: Memory, sparks: SparkMemorySource): void {
 export function bindQueueShutdown(
   main: Memory,
   sparks: SparkMemorySource,
-  setQueuePersister?: (fn: () => void) => void,
+  setQueuePersister?: (fn: () => void | Promise<void>) => void,
 ): void {
   setQueuePersister?.(() => persistMemories(main, sparks));
 }

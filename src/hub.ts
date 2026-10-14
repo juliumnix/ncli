@@ -8,7 +8,7 @@ import type { ViewAction } from "./views/types";
 import { Memory, type Compressor } from "./memory/store";
 import { spaceFor, SpaceRegistry } from "./memory/spaces";
 import { compactSnapshot } from "./memory/cursor-compact";
-import { bindCompactShutdown, bindQueueShutdown, createCompactEngine, type CompactEngine } from "./memory/compact-engine";
+import { createCompactEngine, type CompactEngine } from "./memory/compact-engine";
 import type { CompactChoice } from "./memory/compact-choice";
 import { evalDropVsComposer } from "./memory/compact-eval";
 import { compactCodexLegacyWarn, compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
@@ -118,7 +118,6 @@ export class Hub {
         this.emit({ type: "compact", compact: this.compact });
       },
     });
-    bindCompactShutdown(this.engine);
     this.compressor = this.engine.compress;
     this.spaces = new SpaceRegistry({
       dataDir: cfg.dataDir,
@@ -190,7 +189,6 @@ export class Hub {
         void this.drainSession(id);
       },
     });
-    bindQueueShutdown(this.memory, this.sparks);
     this.views.onChange = (list) => this.emit({ type: "views", views: list });
   }
 

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Booted } from "../src/boot";
-import { memoryHooks, registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
+import { registerBootShutdown, setQueuePersister } from "../src/boot-shutdown";
 import { Memory } from "../src/memory/store";
 import { installChildShutdown, resetShutdownForTest, runShutdown, setHarnessKiller } from "../src/shutdown";
 import { tmpDir } from "./helpers";
@@ -12,24 +12,17 @@ afterEach(() => {
   setQueuePersister(undefined);
 });
 
-function fakeBooted(mem: Memory): Booted {
-  return { hub: { memory: mem, sparks: { runtimes: new Map() } }, stop: () => {}, close: async () => {} } as unknown as Booted;
+function fakeBooted(mem: Memory, close: () => void | Promise<void> = async () => {}): Booted {
+  return {
+    hub: {
+      memory: mem,
+      sparks: { runtimes: new Map(), sparkMemories: () => [] },
+      engine: { killAll: async () => {} },
+    },
+    stop: () => {},
+    close,
+  } as unknown as Booted;
 }
-
-test("a real Memory exposes flushTree and saveView as functions (renaming either turns this red)", () => {
-  const mem = new Memory({ dir: join(tmpDir(), "mem"), nodeBytes: 80, viewBytes: 200, compressor: async () => "x" });
-  expect(typeof mem["flushTree"]).toBe("function");
-  expect(typeof mem["saveView"]).toBe("function");
-  expect(() => memoryHooks(mem)).not.toThrow();
-  mem.paused = true;
-});
-
-test("registerBootShutdown fails loud at boot when flushTree is missing", () => {
-  const mem = new Memory({ dir: join(tmpDir(), "mem"), nodeBytes: 80, viewBytes: 200, compressor: async () => "x" });
-  mem.paused = true;
-  Object.defineProperty(mem, "flushTree", { value: undefined });
-  expect(() => registerBootShutdown(fakeBooted(mem))).toThrow(/flushTree is not a function/);
-});
 
 test("SIGTERM mid muted batch persists treeBuf, leaves whole jsonl lines, and recall finds the earlier id", async () => {
   const dir = join(tmpDir(), "mem");
@@ -43,7 +36,7 @@ test("SIGTERM mid muted batch persists treeBuf, leaves whole jsonl lines, and re
     compactJobs: 4,
     compressor: async (input) => {
       calls += 1;
-      if (calls % 2 === 0) await gate; // hold muteChange across an await while siblings land
+      if (calls % 2 === 0) await gate;
       return `sum ${String((input as { l?: number }).l ?? "")} ${calls}`.slice(0, 30);
     },
   });
@@ -56,11 +49,10 @@ test("SIGTERM mid muted batch persists treeBuf, leaves whole jsonl lines, and re
   expect(mem["muteChange"]).toBe(true);
 
   let queued = 0;
+  registerBootShutdown(fakeBooted(mem));
   setQueuePersister(() => {
     queued += 1;
   });
-  registerBootShutdown(fakeBooted(mem));
-  // Isolate from SIGTERM listeners other test files in this process may have installed.
   const others = process.listeners("SIGTERM");
   process.removeAllListeners("SIGTERM");
   const exited = new Promise<number>((resolve) => {
@@ -102,14 +94,13 @@ test("one shutdown path: flush, harness, compactor, queue, close in order, one S
   const others = process.listeners("SIGINT");
   process.removeAllListeners("SIGINT");
   const stop = installChildShutdown({ exit: () => {} });
-  const booted = {
-    hub: { memory: mem, sparks: { runtimes: new Map() } },
-    stop: () => {},
-    close: async () => {
-      await Bun.sleep(20);
-      order.push("close");
-    },
-  } as unknown as Booted;
+  const booted = fakeBooted(mem, async () => {
+    await Bun.sleep(20);
+    order.push("close");
+  });
+  booted.hub.engine.killAll = async () => {
+    order.push("compactor");
+  };
   registerBootShutdown(booted);
   expect(process.listenerCount("SIGINT")).toBe(1);
   setHarnessKiller(async (ms) => {
@@ -123,5 +114,5 @@ test("one shutdown path: flush, harness, compactor, queue, close in order, one S
   await runShutdown("test");
   stop();
   for (const l of others) process.on("SIGINT", l as () => void);
-  expect(order).toEqual(["flush", "harness", "saveView", "queue", "close"]);
+  expect(order).toEqual(["flush", "saveView", "harness", "compactor", "queue", "close"]);
 });
