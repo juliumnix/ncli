@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { NcliConfig } from "../config";
 import { defaultSkillsDir, runtimeSkillDirs } from "../skills/catalog";
 import { loadMcpFile, loadMcpRegistry, resolveServers, spawnVars, type McpServerSpec } from "./registry";
-import { ncliAutoToolNames } from "./tools";
+import { NCLI_TOOLS, ncliAutoToolNames } from "./tools";
 
 export interface SpawnInject {
   dir: string;
@@ -102,12 +102,14 @@ export function codexMcpFlags(servers: McpServerSpec[]): string[] {
 }
 
 export function codexNcliTrustFlags(name = "ncli"): string[] {
-  return [
+  const flags = [
     "-c",
-    `mcp_servers.${name}.default_tools_approval_mode=approve`,
-    "-c",
-    `mcp_servers.${name}.enabled_tools=${JSON.stringify(ncliAutoToolNames())}`,
+    `mcp_servers.${name}.enabled_tools=${JSON.stringify(NCLI_TOOLS.map((tool) => tool.name))}`,
   ];
+  for (const tool of ncliAutoToolNames()) {
+    flags.push("-c", `mcp_servers.${name}.tools.${tool}.approval_mode="approve"`);
+  }
+  return flags;
 }
 
 export function asClaudeMap(servers: McpServerSpec[]): Record<string, Record<string, unknown>> {

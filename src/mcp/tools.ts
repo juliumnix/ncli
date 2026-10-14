@@ -117,17 +117,10 @@ export const NCLI_TOOLS: McpToolDef[] = [
 
 export const BUS_TOOL_NAMES = ["ask", "wait", "post", "inbox", "read"] as const;
 
+const NCLI_AUTO_TOOLS = new Set(["zoom", "date", "recall", "inbox", "list_views", "list_sparks", "budget"]);
+
 export function isNcliAutoTool(name: string): boolean {
-  switch (name) {
-    case "zoom":
-    case "date":
-    case "recall":
-    case "inbox":
-    case "budget":
-      return true;
-    default:
-      return name.startsWith("list_");
-  }
+  return NCLI_AUTO_TOOLS.has(name);
 }
 
 export function ncliAutoToolNames(): string[] {
