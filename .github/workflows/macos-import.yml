@@ -22,3 +22,21 @@ jobs:
         env:
           NCLI_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/macos-bunx-import.ts --bunx
+
+  codex-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bun install
+      - name: Install Codex 0.160.1
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex" @openai/codex@0.160.1
+          echo "NCLI_CODEX=$RUNNER_TEMP/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
+      - name: Codex lists the ncli MCP catalog
+        run: bun test tests/codex-mcp-real.test.ts --timeout 30000
