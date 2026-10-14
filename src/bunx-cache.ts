@@ -80,11 +80,6 @@ export function bunxExtractRoot(path: string, uid: number): string | undefined {
   return parts.slice(0, parts.indexOf(name) + 1).join("/");
 }
 
-function sameSha(a: string, b: string): boolean {
-  const n = Math.min(a.length, b.length);
-  return n >= 7 && a.slice(0, n).toLowerCase() === b.slice(0, n).toLowerCase();
-}
-
 export type BunxRefreshPlan =
   | { kind: "boot" }
   | { kind: "reexec"; argv: string[]; env: { NCLI_REVISION: string }; removed: string[] };
@@ -98,10 +93,10 @@ export function planBunxRefresh(opts: {
 }): BunxRefreshPlan {
   const extract = bunxExtractRoot(opts.runningPath, opts.uid);
   if (!extract) return { kind: "boot" };
+  const pinned = parseRevision(opts.env.NCLI_REVISION);
+  if (pinned) return { kind: "boot" };
   const remote = parseRevision(opts.remoteSha);
   if (!remote) return { kind: "boot" };
-  const pinned = parseRevision(opts.env.NCLI_REVISION);
-  if (pinned && sameSha(pinned.sha, remote.sha)) return { kind: "boot" };
   const tmpDirs = opts.tmpDirs ?? bunxTmpCandidates(opts.env);
   const removed = clearNcliBunxExtracts(tmpDirs, opts.uid, extract);
   return { kind: "reexec", ...documentedLaunch(remote.sha), removed };

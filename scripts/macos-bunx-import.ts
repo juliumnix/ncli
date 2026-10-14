@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ncliExtractPrefix } from "../src/bunx-cache";
-import { fetchMainTip, ncliSpecAt, parseRevision, readGitHead, readyBannerSha, shortSha } from "../src/revision";
+import { ncliSpecAt, readGitHead, shortSha, testedRevision } from "../src/revision";
 
 export const LINES = 100;
 export const FILES = 66;
@@ -80,10 +80,8 @@ async function waitT(url: string, want: number, timeoutMs: number, proc: ReturnT
 async function main(): Promise<void> {
   const repo = join(import.meta.dir, "..");
   const uid = process.getuid?.() ?? 0;
-  const pin = parseRevision(process.env.NCLI_REVISION)?.sha ?? readGitHead(repo);
-  if (!pin) throw new Error("ncli: need NCLI_REVISION or a git HEAD");
-  const live = await fetchMainTip();
-  const bannerSha = readyBannerSha(pin, live);
+  const pin = testedRevision(process.env, readGitHead(repo));
+  if (!pin) throw new Error("ncli: need NCLI_REVISION, GITHUB_SHA, or a git HEAD");
   const work = mkdtempSync(join(tmpdir(), "ncli-bunx-"));
   const claude = join(work, "claude");
   const expectLines = plantClaude(claude);
@@ -111,8 +109,8 @@ async function main(): Promise<void> {
   const first = spawnHub();
   try {
     const ready = await waitBanner(first, bannerMs);
-    if (ready.short !== shortSha(bannerSha)) {
-      throw new Error(`banner sha ${ready.short} != ${shortSha(bannerSha)}\n${ready.text}`);
+    if (ready.short !== shortSha(pin)) {
+      throw new Error(`banner sha ${ready.short} != ${shortSha(pin)}\n${ready.text}`);
     }
     if (ready.text.includes("unknown")) throw new Error(`banner printed unknown\n${ready.text}`);
     const url = `http://127.0.0.1:${ready.port}`;
@@ -132,8 +130,8 @@ async function main(): Promise<void> {
     const second = spawnHub();
     try {
       const again = await waitBanner(second, bannerMs);
-      if (again.short !== shortSha(bannerSha)) {
-        throw new Error(`restart banner sha ${again.short} != ${shortSha(bannerSha)}\n${again.text}`);
+      if (again.short !== shortSha(pin)) {
+        throw new Error(`restart banner sha ${again.short} != ${shortSha(pin)}\n${again.text}`);
       }
       const t = await waitT(url, expectLines, 90_000, second, again.text);
       if (t < expectLines) throw new Error(`import T=${t} want ${expectLines}`);
