@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { persistSeatModel } from "../src/acp/session";
 import { bootNcli } from "../src/boot";
 import { chromePath, launchChrome } from "../src/perf/cdp";
-import { makeHub, shotsDir, waitUntil } from "./helpers";
+import { makeHub, shotsDir, tmpDir, waitUntil } from "./helpers";
 
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 
@@ -18,12 +18,35 @@ test("queue chips expose send-now, edit and remove and the header is a seat pick
   expect(appJs).toContain("id=\"switchBtn\"");
 });
 
+test("a persisted Codex model wins over the home Codex config", async () => {
+  const home = tmpDir("codex-home");
+  writeFileSync(join(home, "config.toml"), 'model = "o3"\n');
+  const dataDir = tmpDir("seat-pin");
+  persistSeatModel(dataDir, "main", "codex", "gpt-5.4");
+  const prev = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  try {
+    const { hub } = await makeHub({ dataDir });
+    const codex = hub.snapshot().seats.find((s) => s.harness === "codex");
+    expect(codex?.model).toBe("gpt-5.4");
+    hub.close();
+  } finally {
+    if (prev === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prev;
+  }
+});
+
 test("chrome: queued line appears above the input and the header lists three models", async () => {
   if (!chromePath()) throw new Error("chrome not found");
-  const { hub, dataDir } = await makeHub();
+  const dataDir = tmpDir("queue-chrome");
   persistSeatModel(dataDir, "main", "claude", "claude-opus-4-5");
   persistSeatModel(dataDir, "main", "codex", "gpt-5.4");
   persistSeatModel(dataDir, "main", "cursor", "composer-2.5");
+  const home = tmpDir("codex-home-chrome");
+  writeFileSync(join(home, "config.toml"), 'model = "o3"\n');
+  const prevHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  const { hub } = await makeHub({ dataDir });
   hub.cfg.port = 13200 + Math.floor(Math.random() * 400);
   const origRun = hub.harness.run.bind(hub.harness);
   hub.harness.run = async function* (opts) {
@@ -129,5 +152,8 @@ test("chrome: queued line appears above the input and the header lists three mod
   } finally {
     driver?.close();
     booted.stop();
+    hub.close();
+    if (prevHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevHome;
   }
 }, 30000);

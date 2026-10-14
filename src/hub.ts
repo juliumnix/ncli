@@ -135,8 +135,8 @@ export class Hub {
       codex: cfg.importCodex || defaults.codex,
       cursor: cfg.importCursor || defaults.cursor,
     });
-    this.model = displaySeatModel(cfg, this.harness.id as HarnessKind)
-      ?? (isLiveSeat(this.harness.id) ? readSeatModel(cfg.dataDir, "main", this.harness.id) : undefined);
+    this.model = (isLiveSeat(this.harness.id) ? readSeatModel(cfg.dataDir, "main", this.harness.id) : undefined)
+      ?? displaySeatModel(cfg, this.harness.id as HarnessKind);
     this.bus = new Bus({
       cfg,
       cwdFor: (spark) => (spark ? this.sparks.get(spark)?.worktree?.path ?? cfg.repo : cfg.repo),
@@ -185,8 +185,8 @@ export class Hub {
     this.harness = pickHarness({ ...this.cfg, harness: kind });
     this.sparks.setHarness(this.harness);
     persistMainHarness(this.cfg.dataDir, kind);
-    this.model = displaySeatModel(this.cfg, kind)
-      ?? (isLiveSeat(kind) ? readSeatModel(this.cfg.dataDir, "main", kind) : undefined);
+    this.model = (isLiveSeat(kind) ? readSeatModel(this.cfg.dataDir, "main", kind) : undefined)
+      ?? displaySeatModel(this.cfg, kind);
     this.spawnMain = null;
     this.spawnHarness = "";
     this.emit({ type: "main", main: this.mainAgent() });
@@ -206,8 +206,8 @@ export class Hub {
       harness: h,
       model:
         (h === live ? this.model : undefined)
-        ?? displaySeatModel(this.cfg, h)
-        ?? (isLiveSeat(h) ? readSeatModel(this.cfg.dataDir, "main", h) : undefined),
+        ?? (isLiveSeat(h) ? readSeatModel(this.cfg.dataDir, "main", h) : undefined)
+        ?? displaySeatModel(this.cfg, h),
     }));
   }
 
