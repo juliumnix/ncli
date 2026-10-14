@@ -101,6 +101,11 @@ export class SparkManager {
     return [...this.runtimes.values()].map((r) => r.spark);
   }
 
+  /** Includes closed and merged sparks so shutdown flushes late appends. */
+  sparkMemories(): Memory[] {
+    return [...this.runtimes.values()].map((rt) => rt.memory);
+  }
+
   setHarness(harness: Harness): void {
     this.hooks.harness = harness;
   }

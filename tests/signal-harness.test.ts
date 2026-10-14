@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { initTempRepo } from "../src/sparks/worktree";
 
 const ENTRY = join(import.meta.dir, "../src/index.ts");
@@ -51,12 +51,12 @@ async function midTurn(signal: "SIGINT" | "SIGTERM", code: number, group: boolea
   const bin = join(scratch, "hold");
   writeFileSync(
     bin,
-    "#!/usr/bin/env bash\nset -euo pipefail\ndir=$(cd \"$(dirname \"$0\")\" && pwd)\nexec bun \"$dir/hold.ts\" \"$@\"\n",
+    `#!/usr/bin/env bash\nset -euo pipefail\ndir=$(cd "$(dirname "$0")" && pwd)\nexec ${JSON.stringify(process.execPath)} "$dir/hold.ts" "$@"\n`,
   );
   chmodSync(bin, 0o755);
   writeFileSync(join(scratch, "hold.ts"), HOLD_TS);
   const env: Record<string, string> = {
-    PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+    PATH: "/usr/bin:/bin",
     HOME: home,
     CODEX_HOME: join(scratch, "codex"),
     CLAUDE_CONFIG_DIR: join(scratch, "claude"),
