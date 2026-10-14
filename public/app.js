@@ -731,18 +731,19 @@ function mermaidSvg(source) {
     if (node) nodes.set(node[1], node[2]);
   }
   const ids = [...nodes.keys()];
-  const w = Math.max(280, ids.length * 120);
+  const pad = 16;
+  const w = Math.max(280, ids.length * 120) + pad * 2;
   const boxes = ids.map((id, i) => {
-    const x = 20 + i * 120;
+    const x = pad + i * 120;
     const label = escapeHtml(nodes.get(id) || id);
-    return `<rect x="${x}" y="28" width="100" height="40" rx="8" fill="${UI_T.card}" stroke="${UI_T.line}"/><text x="${x + 50}" y="53" text-anchor="middle" font-size="11" font-family="sans-serif" fill="${UI_T.fg}">${label}</text>`;
+    return `<rect x="${x}" y="${pad + 12}" width="100" height="40" rx="8" fill="${UI_T.card}" stroke="${UI_T.line}"/><text x="${x + 50}" y="${pad + 37}" text-anchor="middle" font-size="12" font-family="sans-serif" fill="${UI_T.fg}">${label}</text>`;
   }).join("");
   const arrows = edges.map(([a, b]) => {
-    const x1 = 20 + ids.indexOf(a) * 120 + 100;
-    const x2 = 20 + ids.indexOf(b) * 120;
-    return `<line x1="${x1}" y1="48" x2="${x2}" y2="48" stroke="${UI_T.accent}" marker-end="url(#ncli-arrow)"/>`;
+    const x1 = pad + ids.indexOf(a) * 120 + 100;
+    const x2 = pad + ids.indexOf(b) * 120;
+    return `<line x1="${x1}" y1="${pad + 32}" x2="${x2}" y2="${pad + 32}" stroke="${UI_T.accent}" marker-end="url(#ncli-arrow)"/>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} 96" width="100%" height="96"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${UI_T.accent}"/></marker></defs>${arrows}${boxes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${80 + pad * 2}" width="100%" height="${80 + pad * 2}"><defs><marker id="ncli-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${UI_T.accent}"/></marker></defs>${arrows}${boxes}</svg>`;
 }
 
 function jsxLite(source) {
@@ -793,7 +794,7 @@ function importChipLabel(src) {
   const names = { claude: "Claude", codex: "Codex", cursor: "Cursor" };
   const p = state.importProgress && state.importProgress[src];
   if (!p) return `trazer ${names[src] || src}`;
-  return "Lendo…";
+  return `lendo ${p.done || 0} de ${p.total || 1}`;
 }
 
 function paintImportChip(btn, src) {
@@ -829,6 +830,7 @@ function welcomeImportActions() {
 
 function renderChat() {
   if (chromeNow().showWelcome) {
+    log.classList.remove("from-welcome");
     if (!log.querySelector(".welcome")) {
       log.innerHTML = `<div class="welcome"><p>O mesmo Claude do CLI.</p><p class="welcome-hint">Escreve uma pergunta, cola o URL de um PR, ou /help</p>${welcomeImportActions()}</div>`;
     } else {
@@ -842,6 +844,8 @@ function renderChat() {
     return;
   }
   const keep = chat.scrollTop;
+  const leavingWelcome = Boolean(log.querySelector(".welcome"));
+  if (leavingWelcome) log.classList.add("from-welcome");
   if (!appendChatIfPrefix()) {
     const built = chatRowParts();
     log.innerHTML = built.html;
@@ -853,6 +857,9 @@ function renderChat() {
   }
   if (stick.follow) snapToFloor();
   else setChatTop(keep);
+  if (leavingWelcome) {
+    window.setTimeout(() => log.classList.remove("from-welcome"), 400);
+  }
   paintScrollHints();
   renderChrome();
 }
@@ -863,8 +870,6 @@ function messageMid(m, i) {
 
 function chatRowParts(skipMids = 0) {
   const parts = [];
-  const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
-  const showDays = days.size > 1;
   let lastDay = "";
   let lastTalkAt = -1;
   let midCount = 0;
@@ -873,13 +878,11 @@ function chatRowParts(skipMids = 0) {
   }
   for (let i = 0; i < state.messages.length; i++) {
     const m = state.messages[i];
-    if (showDays) {
-      const day = dayLabel(m.date);
-      if (day !== lastDay) {
-        if (midCount >= skipMids) parts.push(`<div class="day" data-mid="day:${day}">${day}</div>`);
-        midCount++;
-        lastDay = day;
-      }
+    const day = dayLabel(m.date);
+    if (day !== lastDay) {
+      if (midCount >= skipMids) parts.push(`<div class="day" data-mid="day:${day}">${day}</div>`);
+      midCount++;
+      lastDay = day;
     }
     if (m.kind === "echo") continue;
     if (/^tools:\s/i.test(m.text)) continue;
@@ -932,17 +935,13 @@ function messageRowHtml(m, mid) {
 
 function chatStableMids() {
   const mids = [];
-  const days = new Set(state.messages.map((m) => (m.date ? new Date(m.date).toDateString() : "")));
-  const showDays = days.size > 1;
   let lastDay = "";
   for (let i = 0; i < state.messages.length; i++) {
     const m = state.messages[i];
-    if (showDays) {
-      const day = dayLabel(m.date);
-      if (day !== lastDay) {
-        mids.push(`day:${day}`);
-        lastDay = day;
-      }
+    const day = dayLabel(m.date);
+    if (day !== lastDay) {
+      mids.push(`day:${day}`);
+      lastDay = day;
     }
     if (m.kind === "echo") continue;
     if (/^tools:\s/i.test(m.text)) continue;
@@ -1451,19 +1450,6 @@ function agentTrio(clis, mainHarness) {
   });
 }
 
-function renderAgentTrio() {
-  const el = $("agentTrio");
-  if (!el) return;
-  const main = (state.main && state.main.harness) || "claude";
-  el.innerHTML = agentTrio(state.clis, main)
-    .map((row) => {
-      const name = (SEAT[row.seat] || SEAT.claude).name;
-      const klass = `trio-seat${row.main ? " on" : ""}${row.present ? "" : " off"}`;
-      return `<span class="${klass}" title="${escapeHtml(name)}" data-seat="${row.seat}">${avatar(row.seat)}</span>`;
-    })
-    .join("");
-}
-
 function sessionChrome(input) {
   const sparked = input.sparkCount > 0;
   return {
@@ -1491,7 +1477,6 @@ function chromeNow() {
 
 function renderChrome() {
   const chrome = chromeNow();
-  renderAgentTrio();
   const sw = $("agentSwitch");
   if (sw) {
     const main = state.main || { harness: "claude" };
@@ -1499,19 +1484,23 @@ function renderChrome() {
     const seats = state.seats && state.seats.length
       ? state.seats
       : [{ harness: "claude" }, { harness: "codex" }, { harness: "cursor" }];
+    const rows = agentTrio(state.clis, seat);
+    const limited = (state.usage && state.usage.seats || []).some((s) => s.status === "limited");
     const opts = seats.map((row) => {
       const id = row.harness === "codex" || row.harness === "cursor" ? row.harness : "claude";
       const shown = displayModel(row.model);
-      const on = (main.harness === "mock" ? "claude" : main.harness) === id;
-      return `<button type="button" class="switch-opt${on ? " on" : ""}" data-harness="${id}" role="option">
-        ${avatar(id)}<span class="switch-copy"><b>${escapeHtml((SEAT[id] || SEAT.claude).name)}</b><small>${escapeHtml(shown || "")}</small></span>
+      const present = Boolean(rows.find((r) => r.seat === id)?.present);
+      const on = (main.harness === "mock" ? "claude" : main.harness) === id && present;
+      return `<button type="button" class="switch-opt${on ? " on" : ""}${present ? "" : " off"}" data-harness="${id}" data-seat="${id}" role="option">
+        ${avatar(id)}<span class="switch-copy"><b>${escapeHtml((SEAT[id] || SEAT.claude).name)}</b><small>${escapeHtml(shown || "")}${present ? "" : " · não instalado"}</small></span>
       </button>`;
     }).join("");
+    const shown = displayModel(main.model);
     const html = `<button type="button" class="switch-btn" id="switchBtn" aria-haspopup="listbox" aria-expanded="${state.switchOpen ? "true" : "false"}">
-      ${avatar(seat)}<span>${escapeHtml(agentLabel(seat, main.model))}</span><span class="chev">▾</span>
+      ${avatar(seat)}<b>${escapeHtml((SEAT[seat] || SEAT.claude).name)}</b><span class="model">${escapeHtml(shown || "")}</span><i class="dot${limited ? " limited" : ""}"></i><span class="chev">▾</span>
     </button>
     <div class="switch-menu${state.switchOpen ? " open" : ""}" id="switchMenu" role="listbox">${opts}</div>`;
-    const key = `${seat}|${main.model || ""}|${state.switchOpen ? 1 : 0}|${opts}`;
+    const key = `${seat}|${main.model || ""}|${limited ? 1 : 0}|${opts}`;
     if (sw.dataset.chrome !== key) {
       sw.dataset.chrome = key;
       sw.innerHTML = html;
@@ -1551,6 +1540,13 @@ function renderChrome() {
 function renderImport() {
   const bar = $("ibar");
   if (!bar) return;
+  if (chromeNow().showWelcome) {
+    if (!bar.hidden || bar.innerHTML) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+    }
+    return;
+  }
   const srcs = Object.keys(state.importProgress || {});
   const src = srcs[0];
   const p = src && state.importProgress[src];
@@ -1979,7 +1975,14 @@ function diffContext(prev, next) {
 async function openSpark(id) {
   overlayGen += 1;
   const gen = overlayGen;
-  const keepTab = state.openSpark === id && !overlay.hidden && overlay.classList.contains("in");
+  setDrawer(false);
+  setSwitchOpen(false);
+  overlay.hidden = false;
+  if (!modal.querySelector(".mh")) modal.innerHTML = `<div class="mh"><b>…</b></div>`;
+  requestAnimationFrame(() => {
+    if (gen === overlayGen) overlay.classList.add("in");
+  });
+  const keepTab = state.openSpark === id && overlay.classList.contains("in");
   const res = await fetch(`/api/sparks/${encodeURIComponent(id)}`);
   if (!res.ok || gen !== overlayGen) return;
   state.sparkDetail = await res.json();
@@ -1995,13 +1998,9 @@ async function openSpark(id) {
     else state.sparkTab = (f.ui && f.ui.tab) || (state.views.find((v) => v.id === f.view)?.tabs?.[0]) || "Guide";
   }
   if (gen !== overlayGen) return;
-  overlay.hidden = false;
   document.body.classList.toggle("rv-open", f.view === "review");
   drawModal();
-  requestAnimationFrame(() => {
-    if (gen !== overlayGen) return;
-    overlay.classList.add("in");
-  });
+  overlay.classList.add("in");
 }
 
 async function postAct(action) {
@@ -2461,8 +2460,16 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !state.switchOpen) return;
-  setSwitchOpen(false);
+  if (e.key !== "Escape") return;
+  if (state.switchOpen) {
+    setSwitchOpen(false);
+    return;
+  }
+  if (overlay.classList.contains("in")) {
+    hideOverlay();
+    return;
+  }
+  if (document.body.classList.contains("drawer-open")) setDrawer(false);
 });
 
 setInterval(() => {

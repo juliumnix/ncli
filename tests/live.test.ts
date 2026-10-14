@@ -20,8 +20,11 @@ test("mermaid becomes an inline SVG (no CDN) and html/react/url go through a san
   expect(svg.startsWith("<svg")).toBe(true);
   expect(svg).toContain("subtotal");
   expect(svg).toContain("desconto");
+  expect(svg).toContain('x="16"');
+  expect(svg).toContain('y="28"');
   expect(svg).not.toContain("cdn");
   const html = iframeTag({ kind: "html", source: "<b>card</b>" });
+  expect(html).toContain('class="live-wrap in"');
   expect(html).toContain("sandbox=\"allow-scripts\"");
   expect(html).toContain("RTCPeerConnection");
   expect(html).not.toContain("allow-same-origin");

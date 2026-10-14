@@ -54,31 +54,27 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
     await waitUntil(
       () => driver.session.evaluate(`(() => {
         const bar = document.getElementById("ibar");
-        return Boolean(document.querySelector(".welcome") && bar && !bar.hidden && bar.querySelector("[data-import-apply]"));
+        return Boolean(document.querySelector(".welcome") && document.querySelector("[data-welcome-import='claude']") && bar?.hidden);
       })()`),
       8000,
-      "welcome and import bar",
+      "welcome import chip",
     );
     const facts = await driver.session.evaluate<{
       welcome: string;
       barHidden: boolean;
-      barText: string;
-      apply: string | null;
+      goText: string;
     }>(`(() => {
       const bar = document.getElementById("ibar");
-      const apply = bar?.querySelector("[data-import-apply]");
+      const go = document.querySelector("[data-welcome-import='claude']");
       return {
         welcome: document.querySelector(".welcome")?.textContent?.trim() || "",
         barHidden: Boolean(bar?.hidden),
-        barText: bar?.textContent?.trim() || "",
-        apply: apply ? apply.getAttribute("data-import-apply") : null,
+        goText: go?.textContent?.trim() || "",
       };
     })()`);
     expect(facts.welcome).toContain("O mesmo Claude do CLI");
-    expect(facts.barHidden).toBe(false);
-    expect(facts.barText).toContain("claude");
-    expect(facts.barText).toMatch(/sessão|novas/);
-    expect(facts.apply).toBe("claude");
+    expect(facts.barHidden).toBe(true);
+    expect(facts.goText).toMatch(/claude/i);
     const go = await driver.session.evaluate<string[]>(
       `[...document.querySelectorAll("[data-welcome-import]")].map((el) => el.getAttribute("data-welcome-import"))`,
     );
@@ -88,6 +84,7 @@ test("chrome: empty session shows welcome and the claude import bar", async () =
   } finally {
     driver.close();
     booted.stop();
+    hub.close();
   }
 }, 30000);
 
