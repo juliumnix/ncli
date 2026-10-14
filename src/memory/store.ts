@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { join } from "node:path";
 import type { Citation, Message, MsgKind, SeatId, TreeNode, ViewPart } from "../types";
 import { flattenLine, isPowerOfTwo, keepRecent, nowIso, utf8Bytes } from "../util";
-import { CompactBudgetPause, CompactDeferred, CompactHold } from "./compact-deferred";
+import { CompactBudgetPause, CompactDeferred, CompactHold, type CompactHoldReason } from "./compact-deferred";
 import { CompactQueue, type CompactJob } from "./compact-queue";
 import { factsOf, supersededHeader, type Successor } from "./facts";
 import { pairDue } from "./merge-order";
@@ -88,6 +88,8 @@ export class Memory {
   private treeBuf: TreeNode[] = [];
   paused = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pauseFails = 0;
+  private pauseUntil = 0;
 
   constructor(opts: MemoryOptions) {
     this.dir = opts.dir;
@@ -157,7 +159,7 @@ export class Memory {
       for (const partial of partials) out.push(this.writeLine(partial, false));
       persistLines(join(this.dir, "log.jsonl"), out);
       if (!opts.quiet) {
-        if (this.shouldFit() && this.viewBytesUsed() > this.viewHigh) this.fit();
+        if (this.viewBytesUsed() > this.viewHigh) this.fit();
         else this.saveView();
       }
     } finally {
@@ -443,7 +445,7 @@ export class Memory {
       this.refreshViewParts();
       this.sortRefineQ();
       this.recountWork();
-      if (this.shouldFit() && this.viewBytesUsed() > this.viewHigh) this.fit();
+      if (this.viewBytesUsed() > this.viewHigh) this.fit();
       else this.saveView();
       this.muteChange = false;
       this.notify();
@@ -504,12 +506,28 @@ export class Memory {
         this.saveView();
         this.notify();
       }
-      if (this.shouldFit() && this.viewBytesUsed() > this.viewHigh) this.fit();
+      if (this.viewBytesUsed() > this.viewHigh) this.fit();
     }
   }
 
-  private shouldFit(): boolean {
-    return !this.compactWork.paused;
+  clearCompactPause(): void {
+    this.compactWork.paused = null;
+    this.pauseFails = 0;
+    this.pauseUntil = 0;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+
+  private holdCompact(reason: CompactHoldReason): void {
+    this.compactWork.paused = reason;
+    if (reason === "budget") {
+      this.pauseUntil = 0;
+      return;
+    }
+    this.pauseFails += 1;
+    this.pauseUntil = Date.now() + Math.min(30_000, this.deferBackoffMs * 2 ** (this.pauseFails - 1));
   }
 
   private onDeferred(l: number, i: number): void {
@@ -549,13 +567,21 @@ export class Memory {
     for (const rec of this.deferred.values()) {
       if (rec.until < next) next = rec.until;
     }
+    if (this.autoResumePause() && this.pauseUntil > 0 && this.pauseUntil < next) next = this.pauseUntil;
     if (!Number.isFinite(next)) return;
     const wait = Math.max(1, next - Date.now());
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
+      if (this.autoResumePause() && this.pauseUntil > 0 && Date.now() >= this.pauseUntil) {
+        this.compactWork.paused = null;
+      }
       void this.pump();
     }, wait);
     this.retryTimer.unref?.();
+  }
+
+  private autoResumePause(): boolean {
+    return this.compactWork.paused === "limit" || this.compactWork.paused === "cli-error";
   }
 
   private nextBuildableBatch(max: number): Slot[] {
@@ -612,7 +638,7 @@ export class Memory {
     return {
       l: slot.l,
       i: slot.i,
-      due: this.spanLast(slot.l, slot.i),
+      last: this.spanLast(slot.l, slot.i),
       hash: compactInputHash(input),
     };
   }
@@ -674,15 +700,17 @@ export class Memory {
       this.refined.add(key);
       this.compactWork.done += 1;
       this.compactQ.remove(slot);
+      this.pauseFails = 0;
+      this.pauseUntil = 0;
     } catch (err) {
       if (err instanceof CompactHold) {
-        this.compactWork.paused = err.reason === "budget" ? "budget" : err.reason === "limit" ? "limit" : "cli-error";
+        this.holdCompact(err.reason);
         this.refineQ.push(slot);
         this.persistRefineQueue();
         return;
       }
       if (err instanceof CompactBudgetPause) {
-        this.compactWork.paused = "budget";
+        this.holdCompact("budget");
         this.refineQ.push(slot);
         this.persistRefineQueue();
         return;
@@ -828,7 +856,7 @@ export class Memory {
       const part = this.partFromLevel(0, i);
       this.view.push(part);
       bytes += this.partBytes(part, facts);
-      if (this.shouldFit() && bytes > this.viewHigh) {
+      if (bytes > this.viewHigh) {
         this.fit();
         bytes = this.viewBytesUsed();
       }

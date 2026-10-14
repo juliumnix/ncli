@@ -16,7 +16,7 @@ import {
   saveModelCache,
 } from "../src/memory/compact-models";
 import { COMPACT_EVAL, evalDropVsComposer } from "../src/memory/compact-eval";
-import { compactPauseLabel, compactSettingsHtml } from "../src/memory/compact-settings";
+import { compactCodexLegacyWarn, compactPauseLabel, compactSettingsHtml } from "../src/memory/compact-settings";
 import { CompactCliError } from "../src/memory/compact-deferred";
 import { tmpDir } from "./helpers";
 
@@ -154,5 +154,22 @@ test("selector warns when memory:eval of a model drops versus Composer", () => {
     evalWarn: warn,
   });
   expect(html).toContain("memory:eval");
+  expect(html).toContain("class=\"compact-warn\"");
+});
+
+test("selector shows a Codex legacy warning only when checkCodexConfig exists", () => {
+  expect(compactCodexLegacyWarn({})).toBeUndefined();
+  const warn = compactCodexLegacyWarn({
+    checkCodexConfig: () => [{ code: "legacy-profile" }, { code: "stdio-ncli", path: "mcp_servers.ncli" }],
+    formatCodexConfigWarnings: (warnings) => warnings.map((w) => w.code).join(" "),
+  });
+  expect(warn).toBe("legacy-profile stdio-ncli");
+  const html = compactSettingsHtml({
+    choice: { mode: "cli", provider: "codex", model: "mini" },
+    models: ["mini"],
+    legacyWarn: warn,
+  });
+  expect(html).toContain("legacy-profile");
+  expect(html).toContain("stdio-ncli");
   expect(html).toContain("class=\"compact-warn\"");
 });

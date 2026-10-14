@@ -231,8 +231,8 @@ export async function runCliCompact(
   const shareChat = Boolean(deps.shareChat);
   const cwd = shareChat ? undefined : isolatedCompactCwd(cfg.dataDir);
   const timeoutMs = deps.timeoutMs ?? cfg.compactTimeoutMs ?? COMPACT_CHILD_TIMEOUT_MS;
-  let mcpNames = deps.mcpNames;
-  if (provider === "codex" && !shareChat && !mcpNames) {
+  let mcpNames: string[] | undefined = shareChat ? deps.mcpNames : undefined;
+  if (provider === "codex" && !shareChat) {
     mcpNames = await listCodexMcpNames(cfg.codexBin, spawn, env, { cwd, timeoutMs: 15_000 });
   }
   await pool.acquire();

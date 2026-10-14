@@ -8,7 +8,21 @@ export type CompactSettingsState = {
   paused?: "budget" | "limit";
   envModel?: string;
   evalWarn?: string;
+  legacyWarn?: string;
 };
+
+export type CodexConfigCheck = {
+  checkCodexConfig?: () => Array<{ code: string; path?: string }>;
+  formatCodexConfigWarnings?: (warnings: Array<{ code: string; path?: string }>) => string;
+};
+
+export function compactCodexLegacyWarn(mod: CodexConfigCheck): string | undefined {
+  if (!mod.checkCodexConfig) return undefined;
+  const warnings = mod.checkCodexConfig();
+  if (!warnings.length) return undefined;
+  if (mod.formatCodexConfigWarnings) return mod.formatCodexConfigWarnings(warnings);
+  return warnings.map((w) => w.code).join("\n");
+}
 
 const PROVIDER_ICON: Record<CompactProvider, { src: string; label: string }> = {
   codex: { src: "/icons/openai.svg", label: "Codex" },
@@ -46,6 +60,7 @@ export function compactSettingsHtml(state: CompactSettingsState): string {
     : "";
   const env = envLock ? `<p class="muted">NCLI_COMPACT_MODEL sobrepõe o modelo.</p>` : "";
   const evalWarn = state.evalWarn ? `<p class="compact-warn" role="status">${escapeHtml(state.evalWarn)}</p>` : "";
+  const legacyWarn = state.legacyWarn ? `<p class="compact-warn" role="status">${escapeHtml(state.legacyWarn)}</p>` : "";
   return `<section class="compact-set" id="compactSet">
     <div class="dbg-h">compactação</div>
     <p class="muted">${escapeHtml(choiceLabel(choice))}</p>
@@ -55,7 +70,7 @@ export function compactSettingsHtml(state: CompactSettingsState): string {
       <span>modelo</span>
       <select id="compactModel" ${envLock ? "disabled" : ""}>${modelOpts}</select>
     </label>
-    ${env}${evalWarn}${err}${pause}
+    ${env}${evalWarn}${legacyWarn}${err}${pause}
   </section>`;
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { createCompactEngine } from "../src/memory/compact-engine";
@@ -17,10 +17,10 @@ import {
   withTooLong,
 } from "../src/memory/cli-compact";
 import { utf8Bytes } from "../src/util";
-import { CompactCliError, ProviderLimitError } from "../src/memory/compact-deferred";
+import { CompactBudgetPause, CompactCliError, ProviderLimitError } from "../src/memory/compact-deferred";
 import { COMPACT_MAX_PROCS, CompactProcPool } from "../src/memory/compact-proc";
 import { jobPrompt } from "../src/memory/cursor-compact";
-import { loadCompactQueue } from "../src/memory/compact-queue";
+import { CompactQueue, COMPACT_QUEUE_FILE, loadCompactQueue } from "../src/memory/compact-queue";
 import { Memory } from "../src/memory/store";
 import { makeHub, tmpDir } from "./helpers";
 
@@ -214,24 +214,26 @@ test("switching provider mid-run does not duplicate a node id", async () => {
   expect(node).toBeDefined();
 });
 
-test("paused compact lets the view grow past 128 KB and the turn still answers", async () => {
+test("paused compact still fits the view and the turn still answers", async () => {
   const dir = tmpDir("grow");
   const mem = new Memory({
     dir,
     nodeBytes: 4000,
-    viewBytes: 800,
+    viewBytes: 8192,
     compressor: async () => {
       throw new ProviderLimitError("quota");
     },
   });
   mem.compactWork.paused = "limit";
-  const chunk = "x".repeat(4000);
-  for (let i = 0; i < 40; i++) {
+  const chunk = "x".repeat(4096);
+  for (let i = 0; i < 52; i++) {
     mem.append({ kind: i % 2 === 0 ? "user" : "talk", text: `${chunk} ${i}` });
   }
   await mem.pump();
-  expect(mem.nodeBytes).toBe(4000);
-  expect(mem.viewBytesUsed()).toBeGreaterThan(128 * 1024);
+  expect(mem.compactWork.paused).toBe("limit");
+  expect(utf8Bytes(chunk.repeat(52))).toBeGreaterThan(200 * 1024);
+  expect(mem.viewBytesUsed()).toBeLessThan(200 * 1024);
+  expect(mem.viewBytesUsed()).toBeLessThanOrEqual(mem.viewHigh);
   mem.paused = true;
 
   const { hub } = await makeHub({ nodeBytes: 40, viewBytes: 800 });
@@ -241,6 +243,95 @@ test("paused compact lets the view grow past 128 KB and the turn still answers",
   expect(Date.now() - t0).toBeLessThan(2000);
   expect(hub.memory.log.some((m) => m.kind === "talk")).toBe(true);
   hub.close();
+});
+
+test("limit and cli-error resume from the saved queue; budget waits for Julio", async () => {
+  const backoff = 120;
+  async function holdThen(reason: "limit" | "cli-error" | "budget", dir: string) {
+    let calls = 0;
+    const mem = new Memory({
+      dir,
+      nodeBytes: 80,
+      viewBytes: 2000,
+      deferBackoffMs: backoff,
+      compressor: async () => {
+        calls += 1;
+        if (calls === 1) {
+          if (reason === "budget") throw new CompactBudgetPause();
+          if (reason === "limit") throw new ProviderLimitError("quota");
+          throw new CompactCliError("Codex CLI falhou: boom");
+        }
+        return `1. resumed ${reason}`;
+      },
+    });
+    mem.append({ kind: "user", text: LONG });
+    await mem.pump();
+    expect(mem.compactWork.paused).toBe(reason);
+    const saved = loadCompactQueue(dir);
+    expect(saved).toEqual([{ l: 0, i: 0, last: 0, hash: expect.any(String) }]);
+    const raw = JSON.parse(readFileSync(join(dir, COMPACT_QUEUE_FILE), "utf8")) as {
+      jobs: Array<{ last?: unknown; due?: unknown }>;
+    };
+    expect(raw.jobs[0]?.last).toBe(0);
+    expect(raw.jobs[0]?.due).toBeUndefined();
+    return { mem, calls: () => calls, dir };
+  }
+
+  const limit = await holdThen("limit", tmpDir("resume-limit"));
+  await Bun.sleep(40);
+  await limit.mem.pump();
+  expect(limit.mem.compactWork.paused).toBe("limit");
+  expect(limit.mem.nodeOf(0, 0)?.text).not.toContain("resumed");
+  const limitT0 = Date.now();
+  while (limit.mem.compactWork.paused && Date.now() - limitT0 < 800) await Bun.sleep(20);
+  await limit.mem.pump();
+  expect(limit.mem.compactWork.paused).toBeNull();
+  expect(limit.mem.nodeOf(0, 0)?.text).toContain("resumed limit");
+  expect(loadCompactQueue(limit.dir)).toEqual([]);
+  limit.mem.paused = true;
+
+  const cli = await holdThen("cli-error", tmpDir("resume-cli"));
+  await Bun.sleep(40);
+  await cli.mem.pump();
+  expect(cli.mem.compactWork.paused).toBe("cli-error");
+  const cliT0 = Date.now();
+  while (cli.mem.compactWork.paused && Date.now() - cliT0 < 800) await Bun.sleep(20);
+  await cli.mem.pump();
+  expect(cli.mem.compactWork.paused).toBeNull();
+  expect(cli.mem.nodeOf(0, 0)?.text).toContain("resumed cli-error");
+  cli.mem.paused = true;
+
+  const budget = await holdThen("budget", tmpDir("resume-budget"));
+  await Bun.sleep(backoff * 3);
+  await budget.mem.pump();
+  expect(budget.mem.compactWork.paused).toBe("budget");
+  expect(budget.calls()).toBe(1);
+  expect(budget.mem.nodeOf(0, 0)?.text).not.toContain("resumed");
+  budget.mem.clearCompactPause();
+  await budget.mem.pump();
+  expect(budget.mem.compactWork.paused).toBeNull();
+  expect(budget.mem.nodeOf(0, 0)?.text).toContain("resumed budget");
+  budget.mem.paused = true;
+});
+
+test("compact-queue.json writes last and still loads a legacy due", () => {
+  const dir = tmpDir("queue-last");
+  writeFileSync(
+    join(dir, COMPACT_QUEUE_FILE),
+    `${JSON.stringify({ jobs: [{ l: 1, i: 2, due: 5, hash: "old" }] })}\n`,
+  );
+  expect(loadCompactQueue(dir)).toEqual([{ l: 1, i: 2, last: 5, hash: "old" }]);
+  const q = new CompactQueue(dir);
+  q.load();
+  q.put({ l: 0, i: 4, last: 4, hash: "new" });
+  const raw = JSON.parse(readFileSync(join(dir, COMPACT_QUEUE_FILE), "utf8")) as {
+    jobs: Array<{ last?: unknown; due?: unknown; hash?: string }>;
+  };
+  expect(raw.jobs.map((j) => j.due)).toEqual([undefined, undefined]);
+  expect(raw.jobs).toEqual([
+    { l: 1, i: 2, last: 5, hash: "old" },
+    { l: 0, i: 4, last: 4, hash: "new" },
+  ]);
 });
 
 test("process pool never exceeds 8 and killAll leaves no live child", async () => {
@@ -484,25 +575,28 @@ test("switching compactador does not rewrite an existing node", async () => {
   mem.paused = true;
 });
 
-test("a fake Codex config with two MCP servers starts the child with zero MCP and zero tools", async () => {
+test("a fake Codex config lists MCP on every spawn and a third server stays off", async () => {
   const dir = tmpDir("mcp-off");
-  const log = join(dir, "exec-argv.json");
+  const listFile = join(dir, "mcp-names.json");
+  const log1 = join(dir, "exec-1.json");
+  const log2 = join(dir, "exec-2.json");
+  await Bun.write(listFile, JSON.stringify(["alpha", "beta"]));
   const bin = join(dir, "codex");
   await Bun.write(bin, `#!/usr/bin/env bun
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 const argv = process.argv.slice(2);
+const listFile = process.env.NCLI_FAKE_MCP_LIST ?? "";
 const log = process.env.NCLI_FAKE_CODEX_LOG;
 if (argv[0] === "mcp" && argv[1] === "list") {
-  process.stdout.write(JSON.stringify([
-    { name: "alpha", enabled: true },
-    { name: "beta", enabled: true },
-  ]));
+  const names = JSON.parse(readFileSync(listFile, "utf8")) as string[];
+  process.stdout.write(JSON.stringify(names.map((name) => ({ name, enabled: true }))));
   process.exit(0);
 }
 if (argv[0] === "exec") {
+  const names = JSON.parse(readFileSync(listFile, "utf8")) as string[];
   if (log) writeFileSync(log, JSON.stringify(argv));
   const enabledMcp = argv.some((a) => /^mcp_servers\\.[^=]+\\.enabled=true$/.test(a));
-  const disabled = ["alpha", "beta"].every((name) => argv.includes(\`mcp_servers.\${name}.enabled=false\`));
+  const disabled = names.every((name) => argv.includes(\`mcp_servers.\${name}.enabled=false\`));
   const toolsOff = argv.includes("shell_tool") && argv.includes("--disable");
   const wipe = argv.includes("mcp_servers={}");
   if (enabledMcp || !disabled || !toolsOff || wipe) process.exit(3);
@@ -529,7 +623,7 @@ process.exit(2);
         const child = Bun.spawn(argv, {
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...env, NCLI_FAKE_CODEX_LOG: log },
+          env: { ...env, NCLI_FAKE_MCP_LIST: listFile, NCLI_FAKE_CODEX_LOG: env.NCLI_FAKE_CODEX_LOG ?? log1 },
           cwd: opts?.cwd,
         });
         return {
@@ -543,24 +637,66 @@ process.exit(2);
     },
   );
   engine.setChoice({ mode: "cli", provider: "codex", model: "gpt-5-mini" });
-  const out = await engine.compress({
+  const first = await engine.compress({
     kind: "leaf",
     source: "user: FACT_OFF",
     contextLines: [],
     nodeBytes: 80,
   });
-  const text = typeof out === "string" ? out : out.text;
-  expect(text).toContain("isolated ok");
-  const argv = JSON.parse(await Bun.file(log).text()) as string[];
-  expect(parseMcpList(JSON.stringify([{ name: "alpha" }, { name: "beta" }]))).toEqual(["alpha", "beta"]);
-  expect(argv).toContain("mcp_servers.alpha.enabled=false");
-  expect(argv).toContain("mcp_servers.beta.enabled=false");
-  expect(argv).toContain("shell_tool");
-  expect(argv).toContain("--disable");
-  expect(argv.join("\0")).not.toContain("mcp_servers={}");
-  expect(argv.some((a) => a.includes("mcp_servers.ncli.url") || a === "--mcp-config")).toBe(false);
+  expect((typeof first === "string" ? first : first.text)).toContain("isolated ok");
+  const argv1 = JSON.parse(await Bun.file(log1).text()) as string[];
+  expect(argv1).toContain("mcp_servers.alpha.enabled=false");
+  expect(argv1).toContain("mcp_servers.beta.enabled=false");
+  expect(argv1.join("\0")).not.toContain("gamma");
+  await Bun.write(listFile, JSON.stringify(["alpha", "beta", "gamma"]));
+  const secondEngine = createCompactEngine(
+    loadConfig({
+      dataDir: join(dir, "second"),
+      compactBackend: "cursor",
+      compactSkipTokens: 1,
+      compactTimeoutMs: 8000,
+      compactDebounceMs: 1,
+      compactBatch: 1,
+      harness: "cursor",
+      codexBin: bin,
+    }),
+    {
+      spawn: (argv, env, opts) => {
+        const child = Bun.spawn(argv, {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...env, NCLI_FAKE_MCP_LIST: listFile, NCLI_FAKE_CODEX_LOG: log2 },
+          cwd: opts?.cwd,
+        });
+        return {
+          pid: child.pid,
+          stdout: child.stdout,
+          stderr: child.stderr,
+          exited: child.exited,
+          kill: () => child.kill(),
+        };
+      },
+    },
+  );
+  secondEngine.setChoice({ mode: "cli", provider: "codex", model: "gpt-5-mini" });
+  await secondEngine.compress({
+    kind: "leaf",
+    source: "user: FACT_OFF_2",
+    contextLines: [],
+    nodeBytes: 80,
+  });
+  const argv2 = JSON.parse(await Bun.file(log2).text()) as string[];
+  expect(argv2).toContain("mcp_servers.alpha.enabled=false");
+  expect(argv2).toContain("mcp_servers.beta.enabled=false");
+  expect(argv2).toContain("mcp_servers.gamma.enabled=false");
+  expect(argv2.join("\0")).not.toContain("mcp_servers={}");
+  expect(parseMcpList(JSON.stringify([{ name: "alpha" }, { name: "beta" }, { name: "gamma" }]))).toEqual([
+    "alpha",
+    "beta",
+    "gamma",
+  ]);
   for (const feat of ["shell_tool", "unified_exec", "apps", "browser_use"]) {
-    expect(isolateCodexFlags(["alpha", "beta"])).toContain(feat);
+    expect(isolateCodexFlags(["alpha", "beta", "gamma"])).toContain(feat);
   }
 });
 

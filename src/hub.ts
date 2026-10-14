@@ -11,7 +11,8 @@ import { compactSnapshot } from "./memory/cursor-compact";
 import { createCompactEngine, type CompactEngine } from "./memory/compact-engine";
 import type { CompactChoice } from "./memory/compact-choice";
 import { evalDropVsComposer } from "./memory/compact-eval";
-import { compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
+import { compactCodexLegacyWarn, compactSettingsHtml, type CompactSettingsState } from "./memory/compact-settings";
+import * as codexAcp from "./acp/codex";
 import { factsOf, parseIds, wouldCycle } from "./memory/facts";
 import { recallFromTool, verifyCitations } from "./memory/recall";
 import { toolActivityLine } from "./memory/turn-log";
@@ -666,7 +667,7 @@ export class Hub {
   }
 
   retryCompact(): void {
-    this.memory.compactWork.paused = null;
+    this.memory.clearCompactPause();
     this.compact = { ...this.compact, running: true, error: undefined, paused: undefined };
     this.emit({ type: "compact", compact: this.compact });
     this.memory.paused = false;
@@ -683,6 +684,7 @@ export class Hub {
       paused: this.compact.paused,
       envModel: (process.env.NCLI_COMPACT_MODEL ?? "").trim() || undefined,
       evalWarn: evalDropVsComposer(choice.model),
+      legacyWarn: compactCodexLegacyWarn(codexAcp),
     };
   }
 
@@ -690,7 +692,7 @@ export class Hub {
     this.engine.killAll();
     const choice = this.engine.setChoice(next);
     this.cfg.compactModel = choice.model || this.cfg.compactModel;
-    this.memory.compactWork.paused = null;
+    this.memory.clearCompactPause();
     this.compact = {
       ...this.compact,
       model: choice.model,
