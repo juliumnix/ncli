@@ -17,6 +17,7 @@ import {
 } from "./session";
 import { NCLI_TOOLS } from "../mcp/tools";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import { SessionHot, sessionKey } from "./hot";
 
 export function cursorAcpSpawn(cfg: NcliConfig): { command: string; args: string[] } {
   const raw = cfg.acpCursor.trim().split(/\s+/);
@@ -101,6 +102,7 @@ interface HotAcp {
   initAt: number;
   bytes: number;
   rotated: boolean;
+  extraDirs: boolean;
   release: () => void;
   q: AcpUpdate[];
   wake: (() => void) | null;
@@ -109,8 +111,7 @@ interface HotAcp {
 export class CursorAcpAdapter implements AcpAdapter {
   readonly id = "cursor";
   lastTrace: SeatTurnTrace | null = null;
-  private hot: HotAcp | null = null;
-  private opening: Promise<HotAcp> | null = null;
+  private readonly table = new SessionHot<HotAcp>();
 
   constructor(private readonly cfg: NcliConfig) {}
 
@@ -119,7 +120,11 @@ export class CursorAcpAdapter implements AcpAdapter {
   }
 
   close(): void {
-    this.killHot();
+    for (const hot of this.table.takeAll()) this.kill(hot);
+  }
+
+  release(session: string): void {
+    this.kill(this.table.take(sessionKey(session)));
   }
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
@@ -157,7 +162,7 @@ export class CursorAcpAdapter implements AcpAdapter {
     try {
       while (!done || hot.q.length) {
         if (opts.signal?.aborted) {
-          this.killHot();
+          this.release(sessionKey(opts.session));
           break;
         }
         if (hot.q.length) {
@@ -185,28 +190,17 @@ export class CursorAcpAdapter implements AcpAdapter {
   private async ensureHot(opts: RunOpts): Promise<{ hot: HotAcp; reused: boolean }> {
     const spawn = cursorAcpSpawn(this.cfg);
     const fp = liveFingerprint(this.cfg, opts, spawn);
-    if (this.hot && this.hot.fingerprint === fp && this.hot.proc.exitCode === null) {
-      return { hot: this.hot, reused: true };
-    }
-    if (this.opening) {
-      const hot = await this.opening;
-      return { hot, reused: this.hot === hot && hot.fingerprint === fp };
-    }
-    this.opening = this.spawnHot(spawn, fp, opts);
-    try {
-      this.hot = await this.opening;
-      return { hot: this.hot, reused: false };
-    } finally {
-      this.opening = null;
-    }
+    const key = sessionKey(opts.session);
+    return this.table.acquire(key, fp, () => this.spawnHot(key, spawn, fp, opts));
   }
 
   private async spawnHot(
+    key: string,
     spawn: { command: string; args: string[] },
     fingerprint: string,
     opts: RunOpts,
   ): Promise<HotAcp> {
-    this.killHot();
+    this.kill(this.table.take(key));
     const spawnAt = performance.now();
     const env = childEnv(process.env, { allowAnthropicKey: false });
     const release = holdFile(cursorCliConfigPath(homedir()));
@@ -232,6 +226,7 @@ export class CursorAcpAdapter implements AcpAdapter {
       initAt: spawnAt,
       bytes: 0,
       rotated: false,
+      extraDirs: false,
       release,
       q: [],
       wake: null,
@@ -254,22 +249,24 @@ export class CursorAcpAdapter implements AcpAdapter {
       rpc.respond(id, { outcome: { outcome: "selected", optionId: cursorPermissionChoice(req) } });
       hot.wake?.();
     };
-    await rpc.request("initialize", {
+    const init = await rpc.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
       clientInfo: { name: "ncli", version: "0.2.0" },
     });
+    hot.extraDirs = cursorAllowsExtraDirs(init);
     hot.initAt = performance.now();
     await this.openSession(hot, opts);
-    this.hot = hot;
     debugSeat(`cursor spawn session=${hot.sessionId}`);
     return hot;
   }
 
   private async openSession(hot: HotAcp, opts: RunOpts): Promise<void> {
+    const additionalDirectories = (opts.addDir ?? []).filter((dir) => dir.startsWith("/"));
     const { sessionId } = (await hot.rpc.request("session/new", {
       cwd: opts.cwd ?? this.cfg.repo,
       mcpServers: cursorAcpServers(opts.mcpServers ?? []),
+      ...(hot.extraDirs && additionalDirectories.length ? { additionalDirectories } : {}),
     })) as { sessionId: string };
     hot.sessionId = sessionId;
     persistSeatId(this.cfg.dataDir, opts.session ?? "main", "cursor", sessionId);
@@ -281,9 +278,7 @@ export class CursorAcpAdapter implements AcpAdapter {
     return cursorSessionBytes(hot.sessionId, opts.cwd ?? this.cfg.repo) > cap;
   }
 
-  private killHot(): void {
-    const hot = this.hot;
-    this.hot = null;
+  private kill(hot: HotAcp | undefined): void {
     if (!hot) return;
     try {
       hot.rpc.close();
@@ -295,6 +290,15 @@ export class CursorAcpAdapter implements AcpAdapter {
       hot.release();
     } catch {}
   }
+}
+
+export function cursorAllowsExtraDirs(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const caps = (result as { agentCapabilities?: Record<string, unknown> }).agentCapabilities;
+  if (!caps) return false;
+  const session = caps.sessionCapabilities ?? caps.session;
+  if (!session || typeof session !== "object") return false;
+  return (session as { additionalDirectories?: unknown }).additionalDirectories != null;
 }
 
 export function cursorProjectSlug(cwd: string): string {
@@ -374,6 +378,7 @@ function liveFingerprint(
     cfg.cursorModel,
     opts.cwd ?? cfg.repo,
     JSON.stringify(opts.mcpServers ?? []),
+    ...(opts.addDir ?? []),
   ].join("\0");
 }
 

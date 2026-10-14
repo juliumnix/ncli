@@ -108,14 +108,31 @@ async function handle(msg: {
   switch (method) {
     case "initialize":
       if (delayInit) await Bun.sleep(delayInit);
-      send({ jsonrpc: "2.0", id, result: { protocolVersion: 1, agentInfo: { name: "fake-cursor", version: "0" } } });
+      send({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          protocolVersion: 1,
+          agentInfo: { name: "fake-cursor", version: "0" },
+          agentCapabilities: { sessionCapabilities: { additionalDirectories: {} } },
+        },
+      });
       return;
     case "session/new": {
       sessionId = process.env.FAKE_CURSOR_SESSION || randomUUID();
-      const params = msg.params as { mcpServers?: unknown };
+      const params = msg.params as { cwd?: string; additionalDirectories?: string[]; mcpServers?: unknown };
       mcp = mcpFromCursorServers(params.mcpServers);
       if (logPath) {
-        appendFileSync(logPath, `${JSON.stringify({ method: "session/new", sessionId, t: Date.now() })}\n`);
+        appendFileSync(
+          logPath,
+          `${JSON.stringify({
+            method: "session/new",
+            sessionId,
+            cwd: params.cwd,
+            additionalDirectories: params.additionalDirectories ?? [],
+            t: Date.now(),
+          })}\n`,
+        );
       }
       send({ jsonrpc: "2.0", id, result: { sessionId } });
       return;

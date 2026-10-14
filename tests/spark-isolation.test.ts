@@ -100,7 +100,8 @@ test("a spark runs on the flow agent's harness and receives only that pack's ski
   const rt = await mgr.open("iso", { card: "alpha" });
   await waitUntil(() => codex.lastPrompts.length + main.lastPrompts.length > 0, 2000);
   expect(codex.lastAddDirs[0]).toEqual([skills]);
-  expect(codex.lastPrompts.some((p) => p.includes(rt.spark.id))).toBe(true);
+  expect(codex.lastPrompts.some((p) => p.includes("iso prompt"))).toBe(true);
+  expect(codex.lastSystems.some((s) => s.includes(rt.spark.id))).toBe(true);
   expect(main.lastPrompts).toEqual([]);
   expect(main.lastAddDirs).toEqual([]);
   views.close();
@@ -126,8 +127,8 @@ test("a view that asks for a worktree fails visibly when git worktree add fails"
   expect(failed?.summary).toContain("boom");
   expect(mgr.get(failed!.id)?.worktree).toBeUndefined();
   const ok = await mgr.open("iso", { card: "beta" });
-  await waitUntil(() => harness.lastPrompts.some((p) => p.includes(ok.spark.id)));
-  expect(harness.lastPrompts.some((p) => p.includes(failed!.id))).toBe(false);
+  await waitUntil(() => harness.lastSystems.some((s) => s.includes(ok.spark.id)));
+  expect(harness.lastSystems.some((s) => s.includes(failed!.id))).toBe(false);
   expect(harness.lastCwds).toEqual([repo]);
   views.close();
 });
@@ -145,7 +146,8 @@ test("open after close starts a new spark instead of the merged one", async () =
   expect(second.spark.id).not.toBe(first.spark.id);
   expect(second.spark.status).toBe("running");
   expect(existsSync(second.worktree?.path ?? "")).toBe(true);
-  await waitUntil(() => harness.lastPrompts.some((p) => p.includes(second.spark.id)));
+  await waitUntil(() => harness.lastSystems.some((s) => s.includes(second.spark.id)));
+  expect(harness.lastCwds).toContain(second.worktree!.path);
   views.close();
 });
 
@@ -166,7 +168,7 @@ test("reopen after close builds a new worktree and runs again", async () => {
   expect(second.spark.status).toBe("running");
   expect(second.worktree?.path).toBe(join(base, second.spark.id));
   expect(existsSync(second.worktree!.path)).toBe(true);
-  await waitUntil(() => harness.lastPrompts.some((p) => p.includes(second.spark.id)));
+  await waitUntil(() => harness.lastSystems.some((s) => s.includes(second.spark.id)));
   expect(harness.lastCwds).toContain(second.worktree!.path);
   views.close();
 });

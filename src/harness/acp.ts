@@ -17,6 +17,10 @@ export class AcpHarness implements Harness {
     this.adapter.close?.();
   }
 
+  release(session: string): void {
+    this.adapter.release?.(session);
+  }
+
   async *run(opts: RunOpts): AsyncIterable<HarnessEvent> {
     let text = "";
     try {

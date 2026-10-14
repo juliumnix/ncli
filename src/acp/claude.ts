@@ -6,6 +6,7 @@ import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import { SessionHot, sessionKey } from "./hot";
 import { persistSeatModel, readSeatModel } from "./session";
 
 export const DEFAULT_CLAUDE_SESSION_CAP = 256 * 1024;
@@ -122,8 +123,7 @@ interface HotProc {
 export class ClaudeCliAdapter implements AcpAdapter {
   readonly id = "claude";
   lastTrace: ClaudeTurnTrace | null = null;
-  private hot: HotProc | null = null;
-  private opening: Promise<HotProc> | null = null;
+  private readonly table = new SessionHot<HotProc>();
 
   constructor(private readonly cfg: NcliConfig) {}
 
@@ -132,10 +132,15 @@ export class ClaudeCliAdapter implements AcpAdapter {
   }
 
   close(): void {
-    this.killHot();
+    for (const hot of this.table.takeAll()) this.kill(hot);
+  }
+
+  release(session: string): void {
+    this.kill(this.table.take(sessionKey(session)));
   }
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
+    const key = sessionKey(opts.session);
     const { hot, reused } = await this.ensureHot(opts);
     const trace: ClaudeTurnTrace = {
       spawnAt: hot.spawnAt,
@@ -149,13 +154,13 @@ export class ClaudeCliAdapter implements AcpAdapter {
     try {
       while (true) {
         if (opts.signal?.aborted) {
-          this.killHot();
+          this.release(key);
           break;
         }
         const line = await hot.pump.next();
         if (line == null) {
           const code = await hot.proc.exited;
-          this.hot = null;
+          this.table.dropIf(key, hot);
           throw new Error(hot.stderr.trim() || `claude exited ${code}`);
         }
         const kind = lineKind(line);
@@ -182,30 +187,19 @@ export class ClaudeCliAdapter implements AcpAdapter {
     const { args, plan } = claudeSpawn(this.cfg, opts);
     const sessionId = plan?.id ?? sessionIdOf(args);
     const fp = liveFingerprint(this.cfg, opts, sessionId);
-    if (this.hot && this.hot.fingerprint === fp && this.hot.proc.exitCode === null) {
-      return { hot: this.hot, reused: true };
-    }
-    if (this.opening) {
-      const hot = await this.opening;
-      return { hot, reused: this.hot === hot && hot.fingerprint === fp };
-    }
-    this.opening = this.spawnHot(args, fp, sessionId, plan?.rotated ?? false, opts);
-    try {
-      this.hot = await this.opening;
-      return { hot: this.hot, reused: false };
-    } finally {
-      this.opening = null;
-    }
+    const key = sessionKey(opts.session);
+    return this.table.acquire(key, fp, () => this.spawnHot(key, args, fp, sessionId, plan?.rotated ?? false, opts));
   }
 
   private async spawnHot(
+    key: string,
     args: string[],
     fingerprint: string,
     sessionId: string,
     rotated: boolean,
     opts: RunOpts,
   ): Promise<HotProc> {
-    this.killHot();
+    this.kill(this.table.take(key));
     const spawnAt = performance.now();
     const proc = Bun.spawn(args, {
       cwd: opts.cwd ?? this.cfg.repo,
@@ -224,14 +218,11 @@ export class ClaudeCliAdapter implements AcpAdapter {
       stderr: "",
     };
     void drainStderr(proc.stderr, hot);
-    this.hot = hot;
     debugClaude(`claude spawn session=${sessionId}${rotated ? " rotated" : ""} args=${args.length}`);
     return hot;
   }
 
-  private killHot(): void {
-    const hot = this.hot;
-    this.hot = null;
+  private kill(hot: HotProc | undefined): void {
     if (!hot) return;
     try {
       const stdin = hot.proc.stdin;

@@ -1,11 +1,12 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { Spark, SparkStatus, Message, NeedsUser } from "../types";
 import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
 import type { ViewRegistry } from "../views/registry";
-import { assertRunnable, availableHarnesses, emptyResult, formatSparkResult, sparkSkillPrompt, type SparkResult } from "../views/manifest";
+import { agentForStep, assertRunnable, availableHarnesses, emptyResult, formatSparkResult, sparkSkillPrompt, type ManifestHarness, type SparkResult } from "../views/manifest";
+import { pickHarness } from "../harness/pick";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
@@ -33,17 +34,22 @@ export interface SparkManagerHooks {
   onIdle?: (sparkId: string) => void;
   compressor: Compressor;
   harness: Harness;
+  harnessFor?: (id: ManifestHarness) => Harness | undefined;
   git?: GitRunner;
+  worktreeBase?: string;
   openPr?: OpenPr;
   findPr?: FindPr;
   bus?: Bus;
   inject?: (session: string, worktree?: string) => SpawnInject;
 }
 
+const OPEN_STATUS = new Set<SparkStatus>(["running", "needs_user"]);
+
 export class SparkManager {
   readonly runtimes = new Map<string, SparkRuntime>();
   private seqByView = new Map<string, number>();
   private shipping = new Map<string, Promise<ShipResult>>();
+  private readonly seats = new Map<string, Harness>();
 
   constructor(
     private readonly cfg: NcliConfig,
@@ -63,8 +69,9 @@ export class SparkManager {
       if (!meta) continue;
       const prev = this.seqByView.get(meta.view) ?? 0;
       if (meta.seq > prev) this.seqByView.set(meta.view, meta.seq);
+      const home = join(root, name);
       const memory = new Memory({
-        dir: join(root, name),
+        dir: home,
         nodeBytes: this.cfg.nodeBytes,
         viewBytes: this.cfg.viewBytes,
         compressor: this.hooks.compressor,
@@ -73,16 +80,15 @@ export class SparkManager {
         deferCutAfter: this.cfg.compactTries,
         compressTimeoutMs: this.cfg.compactTimeoutMs,
       });
-      const worktree = meta.worktree && meta.branch && meta.repo
-        ? { path: join(meta.repo, ".ncli", "wt", name), branch: meta.branch, repo: meta.repo }
-        : undefined;
-      this.runtimes.set(meta.id, {
+      const rt: SparkRuntime = {
         spark: meta,
         memory,
         abort: new AbortController(),
-        worktree,
+        worktree: restoreWorktree(home, meta),
         seats: {},
-      });
+      };
+      this.watchAbort(rt);
+      this.runtimes.set(meta.id, rt);
     }
     }
   }
@@ -109,6 +115,7 @@ export class SparkManager {
 
   findOpen(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
     return [...this.runtimes.values()].find((r) => {
+      if (!OPEN_STATUS.has(r.spark.status)) return false;
       if (r.spark.view !== viewId) return false;
       if (viewId === "review") {
         return sameReviewParams(r.spark.params, params);
@@ -153,32 +160,23 @@ export class SparkManager {
     let worktree: WorktreeHandle | undefined;
     if (created.needsWorktree) {
       try {
-        worktree = await addWorktree(created.repo ?? this.cfg.repo, id, this.hooks.git);
+        worktree = await addWorktree(created.repo ?? this.cfg.repo, id, this.hooks.git, this.hooks.worktreeBase);
         spark.worktree = shortWt(worktree.path);
         spark.branch = worktree.branch;
-      } catch {
-        spark.worktree = "sem wt";
+        spark.repo = worktree.repo;
+      } catch (err) {
+        spark.status = "error";
+        spark.summary = (err as Error).message;
+        const failed = this.bind(spark, undefined);
+        this.runtimes.set(id, failed);
+        persistRuntime(failed);
+        this.hooks.onEvent({ type: "spark", session: id, payload: spark });
+        throw err;
       }
     }
-    const memory = new Memory({
-      dir: join(this.cfg.dataDir, "sparks", id),
-      nodeBytes: this.cfg.nodeBytes,
-      viewBytes: this.cfg.viewBytes,
-      compressor: this.hooks.compressor,
-      pumpBatch: this.cfg.compactBatch,
-      compactJobs: this.cfg.compactJobs,
-      deferCutAfter: this.cfg.compactTries,
-      compressTimeoutMs: this.cfg.compactTimeoutMs,
-    });
-    const rt: SparkRuntime = {
-      spark,
-      memory,
-      abort: new AbortController(),
-      worktree,
-      seats: {},
-    };
+    const rt = this.bind(spark, worktree);
     this.runtimes.set(id, rt);
-    persistSpark(this.cfg.dataDir, spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: spark });
     await this.maybeArchiveMerged(rt, false);
     void this.runTurn(rt, created.prompt, true);
@@ -195,7 +193,7 @@ export class SparkManager {
     }
     rt.spark.status = "running";
     rt.spark.needsUser = undefined;
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     await this.runTurn(rt, text, false);
   }
@@ -225,13 +223,13 @@ export class SparkManager {
       const note = rt.memory.append({ kind: "note", text: result.note });
       this.hooks.onEvent({ type: "message", session: id, payload: note });
     }
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     await this.maybeArchiveMerged(rt);
     if (result?.ask) {
       rt.spark.status = "running";
       rt.spark.needsUser = undefined;
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       await this.runTurn(rt, result.ask, false);
     }
@@ -324,7 +322,7 @@ export class SparkManager {
       const num = result.url.match(/\/pull\/(\d+)/)?.[1];
       if (num) rt.spark.params.pr = num;
       const note = rt.memory.append({ kind: "note", text: `PR ${result.url}` });
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       this.hooks.onEvent({ type: "message", session: id, payload: note });
     }
@@ -338,7 +336,7 @@ export class SparkManager {
     if (result.ok) {
       rt.worktree = undefined;
       rt.spark.worktree = "arquivo";
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       return result;
     }
@@ -347,14 +345,56 @@ export class SparkManager {
       kind: "note",
       text: `worktree ${result.blocked}: ${why}. Fecha de novo com force para arquivar.`,
     });
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     return result;
+  }
+
+  private harnessFor(rt: SparkRuntime): Harness {
+    const pack = this.views.packageOf(rt.spark.view);
+    const wanted = pack ? agentForStep(pack.manifest, rt.spark.flowStep)?.harness : undefined;
+    if (!wanted || wanted === "auto" || wanted === this.hooks.harness.id) return this.hooks.harness;
+    const provided = this.hooks.harnessFor?.(wanted);
+    if (provided) return provided;
+    if (this.hooks.harness.id === "mock") return this.hooks.harness;
+    const cached = this.seats.get(wanted);
+    if (cached) return cached;
+    const made = pickHarness({ ...this.cfg, harness: wanted });
+    this.seats.set(wanted, made);
+    return made;
+  }
+
+  private bind(spark: Spark, worktree: WorktreeHandle | undefined): SparkRuntime {
+    const rt: SparkRuntime = {
+      spark,
+      memory: new Memory({
+        dir: join(this.cfg.dataDir, "sparks", spark.id),
+        nodeBytes: this.cfg.nodeBytes,
+        viewBytes: this.cfg.viewBytes,
+        compressor: this.hooks.compressor,
+        pumpBatch: this.cfg.compactBatch,
+        compactJobs: this.cfg.compactJobs,
+        deferCutAfter: this.cfg.compactTries,
+        compressTimeoutMs: this.cfg.compactTimeoutMs,
+      }),
+      abort: new AbortController(),
+      worktree,
+      seats: {},
+    };
+    this.watchAbort(rt);
+    return rt;
+  }
+
+  private watchAbort(rt: SparkRuntime): void {
+    rt.abort.signal.addEventListener("abort", () => {
+      this.harnessFor(rt).release?.(rt.spark.id);
+    });
   }
 
   private async runTurn(rt: SparkRuntime, userText: string, isBoot: boolean): Promise<void> {
     void rt.memory.pump();
     const pack = this.views.packageOf(rt.spark.view);
+    const harness = this.harnessFor(rt);
     const extra = pack
       ? `Spark ${rt.spark.id} of ${pack.manifest.name}. Isolated worktree: ${rt.worktree?.path ?? "none"}. Flow step: ${rt.spark.flowStep ?? "spark"}.`
       : `You are running view '${rt.spark.view}' as spark ${rt.spark.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`;
@@ -372,10 +412,11 @@ export class SparkManager {
       const inj = this.hooks.inject
         ? this.hooks.inject(rt.spark.id, rt.worktree?.path)
         : undefined;
-      const live = new LiveTurn(rt.spark.id, seatOf(this.hooks.harness.id));
+      const live = new LiveTurn(rt.spark.id, seatOf(harness.id));
       const tools: string[] = [];
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
-      for await (const ev of this.hooks.harness.run({
+      const model = pack ? agentForStep(pack.manifest, rt.spark.flowStep)?.model : undefined;
+      for await (const ev of harness.run({
         prompt: `${ctx.view}\n\n${inbox}${userText}`,
         system: ctx.system,
         cwd: rt.worktree?.path ?? this.cfg.repo,
@@ -383,8 +424,9 @@ export class SparkManager {
         signal: rt.abort.signal,
         mcpConfigPath: inj?.mcpConfigPath,
         mcpServers: inj?.mcpServers,
-        addDir: this.hooks.harness.id === "claude" ? inj?.addDir : undefined,
-        extraArgs: this.hooks.harness.id === "codex" ? inj?.extraArgs : undefined,
+        addDir: pack?.skillDirs ?? [],
+        extraArgs: harness.id === "codex" ? inj?.extraArgs : undefined,
+        model,
       })) {
         this.handleHarness(rt, ev, live, tools);
         if (ev.type === "text") talk = joinText(talk, ev.text);
@@ -394,18 +436,18 @@ export class SparkManager {
       live.finish(rt.abort.signal.aborted ? "stopped" : "done");
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       const summary = toolActivityLine(tools);
-      if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(this.hooks.harness.id) });
+      if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(harness.id) });
       rt.spark.summary = talk.trim().slice(0, 400) || rt.spark.summary;
       if (rt.spark.status === "merged") return;
       if (rt.spark.needsUser) {
         rt.spark.status = "needs_user";
-        persistSpark(this.cfg.dataDir, rt.spark);
+        persistRuntime(rt);
         this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
       if (rt.spark.hold) {
         rt.spark.status = "running";
-        persistSpark(this.cfg.dataDir, rt.spark);
+        persistRuntime(rt);
         this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
@@ -414,7 +456,7 @@ export class SparkManager {
     } catch (err) {
       rt.spark.status = "error";
       rt.spark.summary = (err as Error).message;
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     } finally {
       this.hooks.onIdle?.(rt.spark.id);
@@ -449,7 +491,7 @@ export class SparkManager {
         break;
       case "done":
         if (ev.text) {
-          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.hooks.harness.id), model: live.turn.model });
+          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.harnessFor(rt).id), model: live.turn.model });
           this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: msg });
           const plugin = this.views.get(rt.spark.view);
           const patch = plugin?.onEvent?.(rt.spark, { type: "done", text: ev.text });
@@ -460,7 +502,7 @@ export class SparkManager {
             this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: note });
           }
           if (patch?.ui !== undefined || patch?.flowStep || patch?.note) {
-            persistSpark(this.cfg.dataDir, rt.spark);
+            persistRuntime(rt);
             this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
           }
         }
@@ -485,7 +527,7 @@ export class SparkManager {
     rt.spark.summary = result.summary;
     rt.spark.result = result;
     rt.spark.flowStep = "result";
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     this.hooks.onMerge(rt.spark, formatSparkResult(rt.spark, result), result);
   }
@@ -496,10 +538,49 @@ function shortWt(path: string): string {
   return `wt/${parts[parts.length - 1]}`;
 }
 
-function persistSpark(dataDir: string, spark: Spark): void {
-  const dir = join(dataDir, "sparks", spark.id);
+function persistRuntime(rt: SparkRuntime): void {
+  const dir = rt.memory.dir;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "meta.json"), JSON.stringify(spark, null, 2), "utf8");
+  writeFileSync(join(dir, "meta.json"), JSON.stringify(rt.spark, null, 2), "utf8");
+  const file = join(dir, "worktree.json");
+  if (rt.worktree && rt.spark.worktree !== "arquivo" && rt.spark.worktree !== "sem wt") {
+    const stored: WorktreeHandle = {
+      path: rt.worktree.path,
+      branch: rt.worktree.branch,
+      repo: rt.worktree.repo,
+      baseDir: rt.worktree.baseDir,
+    };
+    writeFileSync(file, JSON.stringify(stored, null, 2), "utf8");
+    return;
+  }
+  if (existsSync(file)) rmSync(file);
+}
+
+function restoreWorktree(home: string, meta: Spark): WorktreeHandle | undefined {
+  if (!meta.worktree || meta.worktree === "arquivo" || meta.worktree === "sem wt") return undefined;
+  const stored = readWorktreeFile(home);
+  if (stored && isWorktreeDir(stored.path)) return stored;
+  if (!meta.repo || !meta.branch) return undefined;
+  const baseDir = join(resolve(meta.repo), ".ncli", "wt");
+  const path = join(baseDir, meta.id);
+  if (!isWorktreeDir(path)) return undefined;
+  return { path, branch: meta.branch, repo: resolve(meta.repo), baseDir };
+}
+
+function readWorktreeFile(home: string): WorktreeHandle | undefined {
+  const file = join(home, "worktree.json");
+  if (!existsSync(file)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<WorktreeHandle>;
+    if (!raw.path || !raw.branch || !raw.repo || !raw.baseDir) return undefined;
+    return { path: raw.path, branch: raw.branch, repo: raw.repo, baseDir: raw.baseDir };
+  } catch {
+    return undefined;
+  }
+}
+
+function isWorktreeDir(path: string): boolean {
+  return existsSync(path) && statSync(path).isDirectory();
 }
 
 export function loadSparkMeta(dataDir: string, id: string): Spark | null {

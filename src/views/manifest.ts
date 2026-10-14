@@ -163,6 +163,11 @@ export function firstStep(manifest: ViewManifest): FlowStep {
   return manifest.flow[0]!;
 }
 
+export function agentForStep(manifest: ViewManifest, flowStepId: string | undefined): ViewAgent | undefined {
+  const step = (flowStepId ? stepById(manifest, flowStepId) : undefined) ?? firstStep(manifest);
+  return manifest.agents.find((agent) => agent.id === step.agent);
+}
+
 export function nextStep(manifest: ViewManifest, id: string): FlowStep | undefined {
   const cur = stepById(manifest, id);
   return cur?.next ? stepById(manifest, cur.next) : undefined;

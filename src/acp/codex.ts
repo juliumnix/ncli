@@ -5,6 +5,7 @@ import type { NcliConfig } from "../config";
 import { childEnv } from "../harness/child-env";
 import type { RunOpts } from "../harness/types";
 import type { AcpAdapter, AcpUpdate } from "./types";
+import { SessionHot, sessionKey } from "./hot";
 import {
   debugSeat,
   DEFAULT_SESSION_CAP,
@@ -32,8 +33,7 @@ interface HotWaiter {
 export class CodexExecAdapter implements AcpAdapter {
   readonly id = "codex";
   lastTrace: SeatTurnTrace | null = null;
-  private waiter: HotWaiter | null = null;
-  private opening: Promise<HotWaiter> | null = null;
+  private readonly table = new SessionHot<HotWaiter>();
 
   constructor(private readonly cfg: NcliConfig) {}
 
@@ -42,12 +42,17 @@ export class CodexExecAdapter implements AcpAdapter {
   }
 
   close(): void {
-    this.killWaiter();
+    for (const waiter of this.table.takeAll()) this.kill(waiter);
+  }
+
+  release(session: string): void {
+    this.kill(this.table.take(sessionKey(session)));
   }
 
   async *run(opts: RunOpts): AsyncIterable<AcpUpdate> {
     const shown = this.cfg.codexModel || readCodexConfigModel();
     if (shown) yield { sessionUpdate: "model", model: shown };
+    const key = sessionKey(opts.session);
     const { waiter, reused } = await this.ensureWaiter(opts);
     const trace: SeatTurnTrace = {
       seat: "codex",
@@ -64,9 +69,7 @@ export class CodexExecAdapter implements AcpAdapter {
     try {
       while (true) {
         if (opts.signal?.aborted) {
-          try {
-            waiter.proc.kill();
-          } catch {}
+          this.release(key);
           break;
         }
         const { value, done } = await reader.read();
@@ -95,7 +98,7 @@ export class CodexExecAdapter implements AcpAdapter {
       reader.releaseLock();
     }
     const code = await waiter.proc.exited;
-    if (this.waiter === waiter) this.waiter = null;
+    this.table.dropIf(key, waiter);
     trace.resultAt = performance.now();
     this.lastTrace = trace;
     logCodexTrace(trace);
@@ -113,29 +116,19 @@ export class CodexExecAdapter implements AcpAdapter {
     });
     const args = buildCodexArgs(this.cfg, opts, plan);
     const fp = liveFingerprint(this.cfg, opts, plan);
-    if (this.waiter && this.waiter.fingerprint === fp && this.waiter.proc.exitCode === null) {
-      return { waiter: this.waiter, reused: true };
-    }
-    if (this.opening) {
-      const waiter = await this.opening;
-      return { waiter, reused: this.waiter === waiter && waiter.fingerprint === fp };
-    }
-    this.opening = this.spawnWaiter(args, fp, plan, opts);
-    try {
-      this.waiter = await this.opening;
-      return { waiter: this.waiter, reused: false };
-    } finally {
-      this.opening = null;
-    }
+    const key = sessionKey(opts.session);
+    const got = await this.table.acquire(key, fp, () => this.spawnWaiter(key, args, fp, plan, opts));
+    return { waiter: got.hot, reused: got.reused };
   }
 
   private async spawnWaiter(
+    key: string,
     args: string[],
     fingerprint: string,
     plan: SeatSessionPlan,
     opts: RunOpts,
   ): Promise<HotWaiter> {
-    this.killWaiter();
+    this.kill(this.table.take(key));
     const spawnAt = performance.now();
     const proc = Bun.spawn(args, {
       cwd: opts.cwd ?? this.cfg.repo,
@@ -153,14 +146,11 @@ export class CodexExecAdapter implements AcpAdapter {
       stderr: "",
     };
     void drainStderr(proc.stderr, waiter);
-    this.waiter = waiter;
     debugSeat(`codex spawn session=${plan.id || "new"}${plan.rotated ? " rotated" : ""} resume=${plan.resume}`);
     return waiter;
   }
 
-  private killWaiter(): void {
-    const waiter = this.waiter;
-    this.waiter = null;
+  private kill(waiter: HotWaiter | undefined): void {
     if (!waiter) return;
     try {
       waiter.proc.kill();
@@ -176,6 +166,7 @@ export function buildCodexArgs(cfg: NcliConfig, opts: RunOpts, plan?: SeatSessio
   const args = [cfg.codexBin, "exec", "--json"];
   if (cfg.codexModel) args.push("--model", cfg.codexModel);
   if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+  for (const dir of opts.addDir ?? []) args.push("--add-dir", dir);
   if (plan?.resume && plan.id) args.push("resume", plan.id);
   args.push("-");
   return args;
@@ -330,6 +321,7 @@ function liveFingerprint(cfg: NcliConfig, opts: RunOpts, plan: SeatSessionPlan):
     cfg.codexBin,
     cfg.codexModel,
     ...(opts.extraArgs ?? []),
+    ...(opts.addDir ?? []),
     opts.cwd ?? cfg.repo,
     plan.resume ? plan.id : "",
   ].join("\0");

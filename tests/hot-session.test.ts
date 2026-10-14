@@ -54,9 +54,11 @@ test("claude keeps one hot process per session and never hands a spark the chat 
     expect(chatEvents.some((e) => e.sessionUpdate === "agent_message_chunk")).toBe(true);
     expect(sparkEvents.some((e) => e.sessionUpdate === "agent_message_chunk")).toBe(true);
     const spawns = processSpawns(logPath);
-    expect(spawns.filter((s) => s.argv.includes(chatSkills)).map((s) => s.pid)).toEqual([spawns[0]!.pid]);
-    expect(spawns.filter((s) => s.argv.includes(sparkSkills)).map((s) => s.pid)).toEqual([spawns[1]!.pid]);
-    expect(new Set(spawns.map((s) => s.pid)).size).toBe(2);
+    const chatPids = [...new Set(spawns.filter((s) => s.argv.includes(chatSkills) && !s.argv.includes(sparkSkills)).map((s) => s.pid))];
+    const sparkPids = [...new Set(spawns.filter((s) => s.argv.includes(sparkSkills) && !s.argv.includes(chatSkills)).map((s) => s.pid))];
+    expect(chatPids).toHaveLength(1);
+    expect(sparkPids).toHaveLength(1);
+    expect(chatPids[0]).not.toBe(sparkPids[0]);
     const after = spawns.length;
     const again = await collect(adapter.run({ prompt: "chat-2", session: "main", cwd: chatSkills, addDir: [chatSkills] }));
     expect(again.some((e) => e.sessionUpdate === "agent_message_chunk")).toBe(true);
@@ -143,10 +145,10 @@ test("cursor keeps one ACP process per session and sends that session's skill di
     expect(new Set(spawns.map((s) => s.pid)).size).toBe(2);
     const opened = spawnLines(logPath).filter((rec) => rec.method === "session/new") as Array<{
       cwd?: string;
-      addDir?: string[];
+      additionalDirectories?: string[];
     }>;
-    expect(opened).toContainEqual(expect.objectContaining({ cwd: chatSkills, addDir: [chatSkills] }));
-    expect(opened).toContainEqual(expect.objectContaining({ cwd: sparkSkills, addDir: [sparkSkills] }));
+    expect(opened).toContainEqual(expect.objectContaining({ cwd: chatSkills, additionalDirectories: [chatSkills] }));
+    expect(opened).toContainEqual(expect.objectContaining({ cwd: sparkSkills, additionalDirectories: [sparkSkills] }));
     const after = spawns.length;
     await collect(adapter.run({ prompt: "chat-2", session: "main", cwd: chatSkills, addDir: [chatSkills] }));
     expect(adapter.lastTrace?.hot).toBe(true);

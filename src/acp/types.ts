@@ -14,4 +14,5 @@ export interface AcpAdapter {
   run(opts: RunOpts): AsyncIterable<AcpUpdate>;
   warm?(opts: RunOpts): Promise<void>;
   close?(): void;
+  release?(session: string): void;
 }
