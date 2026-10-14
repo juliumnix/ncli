@@ -151,11 +151,11 @@ export class Memory {
     try {
       for (const partial of partials) out.push(this.writeLine(partial, false));
       let offset = this.logIndex.size;
-      const raw = out.map((msg) => `${JSON.stringify(msg)}\n`).join("");
-      persistRaw(join(this.dir, "log.jsonl"), raw);
-      for (const msg of out) {
-        const n = Buffer.byteLength(`${JSON.stringify(msg)}\n`);
-        this.logIndex.push(offset, msg.date, n);
+      const lines = out.map((msg) => `${JSON.stringify(msg)}\n`);
+      persistRaw(join(this.dir, "log.jsonl"), lines.join(""));
+      for (let k = 0; k < out.length; k++) {
+        const n = Buffer.byteLength(lines[k]!);
+        this.logIndex.push(offset, out[k]!.date, n);
         offset += n;
       }
       this.logIndex.persist();
@@ -805,7 +805,9 @@ export class Memory {
     const logPath = join(this.dir, "log.jsonl");
     const treePath = join(this.dir, "tree.jsonl");
     if (existsSync(logPath)) {
-      this.logIndex.reset();
+      const known = this.logIndex.count;
+      const fresh = known > 0 && !this.logIndex.stale();
+      if (!fresh) this.logIndex.reset();
       const buf = readFileSync(logPath);
       let start = 0;
       for (let i = 0; i < buf.length; i++) {
@@ -814,13 +816,13 @@ export class Memory {
           try {
             const msg = JSON.parse(buf.toString("utf8", start, i)) as Message;
             this.log.push(msg);
-            this.logIndex.push(start, msg.date, i - start + 1);
+            if (!fresh) this.logIndex.push(start, msg.date, i - start + 1);
           } catch {
           }
         }
         start = i + 1;
       }
-      this.logIndex.persist();
+      if (!fresh || this.logIndex.count !== known) this.logIndex.persist();
     }
     if (existsSync(treePath)) {
       for (const line of readFileSync(treePath, "utf8").split("\n")) {

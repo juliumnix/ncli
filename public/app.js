@@ -49,12 +49,16 @@ function waitMotion(el) {
   });
 }
 
+let progGen = 0;
 function setChatTop(top) {
   if (!chat) return;
   programmaticScroll = true;
+  const g = ++progGen;
   chat.scrollTop = top;
-  programmaticScroll = false;
   lastScrollTop = chat.scrollTop;
+  requestAnimationFrame(() => {
+    if (g === progGen) programmaticScroll = false;
+  });
 }
 
 function snapToFloor() {
@@ -68,10 +72,17 @@ function snapToFloor() {
   setChatTop(Math.max(0, chat.scrollHeight - chat.clientHeight));
 }
 
+function nearFloor() {
+  return !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight <= STICK_SLOP;
+}
+
 function bindChatFloor() {
   if (!chat || !log || typeof ResizeObserver === "undefined") return;
   const ro = new ResizeObserver(() => {
-    if (stick.follow) snapToFloor();
+    if (stick.follow) {
+      if (log.classList.contains("turning") && !nearFloor()) followScroll();
+      else snapToFloor();
+    }
     paintScrollHints();
   });
   ro.observe(log);
@@ -84,19 +95,19 @@ function markUserUp() {
 
 function dropStreamNode() {
   if (!log) return;
-  for (const n of [...log.querySelectorAll(".m.stream")]) n.remove();
+  for (const n of [...log.querySelectorAll(".m.stream, .live.quiet")]) n.remove();
 }
 
 function followScroll() {
   if (!chat || !stick.follow) return;
+  const live = log.querySelector(".m.stream, .live.quiet");
+  if (live) {
+    const box = chat.getBoundingClientRect();
+    const r = live.getBoundingClientRect();
+    if (r.bottom > box.bottom - 24) setChatTop(chat.scrollTop + r.bottom - box.bottom + 24);
+    return;
+  }
   if (reducedMotion()) {
-    const live = log.querySelector(".live.quiet, .m.stream");
-    if (live) {
-      const box = chat.getBoundingClientRect();
-      const r = live.getBoundingClientRect();
-      if (r.bottom > box.bottom - 24) setChatTop(chat.scrollTop + r.bottom - box.bottom + 24);
-      return;
-    }
     snapToFloor();
     return;
   }
@@ -104,6 +115,11 @@ function followScroll() {
   const step = () => {
     if (!stick.follow) {
       scrollRaf = 0;
+      return;
+    }
+    if (log.querySelector(".m.stream, .live.quiet")) {
+      scrollRaf = 0;
+      followScroll();
       return;
     }
     const target = chat.scrollHeight - chat.clientHeight;
@@ -138,7 +154,7 @@ function markEnter() {
 
 const STATE_PAGE = 80;
 const MSG_PAGE = 100;
-const EST_H = 72;
+const EST_H = 240;
 const OVERSCAN = 720;
 const VBLOCK = 256;
 const rowHtmlCache = new Map();
@@ -156,9 +172,41 @@ const virt = {
   fetchGen: 0,
   lastTop: 0,
   lastT: 0,
+  primed: false,
+  pref: [],
 };
 
 let heightRo = null;
+const HEIGHT_KEY = "ncli-virt-h";
+let heightSave = 0;
+
+function loadHeights() {
+  try {
+    const raw = sessionStorage.getItem(HEIGHT_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    for (const [k, v] of Object.entries(o)) {
+      const i = Number(k);
+      const h = Number(v);
+      if (Number.isFinite(i) && h > 0) virt.heights.set(i, h);
+    }
+  } catch {
+    return;
+  }
+}
+
+function persistHeights() {
+  clearTimeout(heightSave);
+  heightSave = setTimeout(() => {
+    try {
+      const o = {};
+      for (const [k, v] of virt.heights) o[k] = Math.round(v);
+      sessionStorage.setItem(HEIGHT_KEY, JSON.stringify(o));
+    } catch {
+      return;
+    }
+  }, 200);
+}
 
 const state = {
   messages: [],
@@ -323,7 +371,7 @@ function compartmentHtml(body, extraHead) {
     return "";
   });
   const wrapped = scripts.map((s) => `<script>${wrapLiveScript(s)}</script>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; navigate-to 'none'">${extraHead || ""}</head><body><script>${LIVE_PRELUDE}</script>${markup}${wrapped}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; navigate-to 'none'">${extraHead || ""}</head><body style="background:#151518"><script>${LIVE_PRELUDE}</script>${markup}${wrapped}<script>requestAnimationFrame(function(){try{parent.postMessage({type:"ncli-live",op:"ready",name:String(window.name||"")},"*")}catch(e){}})</script></body></html>`;
 }
 
 function liveFrameSrc(html, klass, title) {
@@ -345,16 +393,18 @@ function iframeFor(kind, source) {
     if (kind === "url") {
       const href = httpHref(source);
       if (!href) return liveError(kind, source, "url bloqueada");
-      return `<div class="live-wrap in live-url-ask" data-live-url="${escapeHtml(href)}"><p class="live-url-msg">Abrir <code>${escapeHtml(href)}</code>?</p><button type="button" class="live-url-go" data-href="${escapeHtml(href)}">abrir</button></div>`;
+      const key = liveKey("url", href);
+      return `<div class="live-wrap live-url-ask" data-live-key="${key}" data-live-url="${escapeHtml(href)}"><p class="live-url-msg">Abrir <code>${escapeHtml(href)}</code>?</p><button type="button" class="live-url-go" data-href="${escapeHtml(href)}">abrir</button></div>`;
     }
     if (kind === "ui") {
-      const key = uiKey(source);
-      return `<div class="ui-card live-wrap in" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${liveFrameSrc(wrapUiSource(source), "live-frame live-ui", "live ui")}</div>`;
+      const key = liveKey("ui", source);
+      return `<div class="ui-card live-wrap" data-live-key="${key}" data-ui-key="${key}"><button type="button" class="ui-expand" aria-label="Expandir">⤢</button>${liveFrameSrc(wrapUiSource(source), "live-frame live-ui", "live ui")}</div>`;
     }
     if (kind === "3d") {
       const origin = window.NCLI_LIVE_ORIGIN || "";
-      const src = `${origin ? `${origin}/3d` : "/ncli3d.html"}#${encodeURIComponent(String(source || "").trim() || "ncli3d.desk()")}`;
-      return `<div class="live-wrap in"><iframe class="live-frame live-3d" name="${nextLiveFrameName()}" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
+      const src = `${origin ? `${origin}/3d` : "/ncli3d.html"}#${encodeURIComponent(String(source || "").trim() || "ncli3d.graph({nodes:[],edges:[]})")}`;
+      const key = liveKey("3d", source);
+      return `<div class="live-wrap" data-live-key="${key}"><iframe class="live-frame live-3d" name="${nextLiveFrameName()}" title="live 3d" sandbox="allow-scripts" src="${escapeHtml(src)}"></iframe></div>`;
     }
     const inner =
       kind === "mermaid"
@@ -366,10 +416,15 @@ function iframeFor(kind, source) {
       return liveError(kind, source, "diagrama sem nós");
     }
     const html = compartmentHtml(inner, `<style>${liveDocCss()}</style>`);
-    return `<div class="live-wrap in">${liveFrameSrc(html, "live-frame", `live ${kind}`)}</div>`;
+    const key = liveKey(kind, source);
+    return `<div class="live-wrap" data-live-key="${key}">${liveFrameSrc(html, "live-frame", `live ${kind}`)}</div>`;
   } catch (err) {
     return liveError(kind, source, err instanceof Error ? err.message : String(err));
   }
+}
+
+function liveKey(kind, source) {
+  return uiKey(`${kind}\n${source}`);
 }
 
 function uiKey(source) {
@@ -377,6 +432,16 @@ function uiKey(source) {
   const s = String(source || "");
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return (h >>> 0).toString(36);
+}
+
+function reuseLiveFrames(next) {
+  if (!next) return next;
+  const keep = new Map([...log.querySelectorAll("[data-live-key]")].map((n) => [n.dataset.liveKey, n]));
+  for (const slot of [...next.querySelectorAll("[data-live-key]")]) {
+    const old = keep.get(slot.dataset.liveKey);
+    if (old && old !== slot) slot.replaceWith(old);
+  }
+  return next;
 }
 
 function extractUiBody(source) {
@@ -433,7 +498,7 @@ function killLiveFrame(iframe) {
   if (!home || home.dead) return;
   home.dead = true;
   iframe.removeAttribute("src");
-  iframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body></body></html>';
+  iframe.srcdoc = '<!doctype html><meta name=color-scheme content=dark><body style="background:#151518">';
 }
 
 function killAllLiveFrames() {
@@ -492,7 +557,10 @@ function bindLiveUrlAsks(root) {
       const wrap = btn.closest(".live-url-ask");
       if (!href || !wrap) return;
       wrap.classList.remove("live-url-ask");
+      wrap.classList.remove("ready");
       wrap.innerHTML = `<iframe class="live-frame" data-live-kind="url" title="live url" sandbox="allow-scripts" src="${escapeHtml(href)}"></iframe>`;
+      const frame = wrap.querySelector("iframe");
+      if (frame) frame.addEventListener("load", () => wrap.classList.add("ready"), { once: true });
     });
   }
 }
@@ -532,6 +600,7 @@ window.addEventListener("message", (ev) => {
   if (d0 && d0.type === "ncli-live") {
     const frame = liveFrameFromEvent(ev);
     if (d0.op === "hello" && frame) adoptLiveFrame(frame, ev.source);
+    if (d0.op === "ready" && frame) frame.closest(".live-wrap")?.classList.add("ready");
     if (d0.op === "nav") killLiveFrames(frame);
     return;
   }
@@ -540,6 +609,7 @@ window.addEventListener("message", (ev) => {
   const d = ev.data;
   if (!d || d.type !== "ncli-3d") return;
   if (d.op === "ready") {
+    iframe.closest(".live-wrap")?.classList.add("ready");
     iframe.dataset.ncli3dKind = d.kind || "";
     iframe.dataset.ncli3dBtns = (d.buttons || []).join("|");
     iframe.dataset.ncli3dEngine = d.engine || "";
@@ -892,12 +962,15 @@ function scheduleIdleMd(m, mid) {
     rowHtmlCache.set(mid + rowSig(m), html);
     const node = log.querySelector(`[data-mid="${CSS.escape(mid)}"]`);
     if (!node) return;
-    const next = elFromHtml(html);
+    const next = reuseLiveFrames(elFromHtml(html));
     if (next) {
       next.dataset.i = String(m.i);
       next.classList.add("virt-item");
+      attachWork(next, m);
       node.replaceWith(next);
       watchHeight(next);
+      bindLiveGuards(next);
+      bindLiveUrlAsks(next);
     }
   };
   if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 800 });
@@ -908,6 +981,126 @@ function elFromHtml(html) {
   const wrap = document.createElement("div");
   wrap.innerHTML = html;
   return wrap.firstElementChild;
+}
+
+function chatTail() {
+  return log.querySelector(":scope > .m.stream, :scope > .live");
+}
+
+function appendChatRow(node) {
+  const live = chatTail();
+  if (live) log.insertBefore(node, live);
+  else log.appendChild(node);
+}
+
+function findRow(m) {
+  const mid = messageMid(m, m.i ?? -1);
+  const byMid = log.querySelector(`[data-mid="${CSS.escape(mid)}"]`);
+  if (byMid) return byMid;
+  if (m.i != null && m.i >= 0) {
+    const byI = log.querySelector(`[data-i="${CSS.escape(String(m.i))}"]`);
+    if (byI) return byI;
+  }
+  if (m.kind === "talk") {
+    const stream = log.querySelector(":scope > .m.stream, [data-mid^=\"turn:\"]");
+    if (stream) return stream;
+  }
+  if (m.kind === "user") {
+    const users = [...log.querySelectorAll(":scope > .u")];
+    const hit = [...users].reverse().find((n) => (n.textContent || "") === m.text);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function echoUser(m) {
+  if (log.querySelector(".welcome")) log.replaceChildren();
+  const mid = messageMid(m, m.i ?? -1);
+  const node = elFromHtml(messageRowHtml(m, mid));
+  if (!node) return null;
+  node.dataset.i = String(m.i ?? "");
+  node.classList.add("virt-item", "enter");
+  node.style.setProperty("--row-h", `${estimatedH(m)}px`);
+  appendChatRow(node);
+  watchHeight(node);
+  if (m.i != null && m.i >= 0) {
+    virt.heights.set(m.i, node.getBoundingClientRect().height || estimatedH(m));
+    markBlock(m.i);
+  }
+  return node;
+}
+
+function attachWork(node, m) {
+  if (!node || !m || m.kind !== "talk" || !state.lastTurn) return;
+  if (node.querySelector(".work-sum")) return;
+  const disc = node.querySelector(".work-disc");
+  const html = workDisclosure(state.lastTurn);
+  if (disc) {
+    const next = elFromHtml(html);
+    if (next) disc.replaceWith(next);
+    return;
+  }
+  node.querySelector(".bb")?.insertAdjacentHTML("beforeend", html);
+}
+
+function patchMessage(m) {
+  if (!m || !log) return;
+  rememberMsg(m);
+  const mid = messageMid(m, m.i ?? -1);
+  const existing = findRow(m);
+  if (existing && m.kind === "talk" && (existing.classList.contains("stream") || (existing.dataset.mid || "").startsWith("turn:"))) {
+    existing.dataset.mid = mid;
+    existing.dataset.i = String(m.i ?? "");
+    existing.classList.add("virt-item");
+    const md = existing.querySelector(".md");
+    if (md) md.innerHTML = bodyHtml(m.text);
+    const tm = existing.querySelector(".tm");
+    if (tm) tm.textContent = timeOf(m.date);
+    attachWork(existing, m);
+    watchHeight(existing);
+    return existing;
+  }
+  const next = reuseLiveFrames(elFromHtml(cachedRowHtml(m, mid)));
+  if (!next) return null;
+  next.dataset.i = String(m.i ?? "");
+  next.classList.add("virt-item");
+  next.style.setProperty("--row-h", `${m.i != null ? heightOf(m.i) : estimatedH(m)}px`);
+  attachWork(next, m);
+  if (existing) existing.replaceWith(next);
+  else appendChatRow(next);
+  watchHeight(next);
+  bindLiveGuards(next);
+  bindLiveUrlAsks(next);
+  return next;
+}
+
+function revealOwn(el) {
+  if (!el || !chat) return;
+  stick.follow = true;
+  const box = chat.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const top = Math.max(0, chat.scrollTop + (r.top - box.top) - 24);
+  setChatTop(top);
+}
+
+function finishTurn(turn) {
+  for (const n of [...log.querySelectorAll(".live.quiet")]) n.remove();
+  const slot = log.querySelector(":scope > .m.stream, [data-mid^=\"turn:\"]");
+  if (slot) {
+    slot.classList.remove("stream");
+    const tm = slot.querySelector(".tm");
+    if (tm) tm.textContent = timeOf(turn.endedAt || turn.startedAt || new Date().toISOString());
+    const disc = slot.querySelector(".work-disc");
+    const html = workDisclosure(turn);
+    if (disc && !disc.querySelector(".work-sum")) {
+      const next = elFromHtml(html);
+      if (next) disc.replaceWith(next);
+    } else if (!disc) {
+      slot.querySelector(".bb")?.insertAdjacentHTML("beforeend", html);
+    }
+  }
+  log.classList.remove("turning");
+  paintScrollHints();
 }
 
 function captureAnchor() {
@@ -938,12 +1131,23 @@ function restoreAnchor(anchor) {
   }
 }
 
+function estimatedH(m) {
+  if (!m) return EST_H;
+  if (m.kind === "user") return 64;
+  if (m.kind === "seat" || m.kind === "bus" || m.kind === "note") return 48;
+  return 240;
+}
+
 function heightOf(i) {
-  return virt.heights.get(i) || EST_H;
+  const hit = virt.heights.get(i);
+  if (hit) return hit;
+  return estimatedH(virt.byId.get(i));
 }
 
 function markBlock(i) {
-  virt.dirty[Math.floor(i / VBLOCK)] = true;
+  const b = Math.floor(i / VBLOCK);
+  virt.dirty[b] = true;
+  syncPref(b);
 }
 
 function blockH(b) {
@@ -957,30 +1161,48 @@ function blockH(b) {
   return s;
 }
 
+function syncPref(fromBlock) {
+  const blocks = Math.max(0, Math.ceil(virt.count / VBLOCK));
+  let y = fromBlock > 0 ? virt.pref[fromBlock - 1] || 0 : 0;
+  for (let b = fromBlock; b < blocks; b++) {
+    y += blockH(b);
+    virt.pref[b] = y;
+  }
+  virt.pref.length = blocks;
+}
+
 function offsetOf(i) {
   const n = Math.max(0, Math.min(i, virt.count));
   const b = Math.floor(n / VBLOCK);
-  let y = 0;
-  for (let k = 0; k < b; k++) y += blockH(k);
+  const blocks = Math.max(0, Math.ceil(virt.count / VBLOCK));
+  if (virt.pref.length !== blocks) syncPref(0);
+  let y = b > 0 ? virt.pref[b - 1] || 0 : 0;
   for (let k = b * VBLOCK; k < n; k++) y += heightOf(k);
   return y;
 }
 
 function indexAt(y) {
   if (y <= 0) return 0;
-  let acc = 0;
   const blocks = Math.max(1, Math.ceil(virt.count / VBLOCK));
-  for (let b = 0; b < blocks; b++) {
-    const h = blockH(b);
-    if (acc + h > y) {
-      const from = b * VBLOCK;
-      const to = Math.min(virt.count, from + VBLOCK);
-      for (let i = from; i < to; i++) {
-        acc += heightOf(i);
-        if (acc > y) return i;
-      }
+  if (virt.pref.length !== blocks) syncPref(0);
+  let lo = 0;
+  let hi = blocks - 1;
+  let b = blocks - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if ((virt.pref[mid] || 0) > y) {
+      b = mid;
+      hi = mid - 1;
+    } else {
+      lo = mid + 1;
     }
-    acc += h;
+  }
+  let acc = b > 0 ? virt.pref[b - 1] || 0 : 0;
+  const from = b * VBLOCK;
+  const to = Math.min(virt.count, from + VBLOCK);
+  for (let i = from; i < to; i++) {
+    acc += heightOf(i);
+    if (acc > y) return i;
   }
   return Math.max(0, virt.count - 1);
 }
@@ -995,10 +1217,12 @@ function rememberMsg(m) {
 }
 
 function seedVirt(messages, count) {
+  const prev = virt.count;
   for (const m of messages || []) rememberMsg(m);
   if (count != null) virt.count = Math.max(virt.count, count);
   const maxI = messages && messages.length ? Math.max(...messages.map((m) => m.i).filter((i) => i >= 0)) : -1;
   if (maxI >= 0) virt.count = Math.max(virt.count, maxI + 1);
+  if (virt.count !== prev) syncPref(Math.floor(prev / VBLOCK));
 }
 
 function watchHeight(el) {
@@ -1015,6 +1239,7 @@ function watchHeight(el) {
         const above = node.getBoundingClientRect().bottom < box.top + 4;
         virt.heights.set(i, h);
         markBlock(i);
+        persistHeights();
         if (above && !stick.follow) setChatTop(chat.scrollTop + (h - old));
       }
     });
@@ -1023,8 +1248,18 @@ function watchHeight(el) {
 }
 
 function virtRange() {
-  const top = chat ? chat.scrollTop : 0;
   const view = chat ? chat.clientHeight : 800;
+  if (stick.follow || !virt.primed) {
+    const end = virt.count;
+    let y = 0;
+    let start = end;
+    while (start > 0 && y < view + OVERSCAN) {
+      start -= 1;
+      y += heightOf(start);
+    }
+    return { start, end: Math.max(start + 1, end) };
+  }
+  const top = chat ? chat.scrollTop : 0;
   const start = indexAt(Math.max(0, top - OVERSCAN));
   const end = Math.min(virt.count, indexAt(top + view + OVERSCAN) + 1);
   return { start, end: Math.max(start + 1, end) };
@@ -1092,6 +1327,7 @@ function syncChat() {
   if (log.querySelector(".welcome")) log.replaceChildren();
   seedVirt(state.messages, state.messageCount);
   paintVirt();
+  log.classList.toggle("turning", Boolean(state.turn && state.turn.status === "running"));
   if (state.turn && state.turn.status === "running") paintLive();
   else if (state.stream) {
     const seat = state.streamSeat || "claude";
@@ -1123,6 +1359,9 @@ function paintVirt() {
         const wrap = document.createElement("div");
         wrap.innerHTML = desired.map((r) => r.html).join("");
         log.append(...wrap.children);
+        bindLiveGuards(log);
+        bindLiveUrlAsks(log);
+        bind3dPause();
       }
     }
     return;
@@ -1137,21 +1376,27 @@ function paintVirt() {
     const i = Number(n.dataset.i);
     if (Number.isFinite(i)) byI.set(i, n);
   }
-  const gap = document.createElement("div");
+  const order = [];
   for (let i = start; i < end; i++) {
     const m = virt.byId.get(i);
     if (!m) continue;
     keep.add(i);
     let node = byI.get(i);
     const mid = messageMid(m, i);
+    if (node && node.dataset.mid !== mid) {
+      if (heightRo) heightRo.unobserve(node);
+      node.remove();
+      node = null;
+    }
     if (!node) {
-      node = elFromHtml(cachedRowHtml(m, mid, true));
+      node = reuseLiveFrames(elFromHtml(cachedRowHtml(m, mid, true)));
       if (!node) continue;
       node.dataset.i = String(i);
       node.classList.add("virt-item");
     }
-    gap.appendChild(node);
-    watchHeight(node);
+    node.style.setProperty("--row-h", `${heightOf(i)}px`);
+    order.push(node);
+    if (!node.isConnected) watchHeight(node);
   }
   for (const [i, n] of byI) {
     if (!keep.has(i)) {
@@ -1161,9 +1406,25 @@ function paintVirt() {
   }
   const live = log.querySelector(":scope > .live, :scope > .stream");
   const bot = spaces.bot;
-  while (gap.firstChild) log.insertBefore(gap.firstChild, bot || live);
+  let cursor = spaces.top.nextSibling;
+  for (const node of order) {
+    if (node === cursor) {
+      cursor = node.nextSibling;
+      continue;
+    }
+    const at = cursor && cursor !== live && cursor !== bot ? cursor : bot || live;
+    log.insertBefore(node, at);
+  }
   spaces.top.style.height = `${offsetOf(start)}px`;
   spaces.bot.style.height = `${Math.max(0, totalH() - offsetOf(end))}px`;
+  virt.primed = true;
+  bindLiveGuards(log);
+  bindLiveUrlAsks(log);
+  bind3dPause();
+  if (stick.follow && chat) {
+    if (log.classList.contains("turning") && !nearFloor()) followScroll();
+    else setChatTop(Math.max(0, chat.scrollHeight - chat.clientHeight));
+  }
   void prefetchVirt(start, end);
 }
 
@@ -1216,19 +1477,6 @@ async function jumpVirt(i) {
 
 async function jumpStart() {
   await jumpVirt(0);
-}
-
-async function jumpDate(day) {
-  const meta = await (await fetch("/api/messages/meta")).json();
-  const ticks = meta.ticks || [];
-  let i = 0;
-  for (const t of ticks) {
-    if (t.day >= day) {
-      i = t.i;
-      break;
-    }
-  }
-  await jumpVirt(i);
 }
 
 async function searchHist(q) {
@@ -1340,19 +1588,30 @@ function paintLive() {
   const turn = state.turn;
   if (!turn || turn.status !== "running") {
     dropStreamNode();
-    renderChat();
+    log.classList.remove("turning");
     paintScrollHints();
     return;
   }
+  log.classList.add("turning");
   const html = liveTurnHtml(turn);
-  const node = log.querySelector(":scope > .live.quiet");
+  const node = log.querySelector(":scope > .m.stream, :scope > .live.quiet");
   if (!node) {
     log.insertAdjacentHTML("beforeend", html);
   } else {
-    const wrap = document.createElement("div");
-    wrap.innerHTML = html;
-    const next = wrap.firstElementChild;
-    if (next) node.replaceWith(next);
+    const phrase = node.querySelector(".shimmer-text");
+    const elapsed = node.querySelector(".tdur");
+    const md = node.querySelector(".md.chunk");
+    const q = quietOf(turn);
+    if (phrase && elapsed && md) {
+      phrase.textContent = q.phrase;
+      elapsed.textContent = q.elapsed;
+      if (q.answer) md.innerHTML = bodyHtml(q.answer, true);
+      if (q.stuck) node.setAttribute("data-stuck", "1");
+      else node.removeAttribute("data-stuck");
+    } else {
+      const next = elFromHtml(html);
+      if (next) node.replaceWith(next);
+    }
   }
   if (stick.follow) followScroll();
   paintScrollHints();
@@ -1361,7 +1620,7 @@ function paintLive() {
 function paintTick() {
   if (!state.turn || state.turn.status !== "running") return;
   const q = quietOf(state.turn);
-  const live = log.querySelector(".live.quiet");
+  const live = log.querySelector(".m.stream, .live.quiet");
   const el = live && live.querySelector(".tdur");
   const phrase = live && live.querySelector(".shimmer-text");
   if (el) el.textContent = q.elapsed;
@@ -1390,19 +1649,18 @@ function paintScrollHints() {
     streamOff = r.bottom > box.bottom - 8 || r.top > box.bottom;
   }
   const far = max - top > view;
-  const show = (!stick.follow && far) || streamOff;
+  const show = (!stick.follow && (far || streaming)) || streamOff;
   jump.hidden = !show;
   jump.classList.toggle("show", show);
-  jump.classList.toggle("live", streamOff);
-  jump.textContent = streamOff && !stick.follow ? "↓ resposta em curso" : "↓ agora";
+  jump.classList.toggle("live", streamOff || (streaming && !stick.follow));
+  jump.textContent = streaming && !stick.follow ? "↓ nova resposta" : "↓ agora";
 }
 
 function jumpToLatest() {
   userUp = false;
   stick.follow = true;
-  if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
-  else followScroll();
   paintVirt();
+  snapToFloor();
   paintScrollHints();
 }
 
@@ -1501,17 +1759,17 @@ function thinkBlock(seat, model, text, open, durationMs) {
 
 function liveTurnHtml(turn) {
   const q = quietOf(turn);
+  const seat = turn.seat || "claude";
+  const nm = seat === "claude" ? "ncl" : seat === "codex" ? "ncx" : "ncu";
   const chips = (q.chips || []).map((c) => (
     `<span class="consult-chip">${avatar(c.seat)}${escapeHtml(c.label)}</span>`
   )).join("");
-  const answer = q.answer
-    ? `<div class="live-answer"><div class="md chunk">${bodyHtml(q.answer, true)}</div></div>`
-    : "";
-  return `<div class="live quiet" data-turn="${escapeHtml(turn.id)}"${q.stuck ? " data-stuck=\"1\"" : ""}>
-    <div class="live-status"><span class="shimmer-text">${escapeHtml(q.phrase)}</span><span class="tdur">${escapeHtml(q.elapsed)}</span></div>
+  return `<div class="m stream" data-mid="turn:${escapeHtml(turn.id)}" data-turn="${escapeHtml(turn.id)}"${q.stuck ? " data-stuck=\"1\"" : ""}>${avatar(seat)}<div class="bb">
+    <div class="nm ${nm}">${escapeHtml(agentLabel(seat, turn.model))}<span class="tm"><span class="shimmer-text">${escapeHtml(q.phrase)}</span> <span class="tdur">${escapeHtml(q.elapsed)}</span></span></div>
     ${chips ? `<div class="consult-chips">${chips}</div>` : ""}
-    ${answer}
-  </div>`;
+    <div class="md chunk">${q.answer ? bodyHtml(q.answer, true) : ""}</div>
+    <div class="work-disc" aria-hidden="true"></div>
+  </div></div>`;
 }
 
 function workDisclosure(turn) {
@@ -2607,7 +2865,9 @@ function applyEvent(ev) {
           virt.count = Math.max(virt.count, ev.message.i + 1);
         }
         trimFollowWindow();
-        scheduleFullPaint();
+        patchMessage(ev.message);
+        if (stick.follow) followScroll();
+        paintScrollHints();
       } else if (state.openSpark === ev.session && state.sparkDetail) {
         state.sparkDetail.messages = state.sparkDetail.messages || [];
         state.sparkDetail.messages.push(ev.message);
@@ -2685,11 +2945,10 @@ function applyEvent(ev) {
         renderChrome();
         if (ev.turn && ev.turn.status !== "running") {
           state.stream = "";
-          dropStreamNode();
           if (ev.turn.status === "done" || ev.turn.status === "error" || ev.turn.status === "stopped") {
             state.lastTurn = ev.turn;
           }
-          scheduleFullPaint();
+          finishTurn(ev.turn);
         } else {
           scheduleLivePaint();
         }
@@ -3042,11 +3301,19 @@ async function sendUser(text, mode) {
       lastEventAt: pending.date,
       steps: [],
     };
-    const keepTop = chat ? chat.scrollTop : 0;
-    if (atFloor) stick.follow = true;
-    else stick.follow = false;
-    syncChat();
-    if (!atFloor) setChatTop(keepTop);
+    log.classList.add("turning");
+    const node = echoUser(pending);
+    paintLive();
+    if (atFloor) {
+      stick.follow = true;
+      snapToFloor();
+      requestAnimationFrame(() => {
+        if (stick.follow) snapToFloor();
+      });
+    } else {
+      revealOwn(node);
+    }
+    paintScrollHints();
     paintTick();
   }
   const res = await fetch("/api/message", {
@@ -3264,12 +3531,17 @@ document.addEventListener("keydown", (e) => {
   if (e.target === input) return;
   if (e.key === "PageUp" || e.key === "ArrowUp" || e.key === "Home") markUserUp();
 });
+let scrollHide = 0;
 chat.addEventListener("scroll", () => {
+  document.body.classList.add("scrolling");
+  clearTimeout(scrollHide);
+  scrollHide = setTimeout(() => document.body.classList.remove("scrolling"), 600);
   const top = chat.scrollTop;
   const leftover = chat.scrollHeight - top - chat.clientHeight;
   if (programmaticScroll) {
     lastScrollTop = top;
     paintScrollHints();
+    paintHist();
     return;
   }
   if (userUp || top < lastScrollTop) {
@@ -3288,15 +3560,43 @@ chat.addEventListener("scroll", () => {
 bindChatFloor();
 bindComposerModality();
 $("jumpLatest")?.addEventListener("click", jumpToLatest);
-$("histStart")?.addEventListener("click", () => void jumpStart());
-$("histGo")?.addEventListener("click", () => {
-  const v = $("histDate")?.value;
-  if (v) void jumpDate(v);
+
+function histFindOpen() {
+  const el = $("histFind");
+  if (!el) return;
+  el.hidden = false;
+  requestAnimationFrame(() => el.classList.add("open"));
+  $("histQ")?.focus();
+}
+
+function histFindClose() {
+  const el = $("histFind");
+  if (!el) return;
+  el.classList.remove("open");
+  const hide = () => {
+    if (!el.classList.contains("open")) el.hidden = true;
+  };
+  el.addEventListener("transitionend", hide, { once: true });
+  setTimeout(hide, 200);
+}
+
+function histFindToggle() {
+  const el = $("histFind");
+  if (!el || el.hidden || !el.classList.contains("open")) histFindOpen();
+  else histFindClose();
+}
+
+$("histStart")?.addEventListener("click", () => {
+  histFindClose();
+  void jumpStart();
 });
 $("histSearch")?.addEventListener("submit", (e) => {
   e.preventDefault();
   const q = $("histQ")?.value?.trim();
-  if (q) void searchHist(q);
+  if (q) {
+    histFindClose();
+    void searchHist(q);
+  }
 });
 $("histTrack")?.addEventListener("click", (e) => {
   const track = $("histTrack");
@@ -3304,6 +3604,39 @@ $("histTrack")?.addEventListener("click", (e) => {
   const r = track.getBoundingClientRect();
   const t = (e.clientY - r.top) / Math.max(1, r.height);
   void jumpVirt(Math.floor(t * virt.count));
+});
+$("histTrack")?.addEventListener("pointermove", (e) => {
+  const track = $("histTrack");
+  const tip = $("histTip");
+  if (!track || !tip || !virt.count) return;
+  const r = track.getBoundingClientRect();
+  const t = (e.clientY - r.top) / Math.max(1, r.height);
+  const i = Math.min(virt.count - 1, Math.max(0, Math.floor(t * virt.count)));
+  const m = virt.byId.get(i);
+  const day = m && m.date
+    ? new Date(m.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    : "";
+  tip.hidden = false;
+  tip.textContent = day ? `${day} · #${i}` : `#${i}`;
+  tip.style.top = `${Math.max(0, e.clientY - r.top - 10)}px`;
+});
+$("histTrack")?.addEventListener("pointerleave", () => {
+  const tip = $("histTip");
+  if (tip) tip.hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    histFindToggle();
+    return;
+  }
+  if (e.key === "Escape") {
+    const find = $("histFind");
+    if (find && !find.hidden && find.classList.contains("open")) {
+      e.preventDefault();
+      histFindClose();
+    }
+  }
 });
 
 function bindComposerModality() {
@@ -3323,6 +3656,7 @@ window.addEventListener("resize", () => {
 });
 
 async function boot() {
+  loadHeights();
   const es = new EventSource("/api/events");
   es.onmessage = (m) => {
     try {
@@ -3363,12 +3697,9 @@ async function boot() {
   renderShortcuts();
   renderContext();
   if (stick.follow) {
-    if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
-    else snapToFloor();
+    snapToFloor();
     requestAnimationFrame(() => {
-      if (!stick.follow) return;
-      if (virt.count) setChatTop(Math.max(0, totalH() - (chat?.clientHeight || 0)));
-      else snapToFloor();
+      if (stick.follow) snapToFloor();
     });
   }
   const q = new URLSearchParams(location.search);

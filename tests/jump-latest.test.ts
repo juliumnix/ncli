@@ -164,11 +164,15 @@ test("chrome: a finished turn while scrolled up keeps the jump button", async ()
     await driver.session.attachPage("about:blank");
     await driver.session.send("Page.navigate", { url: booted.report.uiUrl });
     await waitChatReady(driver);
+    await driver.session.evaluate(`(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))()`);
     await driver.session.evaluate(`(() => {
       const chat = document.getElementById("chat");
+      chat.scrollTop = Math.max(0, (chat.scrollHeight - chat.clientHeight) / 2);
+      chat.dispatchEvent(new Event("scroll"));
       chat.scrollTop = 0;
       chat.dispatchEvent(new Event("scroll"));
     })()`);
+    await waitChatFloor(driver, (s) => s.top <= 8 && s.leftover > 400 && s.hidden === false, "stay at top");
     const send = hub.send("continua o texto longo");
     let after = { leftover: 0, hidden: true, stream: 1, live: 1, followClass: false };
     await waitUntil(async () => {

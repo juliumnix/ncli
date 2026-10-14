@@ -102,6 +102,34 @@ test("GET /api/state?before= pages older messages", async () => {
   }
 });
 
+test("/api/state serves the in-memory window and does not reread the log", () => {
+  const server = readFileSync(join(import.meta.dir, "../src/server.ts"), "utf8");
+  const route = server.slice(server.indexOf('pathname === "/api/state"'), server.indexOf('pathname === "/api/message"'));
+  expect(route).toContain("hub.snapshot");
+  expect(route).toContain("return Response.json(snap)");
+  expect(route).not.toContain("messagesPage");
+  expect(route).not.toContain("logIndex.count");
+});
+
+test("GET /api/state after ingest stays on the memory page", async () => {
+  const { hub } = await makeHub();
+  hub.cfg.port = 0;
+  const server = serve(hub, hub.cfg, join(import.meta.dir, "../public"));
+  try {
+    seedLog(hub, 6600);
+    const t0 = performance.now();
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/state`);
+    const ms = performance.now() - t0;
+    const body = (await res.json()) as { messages: unknown[]; messageCount: number };
+    expect(body.messageCount).toBe(6600);
+    expect(body.messages.length).toBe(STATE_PAGE);
+    expect(ms).toBeLessThan(250);
+  } finally {
+    server.stop(true);
+    hub.close();
+  }
+});
+
 test("app.js syncs chat by data-mid and never wipes the log", () => {
   const app = readFileSync(join(import.meta.dir, "../public/app.js"), "utf8");
   expect(app).toContain("function syncChat");

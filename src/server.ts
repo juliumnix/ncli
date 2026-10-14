@@ -95,13 +95,6 @@ export function serve(hub: Hub, cfg: NcliConfig, publicDir: string): ReturnType<
           before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
           limit: limitRaw == null || limitRaw === "" ? undefined : Number(limitRaw),
         });
-        if ((hub.memory.logIndex.count || 0) > snap.messages.length) {
-          const page = await hub.messagesPage({
-            before: beforeRaw == null || beforeRaw === "" ? undefined : Number(beforeRaw),
-            limit: limitRaw == null || limitRaw === "" ? 80 : Number(limitRaw),
-          });
-          return publicJson({ ...snap, ...page });
-        }
         return publicJson(snap);
       }
       if (url.pathname === "/api/message" && req.method === "POST") {

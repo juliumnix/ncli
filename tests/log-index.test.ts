@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LogIndex, MSG_PAGE } from "../src/memory/log-index";
 import { serve } from "../src/server";
@@ -69,4 +69,33 @@ test("GET /api/messages reads by cursor and search", async () => {
     server.stop(true);
     hub.close();
   }
+});
+
+test("a second boot keeps offsets.bin when the index is already fresh", async () => {
+  const { hub, dataDir } = await makeHub();
+  hub.memory.ingest(
+    Array.from({ length: 120 }, (_, i) => ({ kind: "user" as const, text: `n ${i}` })),
+    { quiet: true },
+  );
+  const bin = join(dataDir, "main", "log.offsets.bin");
+  const before = readFileSync(bin);
+  hub.close();
+  const again = await makeHub({ dataDir });
+  try {
+    expect(Buffer.compare(before, readFileSync(bin))).toBe(0);
+    expect(again.hub.memory.log.length).toBe(120);
+    expect(again.hub.memory.logIndex.count).toBe(120);
+    expect(again.hub.memory.logIndex.stale()).toBe(false);
+  } finally {
+    again.hub.close();
+  }
+});
+
+test("ingest stringifies each message once", () => {
+  const store = readFileSync(join(import.meta.dir, "../src/memory/store.ts"), "utf8");
+  const ingest = store.slice(store.indexOf("ingest(partials"), store.indexOf("publish():"));
+  expect(ingest).toContain("const lines = out.map");
+  expect(ingest).toContain("Buffer.byteLength(lines[k]");
+  expect(ingest).not.toMatch(/out\.map\(\(msg\) => `\$\{JSON\.stringify\(msg\)\}\\n`\)\.join/);
+  expect(store.slice(store.indexOf("private load()"), store.indexOf("if (existsSync(treePath)"))).toContain("const fresh");
 });
