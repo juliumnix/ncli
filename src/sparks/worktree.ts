@@ -6,6 +6,7 @@ export interface WorktreeHandle {
   path: string;
   branch: string;
   repo: string;
+  baseDir: string;
 }
 
 export interface GitRunner {
@@ -82,7 +83,7 @@ export async function addWorktree(
   const path = join(root, sparkId);
   const branch = `ncli/${sparkId}`;
   if (existsSync(path)) {
-    return { path, branch, repo: absRepo };
+    return { path, branch, repo: absRepo, baseDir: root };
   }
   const args = policy.detached
     ? (["worktree", "add", "--detach", path, "HEAD"] as string[])
@@ -95,7 +96,7 @@ export async function addWorktree(
     }
   }
   applyInclude(absRepo, path, policy.include);
-  return { path, branch, repo: absRepo };
+  return { path, branch, repo: absRepo, baseDir: root };
 }
 
 export async function inspectWorktree(

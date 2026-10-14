@@ -1,11 +1,12 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { Spark, SparkStatus, Message, NeedsUser } from "../types";
 import type { NcliConfig } from "../config";
 import type { Harness, HarnessEvent } from "../harness/types";
 import type { ViewAction } from "../views/types";
 import type { ViewRegistry } from "../views/registry";
-import { assertRunnable, availableHarnesses, emptyResult, formatSparkResult, sparkSkillPrompt, type SparkResult } from "../views/manifest";
+import { agentForStep, assertRunnable, availableHarnesses, emptyResult, formatSparkResult, sparkSkillPrompt, type ManifestHarness, type SparkResult } from "../views/manifest";
+import { pickHarness } from "../harness/pick";
 import type { GhClient } from "../gh/pr";
 import { Memory, type Compressor } from "../memory/store";
 import { assemble } from "../memory/assemble";
@@ -33,17 +34,22 @@ export interface SparkManagerHooks {
   onIdle?: (sparkId: string) => void;
   compressor: Compressor;
   harness: Harness;
+  harnessFor?: (id: ManifestHarness) => Harness | undefined;
   git?: GitRunner;
+  worktreeBase?: string;
   openPr?: OpenPr;
   findPr?: FindPr;
   bus?: Bus;
   inject?: (session: string, worktree?: string) => SpawnInject;
 }
 
+const OPEN_STATUS = new Set<SparkStatus>(["running", "needs_user"]);
+
 export class SparkManager {
   readonly runtimes = new Map<string, SparkRuntime>();
   private seqByView = new Map<string, number>();
   private shipping = new Map<string, Promise<ShipResult>>();
+  private readonly seats = new Map<string, Harness>();
 
   constructor(
     private readonly cfg: NcliConfig,
@@ -63,8 +69,9 @@ export class SparkManager {
       if (!meta) continue;
       const prev = this.seqByView.get(meta.view) ?? 0;
       if (meta.seq > prev) this.seqByView.set(meta.view, meta.seq);
+      const home = join(root, name);
       const memory = new Memory({
-        dir: join(root, name),
+        dir: home,
         nodeBytes: this.cfg.nodeBytes,
         viewBytes: this.cfg.viewBytes,
         compressor: this.hooks.compressor,
@@ -73,16 +80,15 @@ export class SparkManager {
         deferCutAfter: this.cfg.compactTries,
         compressTimeoutMs: this.cfg.compactTimeoutMs,
       });
-      const worktree = meta.worktree && meta.branch && meta.repo
-        ? { path: join(meta.repo, ".ncli", "wt", name), branch: meta.branch, repo: meta.repo }
-        : undefined;
-      this.runtimes.set(meta.id, {
+      const rt: SparkRuntime = {
         spark: meta,
         memory,
         abort: new AbortController(),
-        worktree,
+        worktree: restoreWorktree(home, meta),
         seats: {},
-      });
+      };
+      this.watchAbort(rt);
+      this.runtimes.set(meta.id, rt);
     }
     }
   }
@@ -108,13 +114,23 @@ export class SparkManager {
   }
 
   findOpen(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
-    return [...this.runtimes.values()].find((r) => {
-      if (r.spark.view !== viewId) return false;
-      if (viewId === "review") {
-        return sameReviewParams(r.spark.params, params);
-      }
-      return new URLSearchParams(r.spark.params).toString() === new URLSearchParams(params).toString();
-    });
+    return [...this.runtimes.values()].find(
+      (r) => OPEN_STATUS.has(r.spark.status) && this.sameSpark(viewId, params, r),
+    );
+  }
+
+  private findSettled(viewId: string, params: Record<string, string>): SparkRuntime | undefined {
+    const hits = [...this.runtimes.values()].filter(
+      (r) => !OPEN_STATUS.has(r.spark.status) && this.sameSpark(viewId, params, r),
+    );
+    hits.sort((a, b) => b.spark.seq - a.spark.seq);
+    return hits[0];
+  }
+
+  private sameSpark(viewId: string, params: Record<string, string>, rt: SparkRuntime): boolean {
+    if (rt.spark.view !== viewId) return false;
+    if (viewId === "review") return sameReviewParams(rt.spark.params, params);
+    return new URLSearchParams(rt.spark.params).toString() === new URLSearchParams(params).toString();
   }
 
   async open(viewId: string, params: Record<string, string>): Promise<SparkRuntime> {
@@ -128,6 +144,8 @@ export class SparkManager {
       this.hooks.onEvent({ type: "spark", session: existing.spark.id, payload: existing.spark });
       return existing;
     }
+    const settled = this.findSettled(viewId, parsed);
+    if (settled) return this.reopen(settled, parsed);
     const created = await plugin.createSpark(parsed, {
       dataDir: this.cfg.dataDir,
       repo: this.cfg.repo,
@@ -153,34 +171,69 @@ export class SparkManager {
     let worktree: WorktreeHandle | undefined;
     if (created.needsWorktree) {
       try {
-        worktree = await addWorktree(created.repo ?? this.cfg.repo, id, this.hooks.git);
+        worktree = await addWorktree(created.repo ?? this.cfg.repo, id, this.hooks.git, this.hooks.worktreeBase);
         spark.worktree = shortWt(worktree.path);
         spark.branch = worktree.branch;
-      } catch {
-        spark.worktree = "sem wt";
+        spark.repo = worktree.repo;
+      } catch (err) {
+        spark.status = "error";
+        spark.summary = (err as Error).message;
+        const failed = this.bind(spark, undefined);
+        this.runtimes.set(id, failed);
+        persistRuntime(failed);
+        this.hooks.onEvent({ type: "spark", session: id, payload: spark });
+        throw err;
       }
     }
-    const memory = new Memory({
-      dir: join(this.cfg.dataDir, "sparks", id),
-      nodeBytes: this.cfg.nodeBytes,
-      viewBytes: this.cfg.viewBytes,
-      compressor: this.hooks.compressor,
-      pumpBatch: this.cfg.compactBatch,
-      compactJobs: this.cfg.compactJobs,
-      deferCutAfter: this.cfg.compactTries,
-      compressTimeoutMs: this.cfg.compactTimeoutMs,
-    });
-    const rt: SparkRuntime = {
-      spark,
-      memory,
-      abort: new AbortController(),
-      worktree,
-      seats: {},
-    };
+    const rt = this.bind(spark, worktree);
     this.runtimes.set(id, rt);
-    persistSpark(this.cfg.dataDir, spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: spark });
     await this.maybeArchiveMerged(rt, false);
+    void this.runTurn(rt, created.prompt, true);
+    return rt;
+  }
+
+  private async reopen(rt: SparkRuntime, parsed: Record<string, string>): Promise<SparkRuntime> {
+    const plugin = this.views.get(rt.spark.view);
+    if (!plugin) throw new Error(`view desconhecida: ${rt.spark.view}`);
+    const created = await plugin.createSpark(parsed, {
+      dataDir: this.cfg.dataDir,
+      repo: this.cfg.repo,
+      fetchPr: (pr, spec) => this.gh.view(pr, spec),
+    });
+    rt.abort = new AbortController();
+    this.watchAbort(rt);
+    rt.spark.status = created.needsUser ? "needs_user" : "running";
+    rt.spark.needsUser = created.needsUser;
+    rt.spark.hold = created.hold;
+    rt.spark.mergedAt = undefined;
+    rt.spark.title = created.title;
+    rt.spark.ui = created.ui ?? rt.spark.ui;
+    rt.spark.flowStep = created.flowStep ?? rt.spark.flowStep;
+    if (created.needsWorktree) {
+      try {
+        const worktree = await addWorktree(
+          created.repo ?? rt.spark.repo ?? this.cfg.repo,
+          rt.spark.id,
+          this.hooks.git,
+          this.hooks.worktreeBase,
+        );
+        rt.worktree = worktree;
+        rt.spark.worktree = shortWt(worktree.path);
+        rt.spark.branch = worktree.branch;
+        rt.spark.repo = worktree.repo;
+      } catch (err) {
+        rt.spark.status = "error";
+        rt.spark.summary = (err as Error).message;
+        rt.worktree = undefined;
+        persistRuntime(rt);
+        this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
+        throw err;
+      }
+    }
+    persistRuntime(rt);
+    this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     void this.runTurn(rt, created.prompt, true);
     return rt;
   }
@@ -195,7 +248,7 @@ export class SparkManager {
     }
     rt.spark.status = "running";
     rt.spark.needsUser = undefined;
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     await this.runTurn(rt, text, false);
   }
@@ -225,13 +278,13 @@ export class SparkManager {
       const note = rt.memory.append({ kind: "note", text: result.note });
       this.hooks.onEvent({ type: "message", session: id, payload: note });
     }
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     await this.maybeArchiveMerged(rt);
     if (result?.ask) {
       rt.spark.status = "running";
       rt.spark.needsUser = undefined;
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       await this.runTurn(rt, result.ask, false);
     }
@@ -245,6 +298,7 @@ export class SparkManager {
     const rt = this.runtimes.get(id);
     if (!rt) return;
     await this.merge(rt, summary ?? rt.spark.summary ?? `spark ${id} terminou`);
+    await this.dropWorktree(id);
   }
 
   async close(id: string): Promise<void> {
@@ -255,9 +309,7 @@ export class SparkManager {
       await this.merge(rt, rt.spark.summary ?? "fechado");
     }
     await this.maybeArchiveMerged(rt);
-    if (rt.worktree) {
-      await this.archive(id, false);
-    }
+    await this.dropWorktree(id);
   }
 
   async maybeArchiveMerged(rt: SparkRuntime, fresh = true): Promise<void> {
@@ -324,7 +376,7 @@ export class SparkManager {
       const num = result.url.match(/\/pull\/(\d+)/)?.[1];
       if (num) rt.spark.params.pr = num;
       const note = rt.memory.append({ kind: "note", text: `PR ${result.url}` });
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       this.hooks.onEvent({ type: "message", session: id, payload: note });
     }
@@ -333,12 +385,14 @@ export class SparkManager {
 
   async archive(id: string, force = false): Promise<ArchiveResult | undefined> {
     const rt = this.runtimes.get(id);
-    if (!rt?.worktree) return undefined;
+    if (!rt) return undefined;
+    this.harnessFor(rt).release?.(rt.spark.id);
+    if (!rt.worktree) return undefined;
     const result = await archiveWorktree(rt.worktree, this.hooks.git ?? realGit, { force });
     if (result.ok) {
       rt.worktree = undefined;
       rt.spark.worktree = "arquivo";
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
       return result;
     }
@@ -347,14 +401,62 @@ export class SparkManager {
       kind: "note",
       text: `worktree ${result.blocked}: ${why}. Fecha de novo com force para arquivar.`,
     });
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: id, payload: rt.spark });
     return result;
+  }
+
+  private async dropWorktree(id: string): Promise<void> {
+    const rt = this.runtimes.get(id);
+    if (!rt?.worktree) return;
+    await this.archive(id, true);
+  }
+
+  private harnessFor(rt: SparkRuntime): Harness {
+    const pack = this.views.packageOf(rt.spark.view);
+    const wanted = pack ? agentForStep(pack.manifest, rt.spark.flowStep)?.harness : undefined;
+    if (!wanted || wanted === "auto" || wanted === this.hooks.harness.id) return this.hooks.harness;
+    const provided = this.hooks.harnessFor?.(wanted);
+    if (provided) return provided;
+    if (this.hooks.harness.id === "mock") return this.hooks.harness;
+    const cached = this.seats.get(wanted);
+    if (cached) return cached;
+    const made = pickHarness({ ...this.cfg, harness: wanted });
+    this.seats.set(wanted, made);
+    return made;
+  }
+
+  private bind(spark: Spark, worktree: WorktreeHandle | undefined): SparkRuntime {
+    const rt: SparkRuntime = {
+      spark,
+      memory: new Memory({
+        dir: join(this.cfg.dataDir, "sparks", spark.id),
+        nodeBytes: this.cfg.nodeBytes,
+        viewBytes: this.cfg.viewBytes,
+        compressor: this.hooks.compressor,
+        pumpBatch: this.cfg.compactBatch,
+        compactJobs: this.cfg.compactJobs,
+        deferCutAfter: this.cfg.compactTries,
+        compressTimeoutMs: this.cfg.compactTimeoutMs,
+      }),
+      abort: new AbortController(),
+      worktree,
+      seats: {},
+    };
+    this.watchAbort(rt);
+    return rt;
+  }
+
+  private watchAbort(rt: SparkRuntime): void {
+    rt.abort.signal.addEventListener("abort", () => {
+      this.harnessFor(rt).release?.(rt.spark.id);
+    });
   }
 
   private async runTurn(rt: SparkRuntime, userText: string, isBoot: boolean): Promise<void> {
     void rt.memory.pump();
     const pack = this.views.packageOf(rt.spark.view);
+    const harness = this.harnessFor(rt);
     const extra = pack
       ? `Spark ${rt.spark.id} of ${pack.manifest.name}. Isolated worktree: ${rt.worktree?.path ?? "none"}. Flow step: ${rt.spark.flowStep ?? "spark"}.`
       : `You are running view '${rt.spark.view}' as spark ${rt.spark.id}. Isolated worktree: ${rt.worktree?.path ?? "none"}.`;
@@ -372,10 +474,11 @@ export class SparkManager {
       const inj = this.hooks.inject
         ? this.hooks.inject(rt.spark.id, rt.worktree?.path)
         : undefined;
-      const live = new LiveTurn(rt.spark.id, seatOf(this.hooks.harness.id));
+      const live = new LiveTurn(rt.spark.id, seatOf(harness.id));
       const tools: string[] = [];
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
-      for await (const ev of this.hooks.harness.run({
+      const model = pack ? agentForStep(pack.manifest, rt.spark.flowStep)?.model : undefined;
+      for await (const ev of harness.run({
         prompt: `${ctx.view}\n\n${inbox}${userText}`,
         system: ctx.system,
         cwd: rt.worktree?.path ?? this.cfg.repo,
@@ -383,8 +486,9 @@ export class SparkManager {
         signal: rt.abort.signal,
         mcpConfigPath: inj?.mcpConfigPath,
         mcpServers: inj?.mcpServers,
-        addDir: this.hooks.harness.id === "claude" ? inj?.addDir : undefined,
-        extraArgs: this.hooks.harness.id === "codex" ? inj?.extraArgs : undefined,
+        addDir: pack?.skillDirs ?? [],
+        extraArgs: harness.id === "codex" ? inj?.extraArgs : undefined,
+        model,
       })) {
         this.handleHarness(rt, ev, live, tools);
         if (ev.type === "text") talk = joinText(talk, ev.text);
@@ -394,27 +498,28 @@ export class SparkManager {
       live.finish(rt.abort.signal.aborted ? "stopped" : "done");
       this.hooks.onEvent({ type: "turn", session: rt.spark.id, payload: live.turn });
       const summary = toolActivityLine(tools);
-      if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(this.hooks.harness.id) });
+      if (summary) rt.memory.append({ kind: "note", text: summary, seat: seatOf(harness.id) });
       rt.spark.summary = talk.trim().slice(0, 400) || rt.spark.summary;
       if (rt.spark.status === "merged") return;
       if (rt.spark.needsUser) {
         rt.spark.status = "needs_user";
-        persistSpark(this.cfg.dataDir, rt.spark);
+        persistRuntime(rt);
         this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
       if (rt.spark.hold) {
         rt.spark.status = "running";
-        persistSpark(this.cfg.dataDir, rt.spark);
+        persistRuntime(rt);
         this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
         return;
       }
       rt.spark.status = "done";
       await this.merge(rt, rt.spark.summary ?? talk);
     } catch (err) {
+      if (rt.spark.status === "merged") return;
       rt.spark.status = "error";
       rt.spark.summary = (err as Error).message;
-      persistSpark(this.cfg.dataDir, rt.spark);
+      persistRuntime(rt);
       this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     } finally {
       this.hooks.onIdle?.(rt.spark.id);
@@ -449,7 +554,7 @@ export class SparkManager {
         break;
       case "done":
         if (ev.text) {
-          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.hooks.harness.id), model: live.turn.model });
+          const msg = rt.memory.append({ kind: "talk", text: ev.text, seat: seatOf(this.harnessFor(rt).id), model: live.turn.model });
           this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: msg });
           const plugin = this.views.get(rt.spark.view);
           const patch = plugin?.onEvent?.(rt.spark, { type: "done", text: ev.text });
@@ -460,7 +565,7 @@ export class SparkManager {
             this.hooks.onEvent({ type: "message", session: rt.spark.id, payload: note });
           }
           if (patch?.ui !== undefined || patch?.flowStep || patch?.note) {
-            persistSpark(this.cfg.dataDir, rt.spark);
+            persistRuntime(rt);
             this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
           }
         }
@@ -481,11 +586,12 @@ export class SparkManager {
     const result = rt.spark.result ?? plugin?.result?.(rt.spark) ?? emptyResult(summary);
     result.summary = summary || result.summary;
     rt.spark.status = "merged";
+    this.harnessFor(rt).release?.(rt.spark.id);
     rt.spark.mergedAt = nowIso();
     rt.spark.summary = result.summary;
     rt.spark.result = result;
     rt.spark.flowStep = "result";
-    persistSpark(this.cfg.dataDir, rt.spark);
+    persistRuntime(rt);
     this.hooks.onEvent({ type: "spark", session: rt.spark.id, payload: rt.spark });
     this.hooks.onMerge(rt.spark, formatSparkResult(rt.spark, result), result);
   }
@@ -496,10 +602,49 @@ function shortWt(path: string): string {
   return `wt/${parts[parts.length - 1]}`;
 }
 
-function persistSpark(dataDir: string, spark: Spark): void {
-  const dir = join(dataDir, "sparks", spark.id);
+function persistRuntime(rt: SparkRuntime): void {
+  const dir = rt.memory.dir;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "meta.json"), JSON.stringify(spark, null, 2), "utf8");
+  writeFileSync(join(dir, "meta.json"), JSON.stringify(rt.spark, null, 2), "utf8");
+  const file = join(dir, "worktree.json");
+  if (rt.worktree && rt.spark.worktree !== "arquivo" && rt.spark.worktree !== "sem wt") {
+    const stored: WorktreeHandle = {
+      path: rt.worktree.path,
+      branch: rt.worktree.branch,
+      repo: rt.worktree.repo,
+      baseDir: rt.worktree.baseDir,
+    };
+    writeFileSync(file, JSON.stringify(stored, null, 2), "utf8");
+    return;
+  }
+  if (existsSync(file)) rmSync(file);
+}
+
+function restoreWorktree(home: string, meta: Spark): WorktreeHandle | undefined {
+  if (!meta.worktree || meta.worktree === "arquivo" || meta.worktree === "sem wt") return undefined;
+  const stored = readWorktreeFile(home);
+  if (stored && isWorktreeDir(stored.path)) return stored;
+  if (!meta.repo || !meta.branch) return undefined;
+  const baseDir = join(resolve(meta.repo), ".ncli", "wt");
+  const path = join(baseDir, meta.id);
+  if (!isWorktreeDir(path)) return undefined;
+  return { path, branch: meta.branch, repo: resolve(meta.repo), baseDir };
+}
+
+function readWorktreeFile(home: string): WorktreeHandle | undefined {
+  const file = join(home, "worktree.json");
+  if (!existsSync(file)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<WorktreeHandle>;
+    if (!raw.path || !raw.branch || !raw.repo || !raw.baseDir) return undefined;
+    return { path: raw.path, branch: raw.branch, repo: raw.repo, baseDir: raw.baseDir };
+  } catch {
+    return undefined;
+  }
+}
+
+function isWorktreeDir(path: string): boolean {
+  return existsSync(path) && statSync(path).isDirectory();
 }
 
 export function loadSparkMeta(dataDir: string, id: string): Spark | null {

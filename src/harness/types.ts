@@ -38,4 +38,5 @@ export interface Harness {
   steer?(text: string): boolean;
   warm?(opts: RunOpts): Promise<void>;
   close?(): void;
+  release?(session: string): void;
 }
